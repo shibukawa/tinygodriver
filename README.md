@@ -1,24 +1,26 @@
 # tinygodriver
 
-Host-side network drivers for [TinyGo](https://tinygo.org/).
+Networking additions that make TinyGo's standard-library HTTP stack more
+useful on desktop hosts.
 
-TinyGo’s `net` / `net/http` packages do not talk to the OS directly. They call a **Netdever** registered with `UseNetdev`. On microcontrollers that is usually Wi-Fi firmware. On a desktop host there is no default driver, which produces:
-
-```text
-Netdev not set
-```
-
-This repository provides desktop Netdever implementations so the same TinyGo networking code can run on Linux, macOS, and Windows.
+The repository provides a host network driver plus TinyGo-compatible versions
+of newer HTTP APIs that are not yet fully available in TinyGo. The packages
+also build with standard Go, which makes it possible to share application code
+and tests between both compilers.
 
 ## Packages
 
 | Package | Import | Description |
 |---------|--------|-------------|
 | [`netdev`](./netdev) | `github.com/shibukawa/tinygodriver/netdev` | Host TCP/IP Netdever (BSD sockets + optional OpenSSL TLS) |
+| [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
+| [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
 
 ## Quick start
 
-Blank-import the driver before any `net` / `net/http` use. Under TinyGo, `init` registers the host driver automatically:
+Blank-import `netdev` before using `net` or `net/http` on a desktop TinyGo
+build. Use `httpmux` when the application needs method-aware patterns or path
+wildcards:
 
 ```go
 package main
@@ -28,13 +30,14 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/shibukawa/tinygodriver/httpmux"
 	_ "github.com/shibukawa/tinygodriver/netdev"
 )
 
 func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "hello method=%s path=%q\n", r.Method, r.URL.Path)
+	mux := httpmux.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "user=%s\n", r.PathValue("id"))
 	})
 	addr := os.Getenv("ADDR")
 	if addr == "" {
@@ -45,21 +48,27 @@ func main() {
 }
 ```
 
-### Build with TinyGo
+### Run the example
+
+The included server exercises `netdev`, `httpmux`, and `httprevproxy` together.
+Its `/proxy/{path...}` route forwards requests to `UPSTREAM_URL` (default
+`http://127.0.0.1:8081`).
 
 ```bash
 tinygo build -o server ./examples/httpserver
 ./server
-# curl http://127.0.0.1:8080/
+# curl http://127.0.0.1:8080/healthz
+# curl http://127.0.0.1:8080/proxy/users/42
 ```
 
-Standard `go build` / `go run` also work: the driver is a no-op registrar because stock Go’s `net` package does not use netdev.
+Standard `go run` also works. In a standard Go build, `netdev` registration is
+a no-op and `httpmux.ServeMux` is an alias of `net/http.ServeMux`.
 
 ```bash
 go run ./examples/httpserver
 ```
 
-### Explicit registration
+### Explicit netdev registration
 
 ```go
 import "github.com/shibukawa/tinygodriver/netdev"
@@ -74,11 +83,15 @@ func main() {
 
 | Example | Path | Description |
 |---------|------|-------------|
-| HTTP server | [`examples/httpserver`](./examples/httpserver) | Minimal `net/http` server using the host netdev |
+| HTTP server and reverse proxy | [`examples/httpserver`](./examples/httpserver) | Method-aware routes, host netdev, and a configurable reverse proxy |
 
 ## Platform notes
 
-See [`netdev/README.md`](./netdev/README.md) for TLS (OpenSSL), DNS, and platform limitations.
+See the package READMEs for detailed API behavior and limitations:
+
+- [`netdev`](./netdev/README.md): TLS (OpenSSL), DNS, and platform notes
+- [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
+- [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 
 - **IPv4 only** (matches TinyGo’s net port).
 - **TLS (`IPPROTO_TLS`)**: OpenSSL 3 on macOS (and standard Go on Linux). TinyGo on Linux and Windows currently return `ErrProtocolNotSupported` for TLS.
@@ -86,8 +99,12 @@ See [`netdev/README.md`](./netdev/README.md) for TLS (OpenSSL), DNS, and platfor
 
 ## Install
 
+Install only the packages an application uses, for example:
+
 ```bash
 go get github.com/shibukawa/tinygodriver/netdev@latest
+go get github.com/shibukawa/tinygodriver/httpmux@latest
+go get github.com/shibukawa/tinygodriver/httprevproxy@latest
 ```
 
 Requires [TinyGo](https://tinygo.org/getting-started/install/) for TinyGo builds. Compatible with the Netdever interface in [tinygo-org/drivers/netdev](https://github.com/tinygo-org/drivers/tree/dev/netdev).

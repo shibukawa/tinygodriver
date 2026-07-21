@@ -4,8 +4,9 @@
 *.dll
 *.so
 *.dylib
-/examples/**/httpserver
-/examples/**/httpclient
+/examples/httpserver/httpserver
+/examples/httpclient/httpclient
+/server
 *.test
 *.out
 
