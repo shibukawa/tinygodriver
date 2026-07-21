@@ -1,0 +1,21 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/examples/**/httpserver
+/examples/**/httpclient
+*.test
+*.out
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Coverage
+coverage.out
+coverage.html
