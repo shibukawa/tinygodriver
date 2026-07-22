@@ -3,6 +3,7 @@ module github.com/shibukawa/tinygodriver
 go 1.26
 
 require (
+	github.com/klauspost/compress v1.19.1
 	github.com/mattn/go-sqlite3 v1.14.48
 	modernc.org/sqlite v1.54.0
 )
