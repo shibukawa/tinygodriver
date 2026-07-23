@@ -2,7 +2,7 @@
 
 package sqlite
 
-import _ "github.com/shibukawa/tinygodriver/database/cgosqlite"
+import _ "github.com/shibukawa/tinygodriver/database/sql/sqlite/tinygosqlite"
 
 // Backend identifies the implementation selected by build constraints.
-const Backend = "cgosqlite"
+const Backend = "tinygosqlite"

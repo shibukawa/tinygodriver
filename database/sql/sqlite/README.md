@@ -5,12 +5,12 @@ its implementation at build time:
 
 | Build | Backend |
 | --- | --- |
-| TinyGo or `-tags force_tinygo_logic` | Petitweb `cgosqlite` |
+| TinyGo or `-tags force_tinygo_logic` | Petitweb `tinygosqlite` |
 | Standard Go with cgo | `github.com/mattn/go-sqlite3` |
 | Standard Go without cgo | `modernc.org/sqlite` |
 
 ```go
-import "github.com/shibukawa/tinygodriver/database/sqlite"
+import "github.com/shibukawa/tinygodriver/database/sql/sqlite"
 
 db, err := sqlite.Open("app.db")
 ```

@@ -1,6 +1,6 @@
 //go:build cgo
 
-package cgosqlite
+package tinygosqlite
 
 import (
 	"context"

@@ -1,8 +1,8 @@
 //go:build cgo
 
-// Package cgosqlite provides a small database/sql driver backed by the
+// Package tinygosqlite provides a small database/sql driver backed by the
 // statically linked, official SQLite amalgamation.
-package cgosqlite
+package tinygosqlite
 
 /*
 #include <stdlib.h>

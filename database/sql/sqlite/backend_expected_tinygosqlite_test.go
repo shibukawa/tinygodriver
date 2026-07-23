@@ -2,4 +2,4 @@
 
 package sqlite
 
-const expectedBackend = "cgosqlite"
+const expectedBackend = "tinygosqlite"
