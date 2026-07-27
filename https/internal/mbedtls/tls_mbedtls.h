@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && linux
+//go:build (tinygo || force_tinygo_logic) && (linux || (darwin && darwinstarttlswith13))
 
 #ifndef TINYGODRIVER_TLS_MBEDTLS_H
 #define TINYGODRIVER_TLS_MBEDTLS_H

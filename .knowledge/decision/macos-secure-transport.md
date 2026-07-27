@@ -6,7 +6,7 @@ title: macOS Defaults to Secure Transport
 The darwin default backend is Secure Transport; Network.framework moves behind the `darwintls13` build tag.
 
 ```yaml
-state: accepted
+state: superseded_by_decision:darwin-hybrid-tls
 accepted_on: 2026-07-28
 default: Secure Transport, via SSLSetIOFuncs
 opt_in: Network.framework under -tags darwintls13

@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && linux
+//go:build (tinygo || force_tinygo_logic) && (linux || (darwin && darwinstarttlswith13))
 
 /*
  *  This file used to be non-empty. It's kept only for compatibility

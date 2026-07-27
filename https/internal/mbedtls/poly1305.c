@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && linux
+//go:build (tinygo || force_tinygo_logic) && (linux || (darwin && darwinstarttlswith13))
 
 /**
  * \file poly1305.c

@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && linux
+//go:build (tinygo || force_tinygo_logic) && (linux || (darwin && darwinstarttlswith13))
 
 /*
  *  FIPS-202 compliant SHA3 implementation

@@ -1,17 +1,17 @@
-//go:build tinygo && darwin && darwintls13
+//go:build tinygo && darwin && !darwinstarttlswith13
 
 package https
 
-// TinyGo compiles cgo C files with -nostdlibinc against a bundled minimal
-// macOS SDK, ignores CGO_CFLAGS and CGO_LDFLAGS, and rejects -F in CFLAGS. The
-// SDK location therefore has to be literal here.
+// This build carries both darwin backends: Network.framework for dialTLS and
+// Secure Transport for upgradeTLS. Secure Transport needs neither Clang blocks
+// nor libdispatch, but Network.framework does, so -fblocks and -lsystem_blocks
+// are here for its sake. TinyGo's minimal libSystem stub omits the blocks
+// runtime, which is why it has to be linked explicitly.
 //
-// Both standard SDK locations are listed. The linker silently ignores a search
-// path that does not exist, so one entry covers Xcode installs and the other
-// covers Command Line Tools, with no configuration from the user.
-//
-// -lsystem_blocks supplies the Clang blocks runtime, which TinyGo's minimal
-// libSystem stub omits. The nw_* symbols come from Network.framework.
+// TinyGo ignores CGO_CFLAGS and CGO_LDFLAGS and rejects -F in CFLAGS, so the
+// SDK location must be literal here. Both standard locations are listed; the
+// linker silently ignores a search path that does not exist, so one entry
+// covers Xcode installs and the other covers Command Line Tools.
 
 /*
 #cgo CFLAGS: -fblocks

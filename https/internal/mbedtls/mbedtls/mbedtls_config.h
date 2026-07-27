@@ -2193,7 +2193,7 @@
  *
  * Uncomment this to enable pthread mutexes.
  */
-//#define MBEDTLS_THREADING_PTHREAD
+#define MBEDTLS_THREADING_PTHREAD
 
 /**
  * \def MBEDTLS_USE_PSA_CRYPTO
@@ -3784,7 +3784,7 @@
  *
  * Enable this layer to allow use of mutexes within Mbed TLS
  */
-//#define MBEDTLS_THREADING_C
+#define MBEDTLS_THREADING_C
 
 /**
  * \def MBEDTLS_TIMING_C

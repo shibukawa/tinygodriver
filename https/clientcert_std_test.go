@@ -1,4 +1,4 @@
-//go:build !tinygo && (!force_tinygo_logic || linux)
+//go:build !tinygo && (!force_tinygo_logic || linux || darwinstarttlswith13)
 
 package https_test
 

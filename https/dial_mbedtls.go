@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && linux
+//go:build (tinygo || force_tinygo_logic) && (linux || (darwin && darwinstarttlswith13))
 
 package https
 
@@ -46,11 +46,6 @@ func dialTLS(ctx context.Context, host, port string, cfg *Config, timeout time.D
 		return nil, &Error{Op: "dial", Host: host, Backend: backendName, Err: errTimeout}
 	}
 
-	portNum, err := strconv.Atoi(port)
-	if err != nil {
-		return nil, &Error{Op: "dial", Host: host, Backend: backendName, Err: err}
-	}
-
 	opt := mbedtls.Options{
 		Host:       host,
 		SkipVerify: cfg.skipVerify(),
@@ -73,19 +68,8 @@ func dialTLS(ctx context.Context, host, port string, cfg *Config, timeout time.D
 		opt.ClientKeyPEM = certs[0].KeyPEM
 	}
 
-	dev := socketDialer()
-	fd, err := dev.Socket(netdev.AF_INET, netdev.SOCK_STREAM, netdev.IPPROTO_TCP)
+	fd, dev, err := dialSocket(host, port)
 	if err != nil {
-		return nil, &Error{Op: "dial", Host: host, Backend: backendName, Err: err}
-	}
-
-	// An invalid address makes netdev resolve host itself.
-	addr := netip.AddrPortFrom(netip.Addr{}, uint16(portNum))
-	if ip, err := netip.ParseAddr(host); err == nil {
-		addr = netip.AddrPortFrom(ip, uint16(portNum))
-	}
-	if err := dev.Connect(fd, host, addr); err != nil {
-		dev.Close(fd)
 		return nil, &Error{Op: "dial", Host: host, Backend: backendName, Err: err}
 	}
 
@@ -96,6 +80,79 @@ func dialTLS(ctx context.Context, host, port string, cfg *Config, timeout time.D
 	}
 
 	return &mbedConn{sess: sess, fd: fd, dev: dev, host: host, port: port}, nil
+}
+
+// dialSocket connects a TCP socket and returns its descriptor. An invalid
+// address makes netdev resolve host itself.
+func dialSocket(host, port string) (int, *netdev.Device, error) {
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return -1, nil, err
+	}
+	dev := socketDialer()
+	fd, err := dev.Socket(netdev.AF_INET, netdev.SOCK_STREAM, netdev.IPPROTO_TCP)
+	if err != nil {
+		return -1, nil, err
+	}
+	addr := netip.AddrPortFrom(netip.Addr{}, uint16(portNum))
+	if ip, err := netip.ParseAddr(host); err == nil {
+		addr = netip.AddrPortFrom(ip, uint16(portNum))
+	}
+	if err := dev.Connect(fd, host, addr); err != nil {
+		dev.Close(fd)
+		return -1, nil, err
+	}
+	return fd, dev, nil
+}
+
+// upgradeTLS wraps an already connected socket in TLS, which is what in-band
+// upgrade protocols such as PostgreSQL and MySQL STARTTLS need. The descriptor
+// may already have carried plaintext.
+//
+// mbedTLS reaches the socket through BIO callbacks, so unlike
+// Network.framework it does not care what the stream carried before. This path
+// therefore keeps TLS 1.3, which is the whole point of the
+// darwinstarttlswith13 build on macOS.
+//
+// On success the returned net.Conn owns fd. On failure fd is untouched so the
+// caller can still fall back to plaintext.
+func upgradeTLS(fd int, host string, cfg *Config, timeout time.Duration) (net.Conn, error) {
+	if timeout <= 0 {
+		return nil, &Error{Op: "upgrade", Host: host, Backend: backendName, Err: errTimeout}
+	}
+
+	opt := mbedtls.Options{
+		Host:       host,
+		SkipVerify: cfg.skipVerify(),
+		MinVersion: uint16(cfg.minVersion()),
+	}
+	if cfg != nil && cfg.ServerName != "" {
+		opt.Host = cfg.ServerName
+	}
+	if !opt.SkipVerify {
+		anchors, err := anchorsFor(cfg)
+		if err != nil {
+			return nil, &Error{Op: "upgrade", Host: host, Backend: backendName, Err: err}
+		}
+		opt.RootCAsPEM = anchors
+	}
+	if certs := cfg.certificates(); len(certs) > 0 {
+		opt.ClientCertPEM = certs[0].CertPEM
+		opt.ClientKeyPEM = certs[0].KeyPEM
+	}
+
+	sess, mErr := mbedtls.Handshake(fd, opt, timeout.Nanoseconds())
+	if mErr != nil {
+		return nil, upgradeError(host, mErr)
+	}
+	return &mbedConn{sess: sess, fd: fd, dev: socketDialer(), host: host}, nil
+}
+
+// upgradeError mirrors dialError but reports the upgrade operation.
+func upgradeError(host string, e *mbedtls.Error) error {
+	err := dialError(host, e).(*Error)
+	err.Op = "upgrade"
+	return err
 }
 
 func (c *Config) skipVerify() bool {

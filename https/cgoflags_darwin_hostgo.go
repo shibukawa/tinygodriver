@@ -1,4 +1,4 @@
-//go:build force_tinygo_logic && !tinygo && darwin && !darwintls13
+//go:build force_tinygo_logic && !tinygo && darwin && !darwinstarttlswith13
 
 package https
 
@@ -7,6 +7,7 @@ package https
 // `go test -tags force_tinygo_logic` takes on macOS.
 
 /*
-#cgo LDFLAGS: -framework Security -framework CoreFoundation
+#cgo CFLAGS: -fblocks
+#cgo LDFLAGS: -framework Network -framework Security -framework CoreFoundation
 */
 import "C"

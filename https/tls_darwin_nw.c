@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && darwin && darwintls13
+//go:build (tinygo || force_tinygo_logic) && darwin && !darwinstarttlswith13
 
 #include "tls_darwin_nw.h"
 

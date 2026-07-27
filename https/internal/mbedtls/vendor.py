@@ -27,7 +27,10 @@ EXPECTED_SHA256 = "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d1
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-BUILD_TAG = "//go:build (tinygo || force_tinygo_logic) && linux\n\n"
+# Linux always; darwin only when the build asks for mbedTLS instead of the
+# Network.framework + Secure Transport hybrid.
+BUILD_TAG = ("//go:build (tinygo || force_tinygo_logic) && "
+             "(linux || (darwin && darwinstarttlswith13))\n\n")
 
 # Sources that cannot or should not be built here.
 DROP_SOURCES = {
@@ -54,9 +57,14 @@ CONFIG_DISABLE = [
 # MBEDTLS_HAVE_TIME_DATE must stay on. Without it mbedTLS skips notBefore and
 # notAfter entirely and happily accepts an expired certificate; the package
 # test suite covers exactly this.
+# MBEDTLS_THREADING_C must stay on. mbedTLS 3.6 drives PSA crypto internally
+# and that shared state is only thread-safe with it; without it, concurrent
+# handshakes corrupt each other. The package test suite covers this.
 CONFIG_ENABLE = [
     "MBEDTLS_HAVE_TIME_DATE",
     "MBEDTLS_SELF_TEST",
+    "MBEDTLS_THREADING_C",
+    "MBEDTLS_THREADING_PTHREAD",
     "MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT",
     "MBEDTLS_SHA512_USE_A64_CRYPTO_IF_PRESENT",
 ]
@@ -82,13 +90,17 @@ def check_tarball(path):
 
 
 def clean():
-    """Remove a previous vendoring, leaving hand-written files alone."""
-    keep = {"vendor.py", "PATCHES.md", "tinygo_arm_neon.h", "tls_mbedtls.c",
-            "tls_mbedtls.h", "mbedtls.go", "doc.go", "unsupported.go", "errors.go",
-            "cgoflags_linux_tinygo.go", "cgoflags_linux_hostgo.go",
-            "mbedtls_test.go"}
+    """Remove a previous vendoring, leaving hand-written files alone.
+
+    Everything upstream ships is either a .c or .h at the top level, or lives
+    under mbedtls/ or psa/. Hand-written files are recognised by name, and all
+    Go files and Markdown are kept unconditionally: an explicit keep-list of
+    filenames silently deletes anything added later, which has already happened
+    once.
+    """
+    handwritten = {"tinygo_arm_neon.h", "tls_mbedtls.c", "tls_mbedtls.h"}
     for name in os.listdir(HERE):
-        if name in keep:
+        if name.endswith((".go", ".md", ".py")) or name in handwritten:
             continue
         path = os.path.join(HERE, name)
         if os.path.isdir(path):
@@ -140,6 +152,7 @@ def main():
 
         patch_config(os.path.join(HERE, "mbedtls", "mbedtls_config.h"))
         patch_common(os.path.join(HERE, "common.h"))
+        patch_x509(os.path.join(HERE, "x509_crt.c"))
 
     print("vendored mbedTLS %s: %d sources" % (MBEDTLS_VERSION, n_src))
 
@@ -185,6 +198,29 @@ def patch_common(path):
     with open(path, "w") as f:
         f.write(text)
     print("patched common.h")
+
+
+def patch_x509(path):
+    """Let -DMBEDTLS_TINYGO_NO_INET_HEADERS skip the platform inet_pton.
+
+    x509_crt.c reaches for <arpa/inet.h> when __has_include says it exists.
+    TinyGo's minimal darwin SDK has that header but not the <netinet/in.h> it
+    pulls in, and TinyGo's musl has the headers but does not export inet_pton.
+    Skipping the include leaves AF_INET6 undefined, which is mbedTLS's own
+    signal to use its bundled software implementation instead.
+    """
+    with open(path) as f:
+        text = f.read()
+    old = ("#elif defined(__has_include)\n"
+           "#if __has_include(<sys/socket.h>)\n")
+    new = ("#elif defined(__has_include) && !defined(MBEDTLS_TINYGO_NO_INET_HEADERS)\n"
+           "#if __has_include(<sys/socket.h>)\n")
+    if old not in text:
+        fail("x509_crt.c inet header guard not found; upstream changed")
+    text = text.replace(old, new, 1)
+    with open(path, "w") as f:
+        f.write(text)
+    print("patched x509_crt.c")
 
 
 if __name__ == "__main__":

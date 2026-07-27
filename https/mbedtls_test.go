@@ -1,4 +1,4 @@
-//go:build force_tinygo_logic && !tinygo && linux
+//go:build force_tinygo_logic && !tinygo && (linux || (darwin && darwinstarttlswith13))
 
 package https_test
 
@@ -27,6 +27,10 @@ func TestMbedTLSHWCaps(t *testing.T) {
 		t.Skip("mbedTLS backend not built")
 	}
 	caps := mbedtls.HWCaps()
+	if caps < 0 {
+		t.Log("CPU crypto: not reported on this platform")
+		return
+	}
 	t.Logf("CPU crypto: AES=%v SHA256=%v SHA512=%v (raw %d)",
 		caps&1 != 0, caps&2 != 0, caps&4 != 0, caps)
 }

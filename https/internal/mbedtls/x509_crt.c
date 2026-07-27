@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && linux
+//go:build (tinygo || force_tinygo_logic) && (linux || (darwin && darwinstarttlswith13))
 
 /*
  *  X.509 certificate parsing and verification
@@ -2706,7 +2706,7 @@ find_parent:
 #endif
 #elif defined(__sun)
 /* Solaris requires -lsocket -lnsl for inet_pton() */
-#elif defined(__has_include)
+#elif defined(__has_include) && !defined(MBEDTLS_TINYGO_NO_INET_HEADERS)
 #if __has_include(<sys/socket.h>)
 #include <sys/socket.h>
 #endif
