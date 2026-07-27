@@ -20,3 +20,6 @@
 # Coverage
 coverage.out
 coverage.html
+
+# Generated knowledge cache
+.knowledge/.cache/
