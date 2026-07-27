@@ -70,6 +70,29 @@ func (z *Writer) Write(p []byte) (int, error) {
 	return written, nil
 }
 
+// Flush emits the buffered input as complete blocks so that everything written
+// so far can be decoded, and returns once those bytes reach the destination.
+// It does not end the frame and it does not flush the destination itself.
+// Flushing before a block fills reduces the compression ratio; Flush is a
+// no-op when no input is buffered.
+func (z *Writer) Flush() error {
+	if z.closed {
+		return ErrClosed
+	}
+	if z.err != nil {
+		return z.err
+	}
+	if len(z.buf) == 0 {
+		return nil
+	}
+	if err := z.writeBlocks(z.buf, false); err != nil {
+		z.err = err
+		return err
+	}
+	z.buf = z.buf[:0]
+	return nil
+}
+
 // Close finishes the frame. It does not close the destination.
 func (z *Writer) Close() error {
 	if z.closed {

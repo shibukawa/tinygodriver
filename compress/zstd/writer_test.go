@@ -108,6 +108,54 @@ func TestWriterStreamsBoundedBlocks(t *testing.T) {
 	assertReferenceDecode(t, dst.Bytes(), src)
 }
 
+func TestWriterFlushEmitsDecodableBlocks(t *testing.T) {
+	var dst bytes.Buffer
+	z, err := NewWriter(&dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if dst.Len() != 6 {
+		t.Fatalf("length after empty Flush = %d, want the 6 byte frame header", dst.Len())
+	}
+	if _, err := z.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	// Frame header (6) and a raw block that is not marked as the last one.
+	want := []byte{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x38, 0x28, 0x00, 0x00, 'h', 'e', 'l', 'l', 'o'}
+	if !bytes.Equal(dst.Bytes(), want) {
+		t.Fatalf("flushed = %x, want %x", dst.Bytes(), want)
+	}
+	if err := z.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if dst.Len() != len(want) {
+		t.Fatalf("length after repeated Flush = %d, want %d", dst.Len(), len(want))
+	}
+	if _, err := z.Write([]byte("world")); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Flush(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Flush after Close error = %v", err)
+	}
+	result, err := z.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Size != int64(dst.Len()) || result.SHA256 != sha256.Sum256(dst.Bytes()) {
+		t.Fatalf("result does not describe flushed output")
+	}
+	assertReferenceDecode(t, dst.Bytes(), []byte("helloworld"))
+}
+
 func TestEncodeAllEmpty(t *testing.T) {
 	encoded, _, err := EncodeAll(nil)
 	if err != nil {

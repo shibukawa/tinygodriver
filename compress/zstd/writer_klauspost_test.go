@@ -37,6 +37,55 @@ func TestKlauspostEncodeAllAndResult(t *testing.T) {
 	}
 }
 
+func TestKlauspostWriterFlushEmitsDecodableBlocks(t *testing.T) {
+	var dst bytes.Buffer
+	z, err := NewWriter(&dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := z.Write([]byte("first half ")); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	flushed := dst.Len()
+	if flushed == 0 {
+		t.Fatal("Flush wrote nothing to the destination")
+	}
+	decoder, err := kzstd.NewReader(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer decoder.Close()
+	if _, err := z.Write([]byte("second half")); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Flush(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Flush after Close error = %v", err)
+	}
+	if dst.Len() <= flushed {
+		t.Fatalf("length after Close = %d, want more than the flushed %d", dst.Len(), flushed)
+	}
+	result, err := z.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Size != int64(dst.Len()) || result.SHA256 != sha256.Sum256(dst.Bytes()) {
+		t.Fatalf("result does not describe flushed output")
+	}
+	decoded, err := decoder.DecodeAll(dst.Bytes(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(decoded, []byte("first half second half")) {
+		t.Fatalf("decoded = %q", decoded)
+	}
+}
+
 func TestKlauspostWriterLifecycle(t *testing.T) {
 	var dst bytes.Buffer
 	z, err := NewWriter(&dst)

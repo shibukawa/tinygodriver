@@ -25,6 +25,24 @@ encoded, result, err := zstd.EncodeAll(body, zstd.WithETag(false))
 `NewWriter` provides the bounded streaming form. Call `Close`, then `Result`;
 closing the encoder does not close its destination.
 
+`Flush` emits the buffered input as complete blocks so a reader can decode
+everything written so far, which is what streaming responses and server-sent
+events need between chunks. It neither ends the frame nor flushes the
+destination, so flush the destination separately:
+
+```go
+if _, err := z.Write(chunk); err != nil {
+	return err
+}
+if err := z.Flush(); err != nil {
+	return err
+}
+w.(http.Flusher).Flush()
+```
+
+Flushing before a block fills reduces the compression ratio, so flush per
+chunk rather than per `Write`.
+
 ## Implementation selection
 
 - normal host Go builds use `github.com/klauspost/compress/zstd`
@@ -44,6 +62,7 @@ backend has the following supported subset:
 - raw and RLE blocks of at most 128 KiB, including profitable interior runs
 - a low-memory compressed level using one LZ match and RLE sequence tables
 - streaming output with at most one input block retained
+- `Flush` at block boundaries without ending the frame
 - SHA-256 and encoded size calculated over bytes successfully written
 - strong, quoted ETag formatting for the encoded representation
 
