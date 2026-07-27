@@ -13,6 +13,7 @@ and tests between both compilers.
 | Package | Import | Description |
 |---------|--------|-------------|
 | [`netdev`](./netdev) | `github.com/shibukawa/tinygodriver/netdev` | Host TCP/IP Netdever (BSD sockets + optional OpenSSL TLS) |
+| [`https`](./https) | `github.com/shibukawa/tinygodriver/https` | `net/http`-compatible HTTPS client using the OS TLS stack |
 | [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
 
@@ -84,18 +85,23 @@ func main() {
 | Example | Path | Description |
 |---------|------|-------------|
 | HTTP server and reverse proxy | [`examples/httpserver`](./examples/httpserver) | Method-aware routes, host netdev, and a configurable reverse proxy |
+| HTTPS client | [`examples/httpsclient`](./examples/httpsclient) | `https.Get` over the OS TLS stack, with an optional custom CA |
+| HTTPS platform demo | [`examples/httpsdemo`](./examples/httpsdemo) | One source, every platform: verifies trust, refusal behavior, and deadlines |
 
 ## Platform notes
 
 See the package READMEs for detailed API behavior and limitations:
 
 - [`netdev`](./netdev/README.md): TLS (OpenSSL), DNS, and platform notes
+- [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 
 - **IPv4 only** (matches TinyGo’s net port).
-- **TLS (`IPPROTO_TLS`)**: OpenSSL 3 on macOS (and standard Go on Linux). TinyGo on Linux and Windows currently return `ErrProtocolNotSupported` for TLS.
-- OpenSSL 3 is required for TLS builds (`openssl@3` via Homebrew on macOS, `libssl-dev` on Debian/Ubuntu).
+- **HTTPS client (`https`)**: Network.framework on macOS and vendored mbedTLS on
+  Linux, both with **no external TLS library to install**. Other TinyGo targets
+  return `ErrPlatformNotSupported`; standard Go builds delegate to `net/http`.
+- **`netdev` TLS (`IPPROTO_TLS`)**: OpenSSL 3 on macOS (and standard Go on Linux). TinyGo on Linux and Windows currently return `ErrProtocolNotSupported` for TLS. This path still requires OpenSSL 3 (`openssl@3` via Homebrew on macOS, `libssl-dev` on Debian/Ubuntu); the `https` package does not.
 
 ## Install
 
