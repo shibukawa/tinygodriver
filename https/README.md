@@ -207,12 +207,6 @@ silently trusting nothing.
   verify block reports a single accept/reject decision, so a hostname mismatch
   and an untrusted chain can both surface as `ErrCertificateInvalid`. Without a
   custom CA the framework's own status codes are used and are more specific.
-- **macOS builds currently link Homebrew's OpenSSL, through `netdev`.** The
-  darwin backends take their socket from `netdev`, and `netdev`'s own
-  `IPPROTO_TLS` path uses OpenSSL on darwin, so importing it pulls
-  `/opt/homebrew/opt/openssl@3` into the binary. This defeats the "no package
-  manager" property the macOS backends were chosen for. Fixing it means making
-  `netdev`'s OpenSSL path opt-in, which is a change to that package.
 - **`http.Client.Timeout` is ignored under TinyGo.** TinyGo's `net/http` drops
   the `setRequestCancel` machinery that carries it to a custom `RoundTripper`,
   so the transport never learns about it. Use a request context deadline, or

@@ -2,16 +2,14 @@
 
 package https
 
-// This build carries both darwin backends: Network.framework for dialTLS and
-// Secure Transport for upgradeTLS. Secure Transport needs neither Clang blocks
-// nor libdispatch, but Network.framework does, so -fblocks and -lsystem_blocks
-// are here for its sake. TinyGo's minimal libSystem stub omits the blocks
-// runtime, which is why it has to be linked explicitly.
+// Only Network.framework is linked from this package now; Secure Transport
+// moved to internal/securetransport, which carries its own flags. blocks and
+// libdispatch are Network.framework's requirement, and TinyGo's minimal
+// libSystem stub omits the blocks runtime, which is why it is linked here.
 //
 // TinyGo ignores CGO_CFLAGS and CGO_LDFLAGS and rejects -F in CFLAGS, so the
-// SDK location must be literal here. Both standard locations are listed; the
-// linker silently ignores a search path that does not exist, so one entry
-// covers Xcode installs and the other covers Command Line Tools.
+// SDK location must be literal. Both standard locations are listed; the linker
+// silently ignores a search path that does not exist.
 
 /*
 #cgo CFLAGS: -fblocks

@@ -1,5 +1,8 @@
 //go:build darwin || (linux && !tinygo)
 
+// IPPROTO_TLS is backed by Secure Transport on darwin and by OpenSSL on
+// host-Go Linux, so this exercises both.
+
 package netdev
 
 import (

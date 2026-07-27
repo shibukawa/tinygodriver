@@ -40,12 +40,10 @@ version_asymmetry:
   reason: the asymmetry must be visible, not incidental
 regression_introduced:
   detail: >
-    the darwin backends now take their socket from system:tinygo-netdev, whose
-    darwin IPPROTO_TLS path uses OpenSSL, so both darwin builds link Homebrew
-    openssl@3. That defeats the no-package-manager property these backends were
-    chosen for.
-  fix: make netdev's OpenSSL path opt-in; it is a change to that package
-  status: open, documented in the package README
+    the darwin backends take their socket from system:tinygo-netdev, whose
+    darwin IPPROTO_TLS path used OpenSSL, so both darwin builds linked Homebrew
+    openssl@3.
+  status: fixed by decision:netdev-securetransport
 verified_2026_07_28:
   - 20 tests on the hybrid, 19 on darwinstarttlswith13, 16 on std go
   - tinygo end-to-end passes on both darwin builds and on linux

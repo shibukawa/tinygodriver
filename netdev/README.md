@@ -78,14 +78,21 @@ go run ./examples/httpserver
 - Socket errors are reported as the shared classes in `netdev.Err*`
   (`ErrConnRefused`, `ErrAddrNotAvailable`, …), so `errors.Is` works the same on
   Linux, macOS, and Windows.
-- `IPPROTO_TLS` uses OpenSSL 3 on macOS. Peer certificates and hostnames are
-  always verified against OpenSSL's default trust paths. Set `SSL_CERT_FILE`
-  when a private CA is required.
+- `IPPROTO_TLS` uses **Secure Transport** on macOS, so a binary needs no
+  Homebrew and no OpenSSL. Peer certificates and hostnames are verified against
+  the system keychain; set `SSL_CERT_FILE` to add a private CA, which is read
+  in Go and passed in as an extra anchor.
+
+  Secure Transport is the only OS-provided option that fits this seam: it hands
+  over an already connected descriptor, and an `nw_connection` owns DNS, TCP
+  and TLS as one unit and cannot adopt one. The cost is that Secure Transport
+  stops at **TLS 1.2**; the previous OpenSSL implementation negotiated 1.3.
 - Standard Go Linux builds can exercise the same OpenSSL adapter. TinyGo Linux
   cannot safely call the distribution's shared OpenSSL because it bypasses
   glibc process initialization, so TinyGo Linux and Windows currently return
   `ErrProtocolNotSupported` for `IPPROTO_TLS`.
-- OpenSSL 3 is a build and runtime dependency (`libssl-dev` on Debian/Ubuntu,
-  `openssl@3` with Homebrew on macOS).
+- OpenSSL 3 is a build and runtime dependency **on host-Go Linux only**
+  (`libssl-dev` on Debian/Ubuntu). macOS and TinyGo Linux need neither it nor a
+  package manager.
 - DNS uses `/etc/hosts` (or the Windows hosts file) plus a simple UDP A-record resolver.
 - Multiple goroutines may call socket methods concurrently; the driver serializes bookkeeping and relies on OS sockets for I/O.

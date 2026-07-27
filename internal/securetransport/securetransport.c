@@ -1,6 +1,6 @@
-//go:build (tinygo || force_tinygo_logic) && darwin && !darwinstarttlswith13
+//go:build darwin
 
-#include "tls_darwin_st.h"
+#include "securetransport.h"
 
 // Secure Transport, CoreFoundation and the few libc calls used here are all
 // declared by hand. TinyGo compiles cgo C with -nostdlibinc against a minimal
