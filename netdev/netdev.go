@@ -54,6 +54,20 @@ var (
 	ErrTimeout              = &timeoutError{}
 )
 
+// Socket error classes shared by the three backends. Each platform maps its
+// native code onto one of these, so application and test code can branch with
+// errors.Is regardless of the OS. Messages match the standard Go wording.
+var (
+	ErrAddrNotAvailable = errors.New("can't assign requested address")
+	ErrAddrInUse        = errors.New("address already in use")
+	ErrConnRefused      = errors.New("connection refused")
+	ErrConnReset        = errors.New("connection reset by peer")
+	ErrNotConnected     = errors.New("socket is not connected")
+	ErrConnTimedOut     = errors.New("connection timed out")
+	ErrWouldBlock       = errors.New("resource temporarily unavailable")
+	ErrSyscall          = errors.New("syscall error")
+)
+
 type timeoutError struct{}
 
 func (e *timeoutError) Error() string   { return "i/o timeout" }

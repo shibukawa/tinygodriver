@@ -74,8 +74,32 @@ func (d *Device) Bind(sockfd int, ip netip.AddrPort) error {
 	if err := sysBind(s.fd, ip); err != nil {
 		return err
 	}
+	// Port 0 asks the OS to pick; the choice is only readable through
+	// getsockname, so record the resolved address rather than the request.
+	s.mu.Lock()
 	s.laddr = ip
+	if actual, err := sysLocalAddr(s.fd); err == nil {
+		s.laddr = actual
+	}
+	s.mu.Unlock()
 	return nil
+}
+
+// LocalAddr returns the address the OS assigned to sockfd, including the port
+// chosen for a bind on port 0.
+//
+// This is an extension beyond the Netdever interface. TinyGo's net.Listener
+// keeps its own copy of the requested address and has no way to receive this
+// value, so net.Listener.Addr() still reports port 0; see
+// requirement:netdev-bound-port.
+func (d *Device) LocalAddr(sockfd int) (netip.AddrPort, error) {
+	s, err := d.get(sockfd)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.laddr, nil
 }
 
 func (d *Device) Connect(sockfd int, host string, ip netip.AddrPort) error {
@@ -91,6 +115,12 @@ func (d *Device) Connect(sockfd int, host string, ip netip.AddrPort) error {
 		}
 		addr = netip.AddrPortFrom(resolved, ip.Port())
 	}
+	// Port 0 means "let the OS choose" for bind, but it is not a destination.
+	// Reject it here so every OS behaves like standard Go instead of leaving
+	// the caller with a socket that was never connected.
+	if addr.Port() == 0 {
+		return ErrAddrNotAvailable
+	}
 	if err := sysConnect(s.fd, addr); err != nil {
 		return err
 	}
@@ -101,7 +131,12 @@ func (d *Device) Connect(sockfd int, host string, ip netip.AddrPort) error {
 		}
 		s.tls = tls
 	}
+	s.mu.Lock()
 	s.raddr = addr
+	if actual, err := sysLocalAddr(s.fd); err == nil {
+		s.laddr = actual
+	}
+	s.mu.Unlock()
 	return nil
 }
 
@@ -132,12 +167,18 @@ func (d *Device) Accept(sockfd int) (int, netip.AddrPort, error) {
 		return -1, netip.AddrPort{}, err
 	}
 
+	// The listener's laddr is the resolved one, so a server bound to port 0
+	// still reports where it is on every accepted connection.
+	s.mu.Lock()
+	laddr := s.laddr
+	s.mu.Unlock()
+
 	d.mu.Lock()
 	d.sockets[nfd] = &socket{
 		fd:       nfd,
 		protocol: IPPROTO_TCP,
 		isStream: true,
-		laddr:    s.laddr,
+		laddr:    laddr,
 		raddr:    raddr,
 	}
 	d.mu.Unlock()

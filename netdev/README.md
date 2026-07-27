@@ -58,6 +58,26 @@ go run ./examples/httpserver
 ## Notes
 
 - IPv4 only (matches TinyGo’s net port).
+- Unix domain sockets (`unix`, `unixgram`, `unixpacket`) are not supported and
+  will not be. TinyGo’s `net` rejects those networks before a driver is
+  consulted, and the Netdever interface addresses sockets as `netip.AddrPort`,
+  which cannot carry a filesystem path. Use `tcp4` on `127.0.0.1` for local IPC.
+- Listening on port 0 works, but `net.Listener.Addr()` still reports port 0.
+  The Netdever `Bind` signature returns only an error, so the port the OS picked
+  cannot be handed back to TinyGo’s `net`. Read it from the driver instead:
+
+  ```go
+  d := netdev.New()
+  netdev.Use(d)
+  fd, _ := d.Socket(netdev.AF_INET, netdev.SOCK_STREAM, netdev.IPPROTO_TCP)
+  d.Bind(fd, netip.MustParseAddrPort("127.0.0.1:0"))
+  laddr, _ := d.LocalAddr(fd) // 127.0.0.1:54321
+  ```
+
+  A full fix needs an upstream change in TinyGo’s `listenTCP`.
+- Socket errors are reported as the shared classes in `netdev.Err*`
+  (`ErrConnRefused`, `ErrAddrNotAvailable`, …), so `errors.Is` works the same on
+  Linux, macOS, and Windows.
 - `IPPROTO_TLS` uses OpenSSL 3 on macOS. Peer certificates and hostnames are
   always verified against OpenSSL's default trust paths. Set `SSL_CERT_FILE`
   when a private CA is required.

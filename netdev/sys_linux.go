@@ -82,7 +82,6 @@ static int h_select(int nfds, void *rfds, void *wfds, void *efds, void *timeout)
 */
 import "C"
 import (
-	"errors"
 	"net/netip"
 	"time"
 	"unsafe"
@@ -100,6 +99,7 @@ const (
 	osSO_LINGER     = 13
 	osSOL_TCP       = 6
 	osTCP_KEEPINTVL = 5
+	osEINTR         = 4
 )
 
 // Linux sockaddr_in: sin_family is 16-bit, no length field.
@@ -138,28 +138,35 @@ func fromSockaddr(sa sockaddrInet4) netip.AddrPort {
 	return netip.AddrPortFrom(netip.AddrFrom4(sa.Addr), ntohs(sa.Port))
 }
 
+// lastErrno reports the failure of the most recent helper call. syscall_result
+// stores the code, so a failure never has to be reconstructed from libc state.
 func lastErrno() error {
 	e := int(C.h_errno())
 	if e == 0 {
-		return errors.New("syscall error")
+		// The call failed but left no code. Never report success.
+		return ErrSyscall
 	}
-	return errors.New(errnoName(e))
+	return errnoError(e)
 }
 
-func errnoName(e int) string {
+func errnoError(e int) error {
 	switch e {
 	case 11: // EAGAIN
-		return "resource temporarily unavailable"
+		return ErrWouldBlock
 	case 110: // ETIMEDOUT
-		return "connection timed out"
+		return ErrConnTimedOut
 	case 111: // ECONNREFUSED
-		return "connection refused"
+		return ErrConnRefused
 	case 104: // ECONNRESET
-		return "connection reset by peer"
+		return ErrConnReset
+	case 107: // ENOTCONN
+		return ErrNotConnected
 	case 98: // EADDRINUSE
-		return "address already in use"
+		return ErrAddrInUse
+	case 99: // EADDRNOTAVAIL
+		return ErrAddrNotAvailable
 	default:
-		return "syscall error"
+		return ErrSyscall
 	}
 }
 
@@ -209,13 +216,19 @@ func sysListen(fd, backlog int) error {
 }
 
 func sysAccept(fd int) (int, netip.AddrPort, error) {
-	var sa sockaddrInet4
-	n := C.uint(16)
-	nfd := int(C.h_accept(C.int(fd), unsafe.Pointer(&sa), &n))
-	if nfd < 0 {
+	for {
+		var sa sockaddrInet4
+		n := C.uint(16)
+		nfd := int(C.h_accept(C.int(fd), unsafe.Pointer(&sa), &n))
+		if nfd >= 0 {
+			return nfd, fromSockaddr(sa), nil
+		}
+		// accept blocks for the life of a server, so a signal must not end the loop.
+		if int(C.h_errno()) == osEINTR {
+			continue
+		}
 		return -1, netip.AddrPort{}, lastErrno()
 	}
-	return nfd, fromSockaddr(sa), nil
 }
 
 func sysConnect(fd int, ip netip.AddrPort) error {
@@ -366,11 +379,22 @@ func waitFD(fd int, read bool, deadline time.Time) error {
 		if n == 0 {
 			return ErrTimeout
 		}
-		if int(C.h_errno()) == 4 { // EINTR
+		if int(C.h_errno()) == osEINTR {
 			continue
 		}
 		return lastErrno()
 	}
+}
+
+// sysLocalAddr reads the address the kernel actually assigned to fd. Bind with
+// port 0 only becomes concrete here.
+func sysLocalAddr(fd int) (netip.AddrPort, error) {
+	var sa sockaddrInet4
+	n := C.uint(16)
+	if C.h_getsockname(C.int(fd), unsafe.Pointer(&sa), &n) != 0 {
+		return netip.AddrPort{}, lastErrno()
+	}
+	return fromSockaddr(sa), nil
 }
 
 func localIPv4() (netip.Addr, error) {

@@ -121,8 +121,32 @@ func fromSockaddr(sa sockaddrInet4) netip.AddrPort {
 	return netip.AddrPortFrom(netip.AddrFrom4(sa.Addr), ntohs(sa.Port))
 }
 
+// lastErrno classifies the failure winsock recorded for the calling thread.
+// The caller must have detected the failure from the return value first;
+// WSAGetLastError is only consulted to name it.
 func lastErrno() error {
-	return errors.New("winsock error")
+	return errnoError(int(C.WSAGetLastError()))
+}
+
+func errnoError(e int) error {
+	switch e {
+	case 10035: // WSAEWOULDBLOCK
+		return ErrWouldBlock
+	case 10060: // WSAETIMEDOUT
+		return ErrConnTimedOut
+	case 10061: // WSAECONNREFUSED
+		return ErrConnRefused
+	case 10054: // WSAECONNRESET
+		return ErrConnReset
+	case 10057: // WSAENOTCONN
+		return ErrNotConnected
+	case 10048: // WSAEADDRINUSE
+		return ErrAddrInUse
+	case 10049: // WSAEADDRNOTAVAIL
+		return ErrAddrNotAvailable
+	default:
+		return ErrSyscall
+	}
 }
 
 func sysSocket(domain, stype, proto int) (int, error) {
@@ -314,6 +338,17 @@ func waitFD(fd int, read bool, deadline time.Time) error {
 		}
 		return lastErrno()
 	}
+}
+
+// sysLocalAddr reads the address winsock actually assigned to fd. Bind with
+// port 0 only becomes concrete here.
+func sysLocalAddr(fd int) (netip.AddrPort, error) {
+	var sa sockaddrInet4
+	n := C.int(16)
+	if C.getsockname(C.SOCKET(fd), unsafe.Pointer(&sa), &n) == C.SOCKET_ERROR {
+		return netip.AddrPort{}, lastErrno()
+	}
+	return fromSockaddr(sa), nil
 }
 
 func localIPv4() (netip.Addr, error) {

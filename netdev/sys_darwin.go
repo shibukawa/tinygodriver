@@ -10,12 +10,28 @@ package netdev
 // stubs, so we invoke them via SVC. read/write/close/fcntl/select are available
 // through the normal stubs and stay on libc (scheduler-safe).
 
+// A Darwin syscall reports failure by setting the carry flag and returning the
+// errno in x0; it never writes libc errno. Capturing the flag is therefore the
+// only way to tell "returned 48" from "failed with EADDRINUSE", and reading
+// *__error() after an svc yields a stale value from some earlier libc call.
+// svc3/svc6 normalize to the libc convention: -1 plus a code in netdev_errno.
+static int netdev_errno;
+
 static long svc3(long n, long a, long b, long c) {
 	register long x16 __asm__("x16") = n;
 	register long x0 __asm__("x0") = a;
 	register long x1 __asm__("x1") = b;
 	register long x2 __asm__("x2") = c;
-	__asm__ volatile("svc #0x80" : "+r"(x0) : "r"(x16), "r"(x1), "r"(x2) : "memory", "cc");
+	long failed;
+	__asm__ volatile("svc #0x80\n\tcset %[f], cs"
+		: "+r"(x0), [f] "=&r"(failed)
+		: "r"(x16), "r"(x1), "r"(x2)
+		: "memory", "cc");
+	if (failed) {
+		netdev_errno = (int)x0;
+		return -1;
+	}
+	netdev_errno = 0;
 	return x0;
 }
 
@@ -27,7 +43,16 @@ static long svc6(long n, long a, long b, long c, long d, long e, long f) {
 	register long x3 __asm__("x3") = d;
 	register long x4 __asm__("x4") = e;
 	register long x5 __asm__("x5") = f;
-	__asm__ volatile("svc #0x80" : "+r"(x0) : "r"(x16), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5) : "memory", "cc");
+	long failed;
+	__asm__ volatile("svc #0x80\n\tcset %[f], cs"
+		: "+r"(x0), [f] "=&r"(failed)
+		: "r"(x16), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5)
+		: "memory", "cc");
+	if (failed) {
+		netdev_errno = (int)x0;
+		return -1;
+	}
+	netdev_errno = 0;
 	return x0;
 }
 
@@ -69,8 +94,10 @@ int fcntl(int fd, int cmd, int arg);
 int select(int nfds, void *rfds, void *wfds, void *efds, void *timeout);
 
 // Darwin provides __error(); the linker symbol is ___error (extra underscore).
+// h_errno serves the libc calls above; h_syserrno serves the svc helpers.
 int *__error(void);
 static int h_errno(void) { return *__error(); }
+static int h_syserrno(void) { return netdev_errno; }
 
 static int h_select(int nfds, void *rfds, void *wfds, void *efds, void *timeout) {
 	return select(nfds, rfds, wfds, efds, timeout);
@@ -78,24 +105,24 @@ static int h_select(int nfds, void *rfds, void *wfds, void *efds, void *timeout)
 */
 import "C"
 import (
-	"errors"
 	"net/netip"
 	"time"
 	"unsafe"
 )
 
 const (
-	osAF_INET     = 2
-	osSOCK_STREAM = 1
-	osSOCK_DGRAM  = 2
-	osIPPROTO_TCP = 6
-	osIPPROTO_UDP = 17
-	osSOL_SOCKET  = 0xffff
-	osSO_REUSEADDR = 4
-	osSO_KEEPALIVE = 8
-	osSO_LINGER    = 0x80
-	osSOL_TCP      = 6
+	osAF_INET       = 2
+	osSOCK_STREAM   = 1
+	osSOCK_DGRAM    = 2
+	osIPPROTO_TCP   = 6
+	osIPPROTO_UDP   = 17
+	osSOL_SOCKET    = 0xffff
+	osSO_REUSEADDR  = 4
+	osSO_KEEPALIVE  = 8
+	osSO_LINGER     = 0x80
+	osSOL_TCP       = 6
 	osTCP_KEEPINTVL = 0x101
+	osEINTR         = 4
 )
 
 type sockaddrInet4 struct {
@@ -139,34 +166,41 @@ func fromSockaddr(sa sockaddrInet4) netip.AddrPort {
 
 func sysErrno(code int) error {
 	if code == 0 {
-		return nil
+		// The call failed but left no code. Never report success.
+		return ErrSyscall
 	}
-	return errors.New(errnoName(code))
+	return errnoError(code)
 }
 
+// lastErrno reports the failure of a libc call (read, write, close, select).
 func lastErrno() error {
 	return sysErrno(int(C.h_errno()))
 }
 
-func errnoName(e int) string {
-	// Keep messages short; TinyGo apps rarely inspect errno text.
+// lastSysErrno reports the failure of a raw svc syscall. Raw syscalls never
+// touch libc errno, so the code comes from the carry-flag capture in svc3/svc6.
+func lastSysErrno() error {
+	return sysErrno(int(C.h_syserrno()))
+}
+
+func errnoError(e int) error {
 	switch e {
 	case 35: // EAGAIN / EWOULDBLOCK on Darwin
-		return "resource temporarily unavailable"
+		return ErrWouldBlock
 	case 60: // ETIMEDOUT
-		return "connection timed out"
+		return ErrConnTimedOut
 	case 61: // ECONNREFUSED
-		return "connection refused"
+		return ErrConnRefused
 	case 54: // ECONNRESET
-		return "connection reset by peer"
+		return ErrConnReset
 	case 57: // ENOTCONN
-		return "socket is not connected"
+		return ErrNotConnected
 	case 48: // EADDRINUSE
-		return "address already in use"
+		return ErrAddrInUse
 	case 49: // EADDRNOTAVAIL
-		return "can't assign requested address"
+		return ErrAddrNotAvailable
 	default:
-		return "syscall error"
+		return ErrSyscall
 	}
 }
 
@@ -192,7 +226,7 @@ func sysSocket(domain, stype, proto int) (int, error) {
 	}
 	fd := int(C.h_socket(C.int(osAF_INET), C.int(ostype), C.int(oproto)))
 	if fd < 0 {
-		return -1, lastErrno()
+		return -1, lastSysErrno()
 	}
 	return fd, nil
 }
@@ -203,26 +237,33 @@ func sysBind(fd int, ip netip.AddrPort) error {
 		return err
 	}
 	if C.h_bind(C.int(fd), unsafe.Pointer(&sa), 16) != 0 {
-		return lastErrno()
+		return lastSysErrno()
 	}
 	return nil
 }
 
 func sysListen(fd, backlog int) error {
 	if C.h_listen(C.int(fd), C.int(backlog)) != 0 {
-		return lastErrno()
+		return lastSysErrno()
 	}
 	return nil
 }
 
 func sysAccept(fd int) (int, netip.AddrPort, error) {
-	var sa sockaddrInet4
-	n := C.uint(16)
-	nfd := int(C.h_accept(C.int(fd), unsafe.Pointer(&sa), &n))
-	if nfd < 0 {
-		return -1, netip.AddrPort{}, lastErrno()
+	for {
+		var sa sockaddrInet4
+		n := C.uint(16)
+		nfd := int(C.h_accept(C.int(fd), unsafe.Pointer(&sa), &n))
+		if nfd >= 0 {
+			return nfd, fromSockaddr(sa), nil
+		}
+		// accept blocks for the life of a server, so a signal must not end the
+		// loop. EINTR only became visible once failures were detected at all.
+		if int(C.h_syserrno()) == osEINTR {
+			continue
+		}
+		return -1, netip.AddrPort{}, lastSysErrno()
 	}
-	return nfd, fromSockaddr(sa), nil
 }
 
 func sysConnect(fd int, ip netip.AddrPort) error {
@@ -231,7 +272,7 @@ func sysConnect(fd int, ip netip.AddrPort) error {
 		return err
 	}
 	if C.h_connect(C.int(fd), unsafe.Pointer(&sa), 16) != 0 {
-		return lastErrno()
+		return lastSysErrno()
 	}
 	return nil
 }
@@ -262,7 +303,7 @@ func sysRecv(fd int, buf []byte, flags int) (int, error) {
 func sysSetReuseAddr(fd int) error {
 	one := C.int(1)
 	if C.h_setsockopt(C.int(fd), osSOL_SOCKET, osSO_REUSEADDR, unsafe.Pointer(&one), 4) != 0 {
-		return lastErrno()
+		return lastSysErrno()
 	}
 	return nil
 }
@@ -279,19 +320,19 @@ func sysSetSockOpt(fd int, level, opt int, value interface{}) error {
 			iv = 1
 		}
 		if C.h_setsockopt(C.int(fd), C.int(osLevel), C.int(osOpt), unsafe.Pointer(&iv), 4) != 0 {
-			return lastErrno()
+			return lastSysErrno()
 		}
 		return nil
 	case int:
 		iv := C.int(v)
 		if C.h_setsockopt(C.int(fd), C.int(osLevel), C.int(osOpt), unsafe.Pointer(&iv), 4) != 0 {
-			return lastErrno()
+			return lastSysErrno()
 		}
 		return nil
 	case float64:
 		iv := C.int(v)
 		if C.h_setsockopt(C.int(fd), C.int(osLevel), C.int(osOpt), unsafe.Pointer(&iv), 4) != 0 {
-			return lastErrno()
+			return lastSysErrno()
 		}
 		return nil
 	default:
@@ -382,6 +423,17 @@ func waitFD(fd int, read bool, deadline time.Time) error {
 		}
 		return lastErrno()
 	}
+}
+
+// sysLocalAddr reads the address the kernel actually assigned to fd. Bind with
+// port 0 only becomes concrete here.
+func sysLocalAddr(fd int) (netip.AddrPort, error) {
+	var sa sockaddrInet4
+	n := C.uint(16)
+	if C.h_getsockname(C.int(fd), unsafe.Pointer(&sa), &n) != 0 {
+		return netip.AddrPort{}, lastSysErrno()
+	}
+	return fromSockaddr(sa), nil
 }
 
 func localIPv4() (netip.Addr, error) {

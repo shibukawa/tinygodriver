@@ -19,6 +19,16 @@ relationship:
 constraints_inherited:
   - IPv4 only
   - blocking accept and connect
+  - no unix domain sockets, per rule:netdev-no-unix-socket
+defects_fixed_2026_07_28:
+  syscall_status: rule:netdev-syscall-status
+  dial_to_port_zero: requirement:netdev-connect-validation
+  bound_port_zero: requirement:netdev-bound-port
+still_open:
+  listener_addr: >
+    net.Listener.Addr() reports port 0 for a port 0 listen; the remaining fix is
+    upstream in tinygo net, see decision:netdev-socket-addr-ownership
+  windows_untested: the winsock error mapping was written without a windows host
 overlap:
   concern: IPPROTO_TLS and api:tls-dialer both provide TLS on darwin
   resolution: >
