@@ -3,11 +3,17 @@ id: decision:macos-network-framework
 type: decision
 title: macOS Uses Network.framework
 ---
-The darwin backend targets Network.framework (`nw_connection_t`) instead of OpenSSL or Secure Transport.
+Network.framework is the darwin TLS 1.3 backend, selected by the `darwintls13` build tag. It was the default until decision:macos-secure-transport.
 
 ```yaml
-state: accepted
-chosen: system:network-framework
+state: superseded_as_default
+chosen: system:network-framework, now behind the darwintls13 build tag
+superseded_by: decision:macos-secure-transport
+why_superseded: >
+  nw_connection owns DNS, TCP and TLS as one unit, so TLS cannot be started on
+  a socket that has already carried plaintext. That rules out in-band upgrade
+  protocols such as PostgreSQL and MySQL STARTTLS. It remains the only way to
+  get TLS 1.3 on darwin, so it is kept as an opt-in.
 rationale:
   - Apple's current, non-deprecated networking API
   - ships in libSystem; removes the Homebrew openssl@3 runtime dependency

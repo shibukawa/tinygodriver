@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && darwin
+//go:build (tinygo || force_tinygo_logic) && darwin && darwintls13
 
 package https
 
@@ -6,7 +6,7 @@ package https
 // Compiler and linker flags live in cgoflags_darwin_*.go, because TinyGo and
 // host Go need different ones.
 #include <stdlib.h>
-#include "tls_darwin.h"
+#include "tls_darwin_nw.h"
 */
 import "C"
 

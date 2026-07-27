@@ -1,6 +1,6 @@
-//go:build (tinygo || force_tinygo_logic) && darwin
+//go:build (tinygo || force_tinygo_logic) && darwin && darwintls13
 
-#include "tls_darwin.h"
+#include "tls_darwin_nw.h"
 
 // Network.framework, Security, CoreFoundation, and libdispatch are all
 // declared by hand here. TinyGo compiles cgo C files with -nostdlibinc against

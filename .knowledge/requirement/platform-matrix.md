@@ -14,7 +14,9 @@ matrix:
     client_certs: yes
   tinygo_darwin_arm64:
     state: shipped
-    backend: system:network-framework
+    backend: Secure Transport by default; system:network-framework under -tags darwintls13
+    max_tls: 1.2 by default, 1.3 with darwintls13
+    in_band_upgrade: supported by default only; see decision:macos-secure-transport
     verified: >
       tinygo binary completed HTTPS GET with custom-CA verification; untrusted
       root and hostname mismatch both rejected; 15 tests pass on the std and

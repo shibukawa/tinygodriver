@@ -95,13 +95,14 @@ code for diagnosis.
 
 ## Implementation selection
 
-| Build | Backend | Client certs |
-|---|---|---|
-| standard Go, any OS | `net/http` + `crypto/tls` | yes |
-| TinyGo on macOS | Network.framework | no |
-| TinyGo on Linux | vendored mbedTLS | yes |
-| other TinyGo targets | `ErrPlatformNotSupported` | — |
-| `-tags force_tinygo_logic` | forces the native backend on host Go | |
+| Build | Backend | Max TLS | Client certs |
+|---|---|---|---|
+| standard Go, any OS | `net/http` + `crypto/tls` | 1.3 | yes |
+| TinyGo on macOS | Secure Transport | **1.2** | no |
+| TinyGo on macOS, `-tags darwintls13` | Network.framework | 1.3 | no |
+| TinyGo on Linux | vendored mbedTLS | 1.3 | yes |
+| other TinyGo targets | `ErrPlatformNotSupported` | — | — |
+| `-tags force_tinygo_logic` | forces the native backend on host Go | | |
 
 `force_tinygo_logic` makes the native C code testable without a TinyGo
 toolchain:
@@ -114,10 +115,35 @@ go test -tags force_tinygo_logic ./https
 
 ### macOS
 
-Uses Network.framework (`nw_connection_t`), which ships in the OS. There is
-**no Homebrew or OpenSSL dependency**. Trust evaluation uses the system
-keychain; custom anchors are applied through a `sec_protocol_options` verify
-block.
+Uses **Secure Transport** by default, and Network.framework under
+`-tags darwintls13`. Both ship in the OS, so there is **no Homebrew or OpenSSL
+dependency** either way.
+
+The two differ in one thing that matters and one that does not:
+
+|  | Secure Transport (default) | Network.framework (`darwintls13`) |
+|---|---|---|
+| Max TLS version | **1.2** | **1.3** |
+| Owns the socket | no, Go does | yes, including DNS and TCP |
+| In-band upgrade (STARTTLS) | **possible** | not possible |
+| Uses Clang blocks / libdispatch | no | yes |
+
+Secure Transport is the default because it is a byte transformer with
+caller-supplied I/O (`SSLSetIOFuncs`), so TLS can be started on a socket that
+has already carried plaintext. That is what protocols like PostgreSQL and
+MySQL need, and what Network.framework structurally cannot do — an
+`nw_connection` owns DNS, TCP and TLS as one unit.
+
+The cost is TLS 1.2. Apple never added TLS 1.3 to Secure Transport and marks it
+deprecated in favour of Network.framework. Build with `-tags darwintls13` when
+TLS 1.3 matters more than the upgrade path; requesting
+`WithMinVersion(VersionTLS13)` on the default backend fails with
+`ErrProtocolVersion` rather than quietly negotiating something weaker.
+
+Trust evaluation uses the system keychain on both. Custom anchors go through
+`SecTrustSetAnchorCertificates`, reached via a verify block on
+Network.framework and via `kSSLSessionOptionBreakOnServerAuth` on Secure
+Transport.
 
 The C bridge hand-declares the `nw_*`, `sec_*`, `CF*`, and `dispatch_*` symbols
 it uses instead of including framework headers, because TinyGo compiles cgo C

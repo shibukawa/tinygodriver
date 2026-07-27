@@ -43,7 +43,9 @@ cases:
   - large response body, chunked encoding
   - concurrent requests
 ci_matrix:
-  darwin_arm64: host go, host go with force_tinygo_logic, tinygo
+  darwin_arm64: >
+    host go; host go with force_tinygo_logic; the same again with darwintls13,
+    because both darwin backends ship; tinygo builds of both
   linux_arm64: same three, plus the crypto self tests
   linux_amd64:
     same: three, plus self tests

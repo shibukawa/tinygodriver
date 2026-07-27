@@ -12,8 +12,13 @@ tags:
   force_tinygo_logic:
     purpose: run the native backend under host go so it is testable without tinygo
     required_by: requirement:test-strategy
+  darwintls13:
+    purpose: >
+      select Network.framework on darwin for TLS 1.3, giving up in-band upgrade
+    decided_by: decision:macos-secure-transport
 per_backend_files:
-  darwin: "(tinygo || force_tinygo_logic) && darwin"
+  darwin_default: "(tinygo || force_tinygo_logic) && darwin && !darwintls13"
+  darwin_tls13: "(tinygo || force_tinygo_logic) && darwin && darwintls13"
   linux: "(tinygo || force_tinygo_logic) && linux"
   windows: "(tinygo || force_tinygo_logic) && windows"
   fallback: "(tinygo || force_tinygo_logic) && !darwin && !linux && !windows"
