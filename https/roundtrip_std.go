@@ -42,7 +42,11 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 	}
 	resp, err := t.std.rt.RoundTrip(req)
 	if err != nil {
-		return nil, classifyStdError(req, err)
+		host := ""
+		if req.URL != nil {
+			host = req.URL.Host
+		}
+		return nil, classifyStdError("dial", host, err)
 	}
 	return resp, nil
 }
@@ -92,14 +96,10 @@ func (t *Transport) tlsConfig() (*tls.Config, error) {
 }
 
 // classifyStdError maps crypto/tls and crypto/x509 errors onto the same
-// sentinels the native backends produce.
-func classifyStdError(req *http.Request, err error) error {
-	host := ""
-	if req.URL != nil {
-		host = req.URL.Host
-	}
+// sentinels the native backends produce. op is "dial" or "upgrade".
+func classifyStdError(op, host string, err error) error {
 	wrap := func(sentinel error) error {
-		return &Error{Op: "dial", Host: host, Backend: backendName, Err: sentinel}
+		return &Error{Op: op, Host: host, Backend: backendName, Err: sentinel}
 	}
 
 	var hostErr x509.HostnameError

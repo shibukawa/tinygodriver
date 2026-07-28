@@ -69,15 +69,16 @@ func upgradeSecureTransport(fd int, host string, cfg *Config, timeout time.Durat
 // stConn adapts a Secure Transport session to net.Conn. It owns the descriptor
 // it was handed.
 type stConn struct {
-	mu   sync.Mutex
+	// ioMu serializes access to the session; Secure Transport does not promise
+	// a context is safe for concurrent use. state carries the deadlines behind
+	// its own lock so SetDeadline never waits for a blocked read.
+	ioMu  sync.Mutex
+	state connState
+
 	sess *securetransport.Session
 	fd   int
 	dev  *netdev.Device
 	host string
-
-	readDeadline  time.Time
-	writeDeadline time.Time
-	closed        bool
 }
 
 var _ net.Conn = (*stConn)(nil)
@@ -86,15 +87,12 @@ func (c *stConn) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return 0, net.ErrClosed
+	ns, err := c.state.readBudget()
+	if err != nil {
+		return 0, stateError("read", c.host, backendSecureTransport, err)
 	}
-	ns, ok := timeoutNanos(c.readDeadline)
-	if !ok {
-		return 0, &Error{Op: "read", Host: c.host, Backend: backendSecureTransport, Err: errTimeout}
-	}
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
 
 	n, sErr := c.sess.Read(p, ns)
 	if sErr != nil {
@@ -110,15 +108,12 @@ func (c *stConn) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return 0, net.ErrClosed
+	ns, err := c.state.writeBudget()
+	if err != nil {
+		return 0, stateError("write", c.host, backendSecureTransport, err)
 	}
-	ns, ok := timeoutNanos(c.writeDeadline)
-	if !ok {
-		return 0, &Error{Op: "write", Host: c.host, Backend: backendSecureTransport, Err: errTimeout}
-	}
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
 
 	n, sErr := c.sess.Write(p, ns)
 	if sErr != nil {
@@ -128,36 +123,18 @@ func (c *stConn) Write(p []byte) (int, error) {
 }
 
 func (c *stConn) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+	if !c.state.close() {
 		return nil
 	}
-	c.closed = true
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
 	c.sess.Close()
 	return c.dev.Close(c.fd)
 }
 
-func (c *stConn) SetDeadline(t time.Time) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.readDeadline, c.writeDeadline = t, t
-	return nil
-}
-
-func (c *stConn) SetReadDeadline(t time.Time) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.readDeadline = t
-	return nil
-}
-
-func (c *stConn) SetWriteDeadline(t time.Time) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.writeDeadline = t
-	return nil
-}
+func (c *stConn) SetDeadline(t time.Time) error      { return c.state.setDeadline(t) }
+func (c *stConn) SetReadDeadline(t time.Time) error  { return c.state.setReadDeadline(t) }
+func (c *stConn) SetWriteDeadline(t time.Time) error { return c.state.setWriteDeadline(t) }
 
 func (c *stConn) LocalAddr() net.Addr  { return placeholderAddr("") }
 func (c *stConn) RemoteAddr() net.Addr { return placeholderAddr(c.host) }

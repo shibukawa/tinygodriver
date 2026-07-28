@@ -1,11 +1,13 @@
-//go:build force_tinygo_logic && !tinygo && (linux || darwin)
+//go:build !tinygo
 
-// Internal test: upgradeTLS is not exported yet, because the public shape
-// should be settled by its first real consumer rather than guessed at.
+// These run on both the std-go and the native backend, because DialPlain and
+// Upgrade are the exported, cross-compiler API. That is the point of the pair:
+// a driver written against them is shared between compilers.
 package https
 
 import (
 	"bufio"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -136,39 +138,78 @@ func readLine(c net.Conn) (string, error) {
 	return "", errors.New("line too long")
 }
 
-// startTLS runs the plaintext phase over the netdev descriptor and returns the
-// upgraded connection. This is the sequence a PostgreSQL or MySQL driver would
-// perform.
+// startTLS runs the plaintext phase and then upgrades the same connection.
+// This is the sequence a PostgreSQL or MySQL driver performs, written only
+// against the exported API so it compiles on both compilers.
 func startTLS(t *testing.T, srv *startTLSServer, cfg *Config) (net.Conn, error) {
 	t.Helper()
 
-	fd, dev, err := dialSocket(srv.Host, srv.Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := DialPlain(ctx, srv.Host, srv.Port)
 	if err != nil {
-		t.Fatalf("dialSocket: %v", err)
+		t.Fatalf("DialPlain: %v", err)
+	}
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		conn.Close()
+		t.Fatalf("SetDeadline: %v", err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	if _, err := dev.Send(fd, []byte("STARTTLS\n"), 0, deadline); err != nil {
-		dev.Close(fd)
-		t.Fatalf("plaintext send: %v", err)
+	if _, err := conn.Write([]byte("STARTTLS\n")); err != nil {
+		conn.Close()
+		t.Fatalf("plaintext write: %v", err)
 	}
 	reply := make([]byte, 3)
-	if _, err := dev.Recv(fd, reply, 0, deadline); err != nil {
-		dev.Close(fd)
-		t.Fatalf("plaintext recv: %v", err)
+	if _, err := io.ReadFull(conn, reply); err != nil {
+		conn.Close()
+		t.Fatalf("plaintext read: %v", err)
 	}
 	if string(reply) != "OK\n" {
-		dev.Close(fd)
+		conn.Close()
 		t.Fatalf("server reply = %q, want %q", reply, "OK\n")
 	}
 
-	conn, err := upgradeTLS(fd, srv.Host, cfg, 5*time.Second)
+	// Clear the plaintext deadline; the handshake is bounded by ctx.
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		conn.Close()
+		t.Fatalf("clear deadline: %v", err)
+	}
+
+	tlsConn, err := Upgrade(ctx, conn, srv.Host, cfg)
 	if err != nil {
-		// upgradeTLS leaves the descriptor to the caller on failure.
-		dev.Close(fd)
+		// Upgrade leaves the connection to the caller on failure.
+		conn.Close()
 		return nil, err
 	}
-	return conn, nil
+	return tlsConn, nil
+}
+
+// TestUpgradeRejectsPlainConn pins the contract that a connection with no
+// descriptor cannot be upgraded on the native path, rather than failing later
+// in some confusing way.
+func TestUpgradeRejectsPlainConn(t *testing.T) {
+	srv := newStartTLSServer(t)
+	defer srv.close()
+
+	raw, err := net.Dial("tcp", net.JoinHostPort(srv.Host, srv.Port))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer raw.Close()
+
+	conn, err := Upgrade(context.Background(), raw, srv.Host, NewConfig(WithInsecureSkipVerify(true)))
+	if err == nil {
+		conn.Close()
+		// std go accepts any net.Conn, so this only has to hold natively.
+		if backendName != "crypto/tls" {
+			t.Fatal("expected ErrNotUpgradable for a conn with no descriptor")
+		}
+		return
+	}
+	if backendName != "crypto/tls" && !errors.Is(err, ErrNotUpgradable) {
+		t.Fatalf("error = %v, want ErrNotUpgradable", err)
+	}
 }
 
 // TestUpgradeTLS is the reason the darwin build carries Secure Transport at
