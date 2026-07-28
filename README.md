@@ -16,6 +16,8 @@ and tests between both compilers.
 | [`https`](./https) | `github.com/shibukawa/tinygodriver/https` | `net/http`-compatible HTTPS client using the OS TLS stack |
 | [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
+| [`sqlite`](./database/sql/sqlite) | `github.com/shibukawa/tinygodriver/database/sql/sqlite` | SQLite `database/sql` driver, backend chosen at build time |
+| [`pgxstdlib`](./database/sql/pgxstdlib) | `github.com/shibukawa/tinygodriver/database/sql/pgxstdlib` | PostgreSQL `database/sql` driver built on pgx, TLS included |
 
 ## Quick start
 

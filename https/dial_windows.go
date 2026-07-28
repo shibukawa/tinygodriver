@@ -43,10 +43,6 @@ func socketDialer() *netdev.Device {
 	return dialer
 }
 
-// defaultOpTimeout bounds a single read or write when no deadline is set, so a
-// stalled peer cannot block a goroutine forever.
-const defaultOpTimeout = 5 * time.Minute
-
 func dialTLS(ctx context.Context, host, port string, cfg *Config, timeout time.Duration) (net.Conn, error) {
 	timeout = effectiveTimeout(ctx, timeout)
 	if timeout <= 0 {
@@ -200,40 +196,19 @@ func (c *Config) certificates() []KeyPair {
 	return c.Certificates
 }
 
-func timeoutNanos(deadline time.Time) (int64, bool) {
-	if deadline.IsZero() {
-		return int64(defaultOpTimeout), true
-	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 {
-		return 0, false
-	}
-	return remaining.Nanoseconds(), true
-}
-
-// effectiveTimeout folds a context deadline into the caller's timeout.
-func effectiveTimeout(ctx context.Context, timeout time.Duration) time.Duration {
-	if deadline, ok := ctx.Deadline(); ok {
-		if remaining := time.Until(deadline); remaining < timeout {
-			return remaining
-		}
-	}
-	return timeout
-}
-
 // scConn adapts a Schannel session to net.Conn. It owns the descriptor it was
 // handed.
 type scConn struct {
-	mu   sync.Mutex
+	// ioMu serializes access to the session; state carries the deadlines behind
+	// its own lock so SetDeadline never waits for a blocked read.
+	ioMu  sync.Mutex
+	state connState
+
 	sess *schannel.Session
 	fd   int
 	dev  *netdev.Device
 	host string
 	port string
-
-	readDeadline  time.Time
-	writeDeadline time.Time
-	closed        bool
 }
 
 var _ net.Conn = (*scConn)(nil)
@@ -242,15 +217,12 @@ func (c *scConn) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return 0, net.ErrClosed
+	ns, err := c.state.readBudget()
+	if err != nil {
+		return 0, stateError("read", c.host, backendName, err)
 	}
-	ns, ok := timeoutNanos(c.readDeadline)
-	if !ok {
-		return 0, &Error{Op: "read", Host: c.host, Backend: backendName, Err: errTimeout}
-	}
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
 
 	n, sErr := c.sess.Read(p, ns)
 	if sErr != nil {
@@ -266,15 +238,12 @@ func (c *scConn) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return 0, net.ErrClosed
+	ns, err := c.state.writeBudget()
+	if err != nil {
+		return 0, stateError("write", c.host, backendName, err)
 	}
-	ns, ok := timeoutNanos(c.writeDeadline)
-	if !ok {
-		return 0, &Error{Op: "write", Host: c.host, Backend: backendName, Err: errTimeout}
-	}
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
 
 	n, sErr := c.sess.Write(p, ns)
 	if sErr != nil {
@@ -284,36 +253,18 @@ func (c *scConn) Write(p []byte) (int, error) {
 }
 
 func (c *scConn) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
+	if !c.state.close() {
 		return nil
 	}
-	c.closed = true
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
 	c.sess.Close()
 	return c.dev.Close(c.fd)
 }
 
-func (c *scConn) SetDeadline(t time.Time) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.readDeadline, c.writeDeadline = t, t
-	return nil
-}
-
-func (c *scConn) SetReadDeadline(t time.Time) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.readDeadline = t
-	return nil
-}
-
-func (c *scConn) SetWriteDeadline(t time.Time) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.writeDeadline = t
-	return nil
-}
+func (c *scConn) SetDeadline(t time.Time) error      { return c.state.setDeadline(t) }
+func (c *scConn) SetReadDeadline(t time.Time) error  { return c.state.setReadDeadline(t) }
+func (c *scConn) SetWriteDeadline(t time.Time) error { return c.state.setWriteDeadline(t) }
 
 func (c *scConn) LocalAddr() net.Addr { return placeholderAddr("") }
 

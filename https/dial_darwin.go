@@ -32,10 +32,6 @@ const (
 	backendSecureTransport = "securetransport"
 )
 
-// defaultOpTimeout bounds a single read or write when no deadline is set, so a
-// stalled peer cannot block a goroutine forever.
-const defaultOpTimeout = 5 * time.Minute
-
 // dialTLS opens a verified TLS connection. Network.framework owns DNS, TCP and
 // TLS on this path.
 func dialTLS(ctx context.Context, host, port string, cfg *Config, timeout time.Duration) (net.Conn, error) {
@@ -97,27 +93,6 @@ func (c *Config) certificates() []KeyPair {
 		return nil
 	}
 	return c.Certificates
-}
-
-func timeoutNanos(deadline time.Time) (int64, bool) {
-	if deadline.IsZero() {
-		return int64(defaultOpTimeout), true
-	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 {
-		return 0, false
-	}
-	return remaining.Nanoseconds(), true
-}
-
-// effectiveTimeout folds a context deadline into the caller's timeout.
-func effectiveTimeout(ctx context.Context, timeout time.Duration) time.Duration {
-	if deadline, ok := ctx.Deadline(); ok {
-		if remaining := time.Until(deadline); remaining < timeout {
-			return remaining
-		}
-	}
-	return timeout
 }
 
 type placeholderAddr string
