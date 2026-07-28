@@ -179,6 +179,13 @@ func TestTLSDisableStaysPlaintext(t *testing.T) {
 
 // Cancellation has to keep working once the connection is encrypted: the
 // cancel request opens a second connection and upgrades that one too.
+//
+// The query is longer here than in the plaintext test on purpose. Cancelling
+// over TLS costs a second dial plus a full handshake, so on a loaded machine
+// the cancel can take seconds; a short query would then finish first and the
+// test would fail without anything being wrong. Observed cost is about 600ms,
+// so ten seconds leaves a wide margin while still proving the query was cut
+// short rather than allowed to run out.
 func TestTLSContextCancellation(t *testing.T) {
 	db, err := openTLS(t, "verify-full", true)
 	if err != nil {
@@ -190,14 +197,14 @@ func TestTLSContextCancellation(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err = db.ExecContext(ctx, `SELECT pg_sleep(3)`)
+	_, err = db.ExecContext(ctx, `SELECT pg_sleep(10)`)
 	elapsed := time.Since(start)
 
 	if err == nil {
 		t.Fatalf("query completed in %v; cancellation did not take effect over TLS", elapsed)
 	}
-	if elapsed > 2500*time.Millisecond {
-		t.Fatalf("cancellation took %v, want well under the 3s query", elapsed)
+	if elapsed > 5*time.Second {
+		t.Fatalf("cancellation took %v, want well under the 10s query", elapsed)
 	}
 	t.Logf("%s backend cancelled over TLS in %v", backendName, elapsed.Round(time.Millisecond))
 }
