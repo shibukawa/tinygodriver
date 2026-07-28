@@ -1,0 +1,2 @@
+github.com/jackc/pgx/v5 v5.10.0
+vendored by vendor.py; see PATCHES.md for local changes

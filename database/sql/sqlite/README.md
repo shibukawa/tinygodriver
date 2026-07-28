@@ -21,6 +21,7 @@ native backend additionally accepts `busy_timeout` in milliseconds.
 
 See [BENCHMARK.md](BENCHMARK.md) for a reproducible host-backend baseline.
 
-PostgreSQL and MySQL are not first-class Petitweb targets. Their maintained Go
-drivers and secure TLS stacks do not currently form a reliable TinyGo-compatible
-path, so generators, examples, and compatibility guarantees do not cover them.
+PostgreSQL is covered by [`pgxstdlib`](../pgxstdlib), including TLS. MySQL is
+not: its maintained Go drivers do not currently form a reliable
+TinyGo-compatible path, so generators, examples, and compatibility guarantees do
+not cover it.
