@@ -27,12 +27,23 @@ models:
   buffer_transform:
     platforms: [windows]
     backend: system:schannel
-    shape: SSPI called from pure Go via syscall; no cgo, Go owns the socket
+    shape: SSPI called from C via cgo; Go owns the socket and moves the tokens
     socket_owner: go
-    language: go, not c
-    note: >
-      the only backend without C. secur32.dll and crypt32.dll are reachable
-      through syscall, which also removes the mingw toolchain requirement.
+    language: c
+    revised: >
+      this entry said "pure Go via syscall, the only backend without C". That
+      was wrong. TinyGo ships no windows syscall package, so syscall.NewLazyDLL
+      does not exist and SSPI has to be reached through cgo, as
+      netdev/sys_windows.go already does for winsock. The mingw requirement was
+      therefore never actually removed. See
+      requirement:windows-tinygo-feasibility.
+    consequence: >
+      all three backends are now C, so the model split is about who owns the
+      socket, not about which language calls the API.
+    dividend: >
+      because SSPI never sees the socket, windows is the only platform where
+      api:tls-dialer's dial and upgrade paths are the same code. darwin needs
+      two backends for that.
 rejected:
   single_shared_model:
     reason: >

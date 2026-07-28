@@ -87,9 +87,14 @@ go run ./examples/httpserver
   over an already connected descriptor, and an `nw_connection` owns DNS, TCP
   and TLS as one unit and cannot adopt one. The cost is that Secure Transport
   stops at **TLS 1.2**; the previous OpenSSL implementation negotiated 1.3.
+- `IPPROTO_TLS` uses **Schannel** on Windows, reached through SSPI. It ships
+  with the OS, so there is nothing to install here either, and it reaches
+  **TLS 1.3** where the OS supports it. Peer certificates and hostnames are
+  verified against the Windows certificate store; `SSL_CERT_FILE` adds a
+  private CA the same way it does on macOS.
 - Standard Go Linux builds can exercise the same OpenSSL adapter. TinyGo Linux
   cannot safely call the distribution's shared OpenSSL because it bypasses
-  glibc process initialization, so TinyGo Linux and Windows currently return
+  glibc process initialization, so TinyGo Linux currently returns
   `ErrProtocolNotSupported` for `IPPROTO_TLS`.
 - OpenSSL 3 is a build and runtime dependency **on host-Go Linux only**
   (`libssl-dev` on Debian/Ubuntu). macOS and TinyGo Linux need neither it nor a

@@ -1,7 +1,12 @@
-//go:build darwin || (linux && !tinygo)
+//go:build darwin || windows || (linux && !tinygo)
 
-// IPPROTO_TLS is backed by Secure Transport on darwin and by OpenSSL on
-// host-Go Linux, so this exercises both.
+// IPPROTO_TLS is backed by Secure Transport on darwin, Schannel on windows and
+// OpenSSL on host-Go Linux, so this exercises all three.
+//
+// The self-signed CA reaches the backend through SSL_CERT_FILE, which on
+// windows means the extra-anchor path: the system certificate store is tried
+// first and fails, then the chain is rebuilt against an exclusive engine over
+// the supplied anchor.
 
 package netdev
 

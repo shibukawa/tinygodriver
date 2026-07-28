@@ -98,10 +98,14 @@ See the package READMEs for detailed API behavior and limitations:
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 
 - **IPv4 only** (matches TinyGo’s net port).
-- **HTTPS client (`https`)**: Network.framework on macOS and vendored mbedTLS on
-  Linux, both with **no external TLS library to install**. Other TinyGo targets
-  return `ErrPlatformNotSupported`; standard Go builds delegate to `net/http`.
-- **`netdev` TLS (`IPPROTO_TLS`)**: OpenSSL 3 on macOS (and standard Go on Linux). TinyGo on Linux and Windows currently return `ErrProtocolNotSupported` for TLS. This path still requires OpenSSL 3 (`openssl@3` via Homebrew on macOS, `libssl-dev` on Debian/Ubuntu); the `https` package does not.
+- **HTTPS client (`https`)**: Network.framework on macOS, Schannel on Windows,
+  and vendored mbedTLS on Linux, all with **no external TLS library to
+  install**. Other TinyGo targets return `ErrPlatformNotSupported`; standard Go
+  builds delegate to `net/http`.
+- **`netdev` TLS (`IPPROTO_TLS`)**: Secure Transport on macOS and Schannel on
+  Windows, neither of which needs a package manager. TinyGo on Linux returns
+  `ErrProtocolNotSupported`; host-Go Linux uses OpenSSL 3 (`libssl-dev` on
+  Debian/Ubuntu). The `https` package needs none of this.
 
 ## Install
 

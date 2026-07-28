@@ -1,4 +1,4 @@
-//go:build force_tinygo_logic && !tinygo && (linux || darwin)
+//go:build force_tinygo_logic && !tinygo && (linux || darwin || windows)
 
 // Internal test: upgradeTLS is not exported yet, because the public shape
 // should be settled by its first real consumer rather than guessed at.

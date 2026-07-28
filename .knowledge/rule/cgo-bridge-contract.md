@@ -27,5 +27,16 @@ precedent: netdev/tls_openssl.h follows the int-return and uintptr-handle shape
 applies_to:
   darwin: system:network-framework, where blocks run on libdispatch threads
   linux: system:mbedtls, where the BIO callbacks run on the calling thread
-  not_windows: system:schannel is pure Go, so none of this applies there
+  windows: >
+    system:schannel. This entry used to read "not_windows: schannel is pure Go",
+    which was wrong: tinygo ships no windows syscall package, so that backend is
+    cgo like the other two. It calls no Go from C and keeps every native handle
+    behind a uintptr, so it satisfies this contract unchanged.
+header_exception:
+  platform: windows
+  rule: >
+    the windows bridge includes the system headers rather than redeclaring
+    them, unlike darwin, which cannot reach framework headers under tinygo.
+    SSPI and crypt32 layouts are too intricate to hand-declare safely on a
+    platform this repository cannot run.
 detail: flow:tls-dial-tinygo

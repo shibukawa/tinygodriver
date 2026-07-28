@@ -13,6 +13,8 @@
 //
 //   - standard Go builds delegate to net/http and crypto/tls
 //   - TinyGo on macOS uses Network.framework
+//   - TinyGo on Linux uses vendored mbedTLS
+//   - TinyGo on Windows uses Schannel
 //   - other TinyGo targets return ErrPlatformNotSupported
 //   - go build -tags force_tinygo_logic forces the native backend on host Go,
 //     which is how the native code is tested without a TinyGo toolchain

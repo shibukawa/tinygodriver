@@ -42,16 +42,27 @@ matrix:
     throughput: unmeasured; the run was emulated, so a native CI job is needed
     client_certs: yes
   tinygo_windows_amd64:
-    state: provisional
+    state: implemented; build verified, runtime unverified
     backend: system:schannel
+    max_tls: 1.3 where the OS accepts SCH_CREDENTIALS, else 1.2
+    in_band_upgrade: supported, on the same code path as dial
+    client_certs: RSA only; EC returns ErrClientCertificateUnsupported
+    verified: >
+      cross-compiles, vets and links for windows/amd64 under mingw-w64, with
+      and without -tags force_tinygo_logic. Never run on Windows.
     note: >
-      design recorded but deliberately not finalized; see
+      the remaining gap and why wine is a poor stand-in are recorded in
       requirement:windows-tinygo-feasibility
+    caveat: >
+      tinygo cannot cross-compile to windows from darwin at all; `tinygo
+      targets` lists no windows entry. The build check used host go with
+      force_tinygo_logic, which is what requirement:test-strategy intends.
 unsupported_behavior:
   returns: ErrPlatformNotSupported from api:tls-dialer
   never: fall back to plaintext http or to an unverified connection
 constraint: IPv4 only while system:tinygo-netdev is IPv4 only
 asymmetry_to_document:
-  - darwin has no client certificates; linux and std go do
+  - darwin has no client certificates; windows takes RSA only; linux and std go take any
   - linux ships a TLS implementation; darwin and windows use the OS one
   - linux binaries are about 3.8 MB against 272 KB on darwin
+  - windows is the only platform where dial and upgrade share one backend
