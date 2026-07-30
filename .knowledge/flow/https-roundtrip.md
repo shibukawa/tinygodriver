@@ -45,5 +45,5 @@ flow:
     actor: application
     action: read body, then Close, releasing the TLS connection
 notes:
-  - no connection reuse in v1, per decision:v1-scope
+  - the dial and done steps are now flow:connection-lease, which reuses a pooled connection when one is available
   - std go replaces steps dial through read with net/http.Transport

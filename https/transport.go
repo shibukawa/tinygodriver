@@ -21,7 +21,24 @@ type Transport struct {
 	// Zero means no limit beyond the request context.
 	ResponseTimeout time.Duration
 
-	std stdTransport // zero value is usable; only populated in std Go builds
+	// MaxIdleConnsPerHost is how many idle connections are kept per
+	// destination for reuse. Zero means 2.
+	MaxIdleConnsPerHost int
+
+	// IdleConnTimeout is how long a connection may sit idle and still be
+	// reused. Zero means 20 seconds.
+	//
+	// The native path cannot detect that a peer closed an idle connection, so
+	// this bounds how long a connection is assumed live rather than merely
+	// releasing memory. Keep it below the server's own idle timeout.
+	IdleConnTimeout time.Duration
+
+	// DisableKeepAlives closes every connection after a single request,
+	// which is what this package did before connection reuse existed.
+	DisableKeepAlives bool
+
+	std  stdTransport // zero value is usable; only populated in std Go builds
+	pool connPool     // zero value is usable; only populated on the native path
 }
 
 var _ http.RoundTripper = (*Transport)(nil)

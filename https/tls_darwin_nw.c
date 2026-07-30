@@ -175,6 +175,14 @@ int https_nw_dial(const char *host, const char *port, const char *server_name,
 			sec_protocol_options_set_min_tls_protocol_version(sec, (uint16_t)min_version);
 		}
 
+		// Session resumption is deliberately left at the framework default.
+		// Forcing it on and forcing it off were both measured against a real
+		// service endpoint and neither moved the handshake cost, so the knobs
+		// buy nothing here. They would also be unsafe to use as-is: the cache
+		// is process-wide and keyed by peer, while verification here varies per
+		// Config, so a skip-verify connection could hand a session to a
+		// verifying one.
+
 		if (skip_verify) {
 			sec_protocol_options_set_verify_block(
 				sec,

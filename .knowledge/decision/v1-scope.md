@@ -21,9 +21,15 @@ out_of_scope:
     reason: needs backend server mode, cert/key loading, and ALPN negotiation on three stacks
     defer_to: v2
   connection_pool:
-    reason: keep-alive plus native session lifetime doubles state management
-    defer_to: v2
-    v1_behavior: one TLS connection per request, closed after response body read
+    state: no longer deferred, shipped as requirement:connection-reuse
+    original_reason: keep-alive plus native session lifetime doubles state management
+    why_it_changed: >
+      the deferral was priced for object transfer, which amortizes the
+      handshake. Small-RPC workloads do not; metric:tls-handshake-cost measured
+      the difference and decision:handshake-cost-mitigation reopened it.
+    former_v1_behavior: >
+      one TLS connection per request, closed after the response body was read.
+      Still reachable with Transport.DisableKeepAlives.
   http2:
     reason: ALPN h2 requires a second protocol implementation
     defer_to: unplanned

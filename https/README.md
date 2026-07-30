@@ -77,6 +77,35 @@ store and requires TLS 1.2 or later. Custom CAs are **added** to the system
 anchors unless `WithRootCAsOnly(true)` is set. No build ever falls back to
 plaintext or to an unverified connection.
 
+## Connection reuse
+
+Connections are kept and reused between requests to the same destination, the
+same way `net/http` does it, so the TLS handshake is paid per connection rather
+than per request. Against a real AWS service endpoint from Tokyo, six sequential
+`POST`s under TinyGo measured 89–105 ms each without reuse and 10–12 ms each
+with it; the remainder is the round trip itself.
+
+`Transport` carries the knobs, and they mean the same thing on both build paths:
+
+| Field | Default | Effect |
+|---|---|---|
+| `MaxIdleConnsPerHost` | 2 | idle connections kept per destination |
+| `IdleConnTimeout` | 20s | how long an idle connection stays reusable |
+| `DisableKeepAlives` | false | close after every request |
+
+`CloseIdleConnections()` drops the pooled connections without touching requests
+in flight.
+
+The default `IdleConnTimeout` is far below `net/http`'s 90 seconds on purpose.
+`net/http` can cheaply notice that a pooled connection died; the native
+backends cannot, so a stale entry costs a retry instead. Keep it under the
+server's own idle timeout.
+
+TLS session resumption is **not** used. Forcing it on and off on the macOS dial
+path both measured identical to the default, and Network.framework's session
+cache is process-wide while verification varies per `Config`, so opting into it
+would trade a measured zero for a real risk.
+
 ## Proxies
 
 The proxy environment is read on every build, with the same variables and the
@@ -318,7 +347,15 @@ mingw-w64 toolchain, which that file already required.
   the `setRequestCancel` machinery that carries it to a custom `RoundTripper`,
   so the transport never learns about it. Use a request context deadline, or
   `Transport.DialTimeout` / `Transport.ResponseTimeout`, which work everywhere.
-- **No connection reuse.** Each request opens and closes one TLS connection.
+- **A stale pooled connection costs one retry.** Connections are reused across
+  requests, but no native backend can report that a peer closed an idle one
+  without reading from it, and a background reaper would deadlock the netdev
+  scheduler. A connection that turns out to be dead is therefore recovered by
+  resending the request, which needs a body `net/http` can rebuild — that is
+  automatic for the readers `http.NewRequest` recognises, and absent for an
+  arbitrary `io.Reader`. Keep `Transport.IdleConnTimeout` (20s by default)
+  below the server's own idle timeout, or set `DisableKeepAlives` to go back to
+  one connection per request.
 - On Linux, `go test -tags force_tinygo_logic` also links `netdev`, which uses
   OpenSSL on host-Go builds, so that test run needs `libssl-dev`. TinyGo builds
   do not.

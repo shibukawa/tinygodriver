@@ -19,6 +19,19 @@ type stdTransport struct {
 	err  error
 }
 
+// connPool is unused on this path, where net/http owns connection reuse. It
+// keeps the Transport struct identical across build configurations.
+type connPool struct{}
+
+// CloseIdleConnections closes connections that are being kept for reuse. It
+// mirrors net/http.Transport.CloseIdleConnections and does not affect requests
+// still in flight.
+func (t *Transport) CloseIdleConnections() {
+	if rt, ok := t.std.rt.(*http.Transport); ok {
+		rt.CloseIdleConnections()
+	}
+}
+
 // roundTrip delegates to net/http so behavior — redirects, keep-alive, gzip,
 // chunked bodies, HTTP/2 — matches the standard library exactly.
 func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
@@ -32,6 +45,17 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 		base.TLSClientConfig = tlsCfg
 		base.TLSHandshakeTimeout = t.dialTimeout()
 		base.ResponseHeaderTimeout = t.ResponseTimeout
+		// The pooling knobs mean the same thing on both paths, so a program
+		// that sets them does not change behavior with the build tag. Zero
+		// keeps net/http's own defaults, which differ from the native path's
+		// only because net/http can check a connection before reusing it.
+		if t.MaxIdleConnsPerHost > 0 {
+			base.MaxIdleConnsPerHost = t.MaxIdleConnsPerHost
+		}
+		if t.IdleConnTimeout > 0 {
+			base.IdleConnTimeout = t.IdleConnTimeout
+		}
+		base.DisableKeepAlives = t.DisableKeepAlives
 		t.std.rt = base
 	})
 	if t.std.err != nil {

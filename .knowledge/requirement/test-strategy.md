@@ -25,6 +25,20 @@ layers:
     runs: the built example against the same local test server
     value: the only layer that proves the tinygo runtime tolerates native calls
     status: passing on darwin; verified by spike on linux
+  linux_from_darwin:
+    command: >
+      docker run --platform linux/arm64 -v $PWD:/src -w /src golang:1.26, then
+      apt-get install libssl-dev and the two go test layers above
+    value: >
+      the darwin development host has no cgo cross toolchain for linux, so a
+      container is the only way to compile the //go:build linux files at all.
+      That is not a convenience: netdev/sys_linux.go shipped a missing fmt
+      import that no darwin build could ever have caught.
+    covers: system:mbedtls for TLS and system:tinygo-netdev over OpenSSL
+    status: >
+      passing on linux/arm64 for every package, and on linux/amd64 under
+      emulation for the https suite
+    caveat: emulated runs prove correctness only, never throughput
   crypto_self_test:
     applies_to: system:mbedtls
     command: mbedtls_aes_self_test, gcm, sha256 and sha512 known-answer vectors

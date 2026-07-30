@@ -36,7 +36,10 @@ matrix:
     client_certs: yes, mbedTLS accepts PEM directly
     acceleration: measured, see rule:mbedtls-hw-acceleration
   tinygo_linux_amd64:
-    state: implemented; build verified, runtime unverified
+    state: >
+      implemented; host-go runtime verified in an emulated container, native
+      runtime still unverified. See linux_from_darwin in
+      requirement:test-strategy.
     backend: system:mbedtls
     verified: same stage set as arm64, plus AES-NI detection and self tests
     throughput: unmeasured; the run was emulated, so a native CI job is needed
