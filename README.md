@@ -18,6 +18,8 @@ and tests between both compilers.
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
 | [`sqlite`](./database/sql/sqlite) | `github.com/shibukawa/tinygodriver/database/sql/sqlite` | SQLite `database/sql` driver, backend chosen at build time |
 | [`pgxstdlib`](./database/sql/pgxstdlib) | `github.com/shibukawa/tinygodriver/database/sql/pgxstdlib` | PostgreSQL `database/sql` driver built on pgx, TLS included |
+| [`mysql`](./database/sql/mysql) | `github.com/shibukawa/tinygodriver/database/sql/mysql` | MySQL and MariaDB `database/sql` driver built on go-sql-driver, TLS included |
+| [`storage/s3`](./storage/s3) | `github.com/shibukawa/tinygodriver/storage/s3` | S3 client (SigV4), where `aws-sdk-go-v2` does not build |
 
 ## Quick start
 
@@ -89,6 +91,7 @@ func main() {
 | HTTP server and reverse proxy | [`examples/httpserver`](./examples/httpserver) | Method-aware routes, host netdev, and a configurable reverse proxy |
 | HTTPS client | [`examples/httpsclient`](./examples/httpsclient) | `https.Get` over the OS TLS stack, with an optional custom CA |
 | HTTPS platform demo | [`examples/httpsdemo`](./examples/httpsdemo) | One source, every platform: verifies trust, refusal behavior, and deadlines |
+| S3 object storage | [`examples/s3demo`](./examples/s3demo) | Put, get, range-read, list, and delete against any S3-compatible endpoint |
 
 ## Platform notes
 
@@ -98,6 +101,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
+- [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
 
 - **IPv4 only** (matches TinyGo’s net port).
 - **HTTPS client (`https`)**: Network.framework on macOS, Schannel on Windows,
@@ -117,6 +121,7 @@ Install only the packages an application uses, for example:
 go get github.com/shibukawa/tinygodriver/netdev@latest
 go get github.com/shibukawa/tinygodriver/httpmux@latest
 go get github.com/shibukawa/tinygodriver/httprevproxy@latest
+go get github.com/shibukawa/tinygodriver/storage/s3@latest
 ```
 
 Requires [TinyGo](https://tinygo.org/getting-started/install/) for TinyGo builds. Compatible with the Netdever interface in [tinygo-org/drivers/netdev](https://github.com/tinygo-org/drivers/tree/dev/netdev).
