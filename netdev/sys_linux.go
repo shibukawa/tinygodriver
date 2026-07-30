@@ -166,7 +166,11 @@ func errnoError(e int) error {
 	case 99: // EADDRNOTAVAIL
 		return ErrAddrNotAvailable
 	default:
-		return ErrSyscall
+		// Keep the raw code. Collapsing every unmapped failure into a bare
+		// "syscall error" leaves a user with nothing to act on, and this is
+		// exactly the path an unusual failure takes. errors.Is still matches
+		// ErrSyscall.
+		return fmt.Errorf("%w: errno %d", ErrSyscall, e)
 	}
 }
 

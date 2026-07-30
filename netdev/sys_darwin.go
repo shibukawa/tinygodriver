@@ -105,6 +105,7 @@ static int h_select(int nfds, void *rfds, void *wfds, void *efds, void *timeout)
 */
 import "C"
 import (
+	"fmt"
 	"net/netip"
 	"time"
 	"unsafe"
@@ -200,7 +201,11 @@ func errnoError(e int) error {
 	case 49: // EADDRNOTAVAIL
 		return ErrAddrNotAvailable
 	default:
-		return ErrSyscall
+		// Keep the raw code. Collapsing every unmapped failure into a bare
+		// "syscall error" leaves a user with nothing to act on, and this is
+		// exactly the path an unusual failure takes. errors.Is still matches
+		// ErrSyscall.
+		return fmt.Errorf("%w: errno %d", ErrSyscall, e)
 	}
 }
 

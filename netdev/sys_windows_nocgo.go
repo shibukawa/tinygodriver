@@ -20,6 +20,7 @@ package netdev
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"sync"
 	"syscall"
@@ -93,7 +94,11 @@ func errnoError(e int) error {
 	case 10049: // WSAEADDRNOTAVAIL
 		return ErrAddrNotAvailable
 	default:
-		return ErrSyscall
+		// Keep the raw code. Collapsing every unmapped failure into a bare
+		// "syscall error" leaves a user with nothing to act on, and this is
+		// exactly the path an unusual failure takes. errors.Is still matches
+		// ErrSyscall.
+		return fmt.Errorf("%w: winsock error %d", ErrSyscall, e)
 	}
 }
 
