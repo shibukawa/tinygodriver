@@ -256,6 +256,24 @@ mingw-w64 toolchain, which that file already required.
 
 ### Known limitations
 
+- **No HTTP proxy support on the native path.** TinyGo builds, and any build
+  with `-tags force_tinygo_logic`, dial the origin server directly and ignore
+  `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` entirely. Standard Go builds do
+  honor them, because they delegate to `net/http`, whose `DefaultTransport`
+  carries `ProxyFromEnvironment`.
+
+  On a network where direct outbound 443 is blocked this surfaces as a dial
+  failure with an unmapped socket error rather than as anything mentioning a
+  proxy, which makes it hard to recognise:
+
+  ```
+  https: dial www.google.com: syscall error: winsock error 10013
+  ```
+
+  The missing piece is a `CONNECT` tunnel. The exported `DialPlain` and
+  `Upgrade` pair is already the right shape for it — dial the proxy, write the
+  `CONNECT` request, then start TLS on that same socket — so this is a gap in
+  the client rather than in any backend.
 - **Client certificates are not supported on macOS.** Network.framework needs a
   `SecIdentityRef`, which requires importing the private key into a keychain.
   `WithClientCertificate` returns `ErrClientCertificateUnsupported` there. They
