@@ -55,7 +55,51 @@ func lookupHostsFile(name string) (netip.Addr, bool) {
 	return netip.Addr{}, false
 }
 
+// NetdevDNSEnv names the environment variable that overrides which resolvers
+// are used. The value is a comma or space separated list of IPv4 addresses,
+// each with an optional :port that defaults to 53:
+//
+//	NETDEV_DNS=10.0.0.53
+//	NETDEV_DNS=10.0.0.53,10.0.0.54:5353
+//
+// It exists because the configuration this package can discover on its own is
+// not always the configuration the machine actually uses. On windows there is
+// no /etc/resolv.conf at all, so without this every lookup went to 8.8.8.8 and
+// no internal name could ever resolve. On macOS /etc/resolv.conf is a legacy
+// file that the OS itself documents as not consulted, so it misses the
+// domain-scoped resolvers a VPN installs.
+const NetdevDNSEnv = "NETDEV_DNS"
+
+// nameserversFromEnv parses NETDEV_DNS. An unparseable entry is skipped rather
+// than failing the lookup, so one typo cannot take out a whole list.
+func nameserversFromEnv() []netip.AddrPort {
+	raw := os.Getenv(NetdevDNSEnv)
+	if raw == "" {
+		return nil
+	}
+	var out []netip.AddrPort
+	for _, field := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	}) {
+		if ap, err := netip.ParseAddrPort(field); err == nil {
+			if ap.Addr().Is4() {
+				out = append(out, ap)
+			}
+			continue
+		}
+		if ip, err := netip.ParseAddr(field); err == nil && ip.Is4() {
+			out = append(out, netip.AddrPortFrom(ip, 53))
+		}
+	}
+	return out
+}
+
 func nameservers() []netip.AddrPort {
+	// The override wins outright. Falling back to the discovered list would
+	// hide a typo behind a resolver that cannot answer internal names.
+	if out := nameserversFromEnv(); len(out) > 0 {
+		return out
+	}
 	var out []netip.AddrPort
 	data, err := os.ReadFile(resolvPath())
 	if err == nil {

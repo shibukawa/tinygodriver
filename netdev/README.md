@@ -110,14 +110,33 @@ go run ./examples/httpserver
 - DNS uses `/etc/hosts` (or the Windows hosts file) plus a simple UDP A-record
   resolver. Nameservers come from `/etc/resolv.conf`, falling back to `8.8.8.8`
   when none is found.
-- **On Windows the resolver is always `8.8.8.8`.** There is no
-  `/etc/resolv.conf`, `resolvPath` returns an empty string, and nothing reads
-  the addresses Windows actually has configured, so the fallback is the only
-  path. A name that only the corporate or split-horizon DNS can answer fails
-  with `Host unknown`, and no environment variable overrides it.
+- **`NETDEV_DNS` overrides which resolvers are used**, on every platform:
 
-  The hosts file is read first, so an entry in
-  `%SystemRoot%\System32\drivers\etc\hosts` is the workaround until this is
-  fixed. The fix is to ask Windows itself — `DnsQuery_W` also applies the
-  suffix search list and NRPT policy, which reading a server list would not.
+  ```bash
+  NETDEV_DNS=10.0.0.53
+  NETDEV_DNS=10.0.0.53,10.0.0.54:5353   # comma or space separated, :port optional
+  ```
+
+  It replaces the discovered list outright rather than being appended to it, so
+  a resolver that cannot answer internal names is not tried first. Unparseable
+  and non-IPv4 entries are skipped rather than failing the lookup.
+
+  This exists because what the package can discover is not always what the
+  machine actually uses:
+
+  - **Windows has no `/etc/resolv.conf` at all**, so without an override every
+    lookup goes to `8.8.8.8` and no internal or split-horizon name can ever
+    resolve.
+  - **macOS `/etc/resolv.conf` is a legacy file the OS documents as not
+    consulted** — it says so in its own header, and directs you to
+    `scutil --dns`. It happens to carry the right servers on a simple network,
+    but it does not represent the domain-scoped resolvers a VPN installs.
+  - Linux reads the real thing and is generally correct.
+
+  Two further limits apply everywhere: `search` and `domain` lines are ignored,
+  so an unqualified short name will not resolve, and a resolver list with only
+  IPv6 entries is treated as empty because this package is IPv4-only.
+
+  The hosts file is read before any resolver, so an entry in `/etc/hosts` or
+  `%SystemRoot%\System32\drivers\etc\hosts` also works.
 - Multiple goroutines may call socket methods concurrently; the driver serializes bookkeeping and relies on OS sockets for I/O.

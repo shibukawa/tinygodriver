@@ -1,50 +1,70 @@
 ---
 id: requirement:http-proxy-support
 type: requirement
-title: HTTP Proxy Support, Missing on the Native Path
+title: HTTP Proxy Support
 ---
-The native backends dial the origin server directly and ignore the proxy environment variables, so an application behind a mandatory proxy cannot reach anything.
+The native path reads the proxy environment and tunnels with CONNECT, so a program behaves the same whichever compiler produced it.
 
 ```yaml
 priority: should
-state: gap, not implemented
+state: implemented
 found: 2026-07-30, by a user on a corporate windows network
-evidence:
-  - grep -i proxy over the non-test sources of https/ and netdev/ returns nothing
-  - roundtrip_std.go clones http.DefaultTransport, which carries
-    Proxy: ProxyFromEnvironment, so the std path does honor them
-asymmetry:
-  std_go: HTTP_PROXY, HTTPS_PROXY and NO_PROXY all honored, via net/http
-  native: ignored entirely; roundtrip_native.go calls dialTLS straight away
-  consequence: >
-    plain `go build` works behind a proxy and `go build -tags
-    force_tinygo_logic` does not, on the same machine, which reads as a bug in
-    the tagged build rather than a missing feature
-symptom:
-  looks_like: a dial failure naming a socket error, never a proxy
-  example: 'https: dial www.google.com: syscall error: winsock error 10013'
-  why_confusing: >
-    DNS succeeds, the socket is created, and only connect fails, so the first
-    suspicion falls on the socket layer. requirement:error-classification made
-    this worse until the raw errno was preserved: every unmapped winsock code
-    became a bare "syscall error".
-  triage: >
-    Socket OK plus Connect failing to a public address on 443 is the signature.
-    A blocked direct route reports WSAEACCES 10013, WSAENETUNREACH 10051 or
-    WSAEHOSTUNREACH 10065, none of which are mapped sentinels.
-design_note: >
-  the work is a CONNECT tunnel, and api:tls-dialer already exposes the two
-  primitives it needs. DialPlain gives a plaintext socket that carries its
-  descriptor, and Upgrade starts TLS on a socket that has already carried
-  plaintext. CONNECT is exactly that sequence, so no backend needs to change.
-  This matters most on darwin, where dial cannot adopt an existing socket but
-  the Secure Transport upgrade path can, so even there the feature costs
-  nothing new.
-open_questions:
-  scope: whether to honor the environment variables or take an explicit config field
-  auth: whether Proxy-Authorization is in scope
-  no_proxy: NO_PROXY matching rules are fiddly; net/http's httpproxy logic is the reference
-until_then:
-  workaround: build without force_tinygo_logic, which uses net/http and its proxy support
-  not_available_to: tinygo builds, which have no std path to fall back to
+original_gap: >
+  the native path dialled the origin directly and consulted nothing. grep -i
+  proxy over the non-test sources of https/ and netdev/ returned nothing at
+  all, while roundtrip_std.go had proxy support for free because it clones
+  http.DefaultTransport, which carries Proxy: ProxyFromEnvironment. The result
+  was that a plain go build worked behind a proxy and the same program built
+  with -tags force_tinygo_logic did not, which reads as a bug in the tagged
+  build rather than a missing feature.
+implementation:
+  files: https/proxy.go, https/proxy_native.go, https/proxy_unsupported.go
+  variables: HTTPS_PROXY, HTTP_PROXY, NO_PROXY, plus the lowercase spellings
+  precedence: uppercase first, matching net/http
+  https_flow: DialPlain to the proxy, CONNECT, then Upgrade on the same socket
+  http_flow: dial the proxy and write the absolute request form via WriteProxy
+  auth: userinfo in the proxy URL becomes Proxy-Authorization Basic
+  no_backend_changes: >
+    api:tls-dialer already exposed the two primitives CONNECT needs, so nothing
+    below the client had to move. This is what made the feature cheap.
+  darwin_dividend: >
+    the proxied path goes through Upgrade, so it uses Secure Transport rather
+    than Network.framework, which cannot adopt an existing socket. It therefore
+    works on darwin at all, at the TLS 1.2 ceiling the STARTTLS path documents.
+refused:
+  schemes: [https, socks5, socks5h]
+  sentinel: ErrProxyScheme
+  reason: >
+    an https:// proxy means TLS inside TLS, and every native backend starts
+    from a descriptor, so the inner session has no socket to use. Failing
+    loudly beats connecting direct, which would send traffic a deployment
+    expects to be proxied.
+  future: >
+    all three backends are really buffer transformers -- schannel never sees
+    the socket at all -- so taking read and write callbacks instead of a
+    descriptor would unlock this. Network.framework could not follow, but it
+    already sits out the upgrade path.
+verified:
+  how: >
+    a hand-rolled CONNECT proxy in proxy_tunnel_test.go, reading its request
+    head one byte at a time so the test exercises the same discipline the
+    client needs
+  covers:
+    - a real end-to-end TLS session through the tunnel, against an origin with its own CA
+    - the origin certificate is verified, not the proxy's
+    - NO_PROXY bypasses the tunnel and connects direct
+    - Proxy-Authorization is sent
+    - a 407 is reported as an authentication failure
+    - plain http uses the absolute request form
+  platforms: >
+    passes on darwin; on windows under wine everything passes except the cases
+    needing custom-CA acceptance, which wine's crypt32 cannot do at all. The
+    failure messages name "upgrade" and "dial" respectively, which is itself
+    evidence the tunnel and the NO_PROXY bypass worked.
+not_covered:
+  - NO_PROXY CIDR ranges; host names, suffixes, literal IPs and ports all work
+windows_env_note: >
+  windows environment variables are case-insensitive, so HTTPS_PROXY and
+  https_proxy are one variable there and the precedence rule is unobservable.
+  Checking both names stays harmless, and the test skips that assertion.
 ```

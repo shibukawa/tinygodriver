@@ -77,6 +77,33 @@ store and requires TLS 1.2 or later. Custom CAs are **added** to the system
 anchors unless `WithRootCAsOnly(true)` is set. No build ever falls back to
 plaintext or to an unverified connection.
 
+## Proxies
+
+The proxy environment is read on every build, with the same variables and the
+same precedence `net/http` uses, so a program behaves identically whichever
+compiler produced it:
+
+```bash
+export HTTPS_PROXY=http://proxy.example.com:8080
+export NO_PROXY=internal.example.com,.corp.example.com
+```
+
+`HTTPS_PROXY` selects the proxy for `https://` requests and `HTTP_PROXY` for
+`http://` ones; the lowercase spellings are accepted as fallbacks. Credentials
+in the URL become a `Proxy-Authorization` header.
+
+Note that the scheme in the variable describes the hop **to the proxy**, not to
+the origin. With `HTTPS_PROXY=http://…` the `CONNECT` request is plaintext, and
+the TLS session inside the tunnel is still end to end with the origin — the
+proxy sees only the host name and port. The certificate is verified against the
+origin, never the proxy.
+
+Standard Go builds get this from `net/http`. Native builds do it here, using
+`DialPlain` and `Upgrade`: dial the proxy, write `CONNECT`, then start TLS on
+that same socket. On macOS the proxied path therefore runs through Secure
+Transport rather than Network.framework, so it caps at **TLS 1.2**, the same
+trade the STARTTLS path documents below.
+
 ## Errors
 
 Native status codes map onto sentinels, so application code branches the same
@@ -256,24 +283,15 @@ mingw-w64 toolchain, which that file already required.
 
 ### Known limitations
 
-- **No HTTP proxy support on the native path.** TinyGo builds, and any build
-  with `-tags force_tinygo_logic`, dial the origin server directly and ignore
-  `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` entirely. Standard Go builds do
-  honor them, because they delegate to `net/http`, whose `DefaultTransport`
-  carries `ProxyFromEnvironment`.
-
-  On a network where direct outbound 443 is blocked this surfaces as a dial
-  failure with an unmapped socket error rather than as anything mentioning a
-  proxy, which makes it hard to recognise:
-
-  ```
-  https: dial www.google.com: syscall error: winsock error 10013
-  ```
-
-  The missing piece is a `CONNECT` tunnel. The exported `DialPlain` and
-  `Upgrade` pair is already the right shape for it — dial the proxy, write the
-  `CONNECT` request, then start TLS on that same socket — so this is a gap in
-  the client rather than in any backend.
+- **An `https://` proxy is refused.** Talking TLS *to* the proxy and then
+  running the origin's TLS inside that tunnel means TLS in TLS, and every
+  native backend starts from a descriptor, so the inner session has no socket
+  to use. `ErrProxyScheme` is returned rather than quietly connecting direct,
+  which would send traffic a deployment expects to be proxied. `socks5://` is
+  refused for the same reason. An `http://` proxy — by far the common case —
+  works.
+- **`NO_PROXY` does not accept CIDR ranges.** Host names, domain suffixes,
+  literal IP addresses and an optional port all work; `10.0.0.0/8` does not.
 - **Client certificates are not supported on macOS.** Network.framework needs a
   `SecIdentityRef`, which requires importing the private key into a keychain.
   `WithClientCertificate` returns `ErrClientCertificateUnsupported` there. They

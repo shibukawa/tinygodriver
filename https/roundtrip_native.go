@@ -26,7 +26,7 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	host, port := hostPort(req.URL)
-	conn, err := dialTLS(req.Context(), host, port, t.Config, t.dialTimeout())
+	conn, err := dialTLSMaybeProxy(req.Context(), host, port, t.Config, t.dialTimeout())
 	if err != nil {
 		if req.Body != nil {
 			req.Body.Close()
@@ -34,23 +34,25 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	return t.exchange(req, conn, host)
+	// A CONNECT tunnel is transparent once established, so the request is
+	// written in origin form exactly as it would be on a direct connection.
+	return t.exchange(req, conn, host, false)
 }
 
 // roundTripPlain handles http:// so a redirect from https to http still works.
 func (t *Transport) roundTripPlain(req *http.Request) (*http.Response, error) {
 	host, port := hostPort(req.URL)
-	conn, err := net.DialTimeout("tcp4", net.JoinHostPort(host, port), t.dialTimeout())
+	conn, viaProxy, err := dialPlainMaybeProxy(req.Context(), host, port, t.dialTimeout())
 	if err != nil {
 		if req.Body != nil {
 			req.Body.Close()
 		}
 		return nil, err
 	}
-	return t.exchange(req, conn, host)
+	return t.exchange(req, conn, host, viaProxy)
 }
 
-func (t *Transport) exchange(req *http.Request, conn net.Conn, host string) (*http.Response, error) {
+func (t *Transport) exchange(req *http.Request, conn net.Conn, host string, viaProxy bool) (*http.Response, error) {
 	if deadline, ok := req.Context().Deadline(); ok {
 		conn.SetDeadline(deadline)
 	} else if t.ResponseTimeout > 0 {
@@ -68,7 +70,14 @@ func (t *Transport) exchange(req *http.Request, conn net.Conn, host string) (*ht
 	// connection open. RoundTrip must not mutate req, hence the clone.
 	out := req.Clone(req.Context())
 	out.Close = true
-	if err := out.Write(conn); err != nil {
+	// An http:// request sent to a proxy takes the absolute form,
+	// "GET http://host/path", rather than the origin form. WriteProxy is the
+	// only difference; a CONNECT tunnel is transparent and uses Write.
+	write := out.Write
+	if viaProxy {
+		write = out.WriteProxy
+	}
+	if err := write(conn); err != nil {
 		stop()
 		conn.Close()
 		return nil, cancelledOr(req, &Error{Op: "write", Host: host, Backend: backendName, Err: err})
