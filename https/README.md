@@ -238,12 +238,15 @@ run says nothing about Schannel:
 go test -tags force_tinygo_logic ./...
 ```
 
-That needs `CGO_ENABLED=1` and a C compiler on `PATH`. Go on Windows silently
-sets `CGO_ENABLED=0` when it cannot find one, and `netdev` does not build at
-all without cgo, so a missing toolchain shows up as undefined symbols rather
-than as a skipped backend. `netdev` is the exception to the tag rule: its
-`IPPROTO_TLS` support is not behind `force_tinygo_logic`, so `TestIPProtoTLS`
-exercises Schannel under a plain `go test ./netdev` too.
+That needs `CGO_ENABLED=1` and a C compiler on `PATH`, because Schannel is
+reached through cgo. Go on Windows silently sets `CGO_ENABLED=0` when it finds
+no compiler; in that case the backend reports `ErrPlatformNotSupported` rather
+than failing to build, and `https` without the tag still works because it
+delegates to `crypto/tls`.
+
+`netdev` is the exception to the tag rule: its `IPPROTO_TLS` support is not
+behind `force_tinygo_logic`, so `TestIPProtoTLS` exercises Schannel under a
+plain `go test ./netdev` too — when cgo is available.
 
 Note that the design notes originally called for a pure-Go binding through
 `syscall.NewLazyDLL`. TinyGo ships no Windows `syscall` implementation at all,

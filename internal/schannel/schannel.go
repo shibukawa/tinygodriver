@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && cgo
 
 // Package schannel wraps the Windows Schannel provider for the packages in
 // this repository that need TLS over a socket they already own.

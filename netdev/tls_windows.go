@@ -28,6 +28,11 @@ const handshakeTimeout = 30 * time.Second
 const tlsOpTimeout = 5 * time.Minute
 
 func sysTLSConnect(fd int, hostname string) (uintptr, error) {
+	if !schannel.Supported {
+		// A cgo-free build has no Schannel binding. Say so plainly rather than
+		// letting the shim report a setup failure with a zero status code.
+		return 0, ErrProtocolNotSupported
+	}
 	if hostname == "" {
 		return 0, errors.New("tls: empty server name")
 	}

@@ -87,11 +87,19 @@ go run ./examples/httpserver
   over an already connected descriptor, and an `nw_connection` owns DNS, TCP
   and TLS as one unit and cannot adopt one. The cost is that Secure Transport
   stops at **TLS 1.2**; the previous OpenSSL implementation negotiated 1.3.
+- Windows has **two socket backends**. Host Go uses a pure-Go one built on
+  `syscall` plus a few `ws2_32` entry points, so `go build` needs **no C
+  compiler**; that matters because the blank import is a no-op under host Go and
+  used to break builds that never touched this package. TinyGo has no windows
+  `syscall` package, so it keeps the cgo backend and still needs mingw-w64.
 - `IPPROTO_TLS` uses **Schannel** on Windows, reached through SSPI. It ships
   with the OS, so there is nothing to install here either, and it reaches
   **TLS 1.3** where the OS supports it. Peer certificates and hostnames are
   verified against the Windows certificate store; `SSL_CERT_FILE` adds a
   private CA the same way it does on macOS.
+
+  TLS is the one part that does need cgo. A cgo-free host-Go build keeps full
+  socket support and returns `ErrProtocolNotSupported` for `IPPROTO_TLS`.
 - Standard Go Linux builds can exercise the same OpenSSL adapter. TinyGo Linux
   cannot safely call the distribution's shared OpenSSL because it bypasses
   glibc process initialization, so TinyGo Linux currently returns

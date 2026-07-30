@@ -1,4 +1,4 @@
-//go:build darwin || windows || (linux && !tinygo)
+//go:build darwin || (windows && cgo) || (linux && !tinygo)
 
 // IPPROTO_TLS is backed by Secure Transport on darwin, Schannel on windows and
 // OpenSSL on host-Go Linux, so this exercises all three.

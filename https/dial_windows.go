@@ -93,6 +93,12 @@ func upgradeTLS(fd int, host string, cfg *Config, timeout time.Duration) (net.Co
 // schannelOptions translates a Config into what the backend takes. PEM is
 // decoded here so the C layer never needs a base64 decoder.
 func schannelOptions(host string, cfg *Config) (schannel.Options, error) {
+	if !schannel.Supported {
+		// Asking for the native backend in a cgo-free build. There is no
+		// Schannel binding to reach, and this must not quietly become a
+		// plaintext or unverified connection.
+		return schannel.Options{}, ErrPlatformNotSupported
+	}
 	opt := schannel.Options{
 		Host:       host,
 		SkipVerify: cfg.skipVerify(),

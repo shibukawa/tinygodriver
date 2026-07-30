@@ -1,4 +1,4 @@
-//go:build force_tinygo_logic && !tinygo && windows
+//go:build force_tinygo_logic && !tinygo && windows && cgo
 
 package https_test
 

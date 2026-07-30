@@ -6,6 +6,28 @@ title: netdev Host Driver
 Existing in-repo Netdever that gives TinyGo `net` and `net/http` a host TCP/IP stack; the new package builds above it, not inside it.
 
 ```yaml
+windows_backends:
+  cgo:
+    file: netdev/sys_windows.go
+    tag: windows && cgo
+    used_by: tinygo, and host go when a C compiler is present
+    note: >
+      INVALID_SOCKET and SOCKET_ERROR are Go constants, not #defines. TinyGo's
+      cgo parses every #define body as a Go expression and ((SOCKET)(~0)) is
+      not one, so the #define made `tinygo build` fail to parse the file.
+  pure_go:
+    file: netdev/sys_windows_nocgo.go
+    tag: windows && !cgo
+    used_by: host go with no C compiler, where CGO_ENABLED silently becomes 0
+    why: >
+      the blank import is a no-op under host go, yet it used to break the build
+      of programs that never touch netdev. Sockets now work with no toolchain.
+    implementation: >
+      syscall covers most of winsock; Accept, Recvfrom and Sendto are EWINDOWS
+      stubs and select is absent, so accept, select, send and recv come from
+      ws2_32 through NewLazyDLL. TinyGo cannot use this: it has no windows
+      syscall package at all.
+    tls: unavailable; IPPROTO_TLS reports ErrProtocolNotSupported
 import: github.com/shibukawa/tinygodriver/netdev
 provides:
   - Socket, Connect, Send, Recv, Close over BSD sockets on linux, darwin, windows

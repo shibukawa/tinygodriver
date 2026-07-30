@@ -1,4 +1,8 @@
-//go:build windows
+//go:build windows && cgo
+
+// The cgo socket backend. TinyGo has no windows syscall package, so this is the
+// only one it can use. Host Go without a C compiler gets sys_windows_nocgo.go
+// instead, which is why a plain `go build` no longer needs mingw.
 
 package netdev
 
@@ -43,8 +47,11 @@ int setsockopt(SOCKET s, int level, int optname, const char *optval, int optlen)
 int getsockname(SOCKET s, void *name, int *namelen);
 int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 
-#define INVALID_SOCKET ((SOCKET)(~0))
-#define SOCKET_ERROR (-1)
+// INVALID_SOCKET and SOCKET_ERROR are deliberately not #defined here.
+// TinyGo's cgo parses the body of every #define as a Go expression, and the
+// usual ((SOCKET)(~0)) is not one, because Go has no unary ~. That made
+// `tinygo build` fail to parse this file at all. The sentinels live on the Go
+// side instead, as invalidSocket and socketError.
 
 static int h_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout) {
 	return select(nfds, readfds, writefds, exceptfds, timeout);
@@ -57,6 +64,12 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+)
+
+// Winsock sentinels, kept in Go because they cannot be #defined above.
+const (
+	invalidSocket = ^C.SOCKET(0)
+	socketError   = C.int(-1)
 )
 
 const (
@@ -173,7 +186,7 @@ func sysSocket(domain, stype, proto int) (int, error) {
 		return -1, ErrProtocolNotSupported
 	}
 	s := C.socket(C.int(osAF_INET), C.int(ostype), C.int(oproto))
-	if s == C.INVALID_SOCKET {
+	if s == invalidSocket {
 		return -1, lastErrno()
 	}
 	return int(s), nil
@@ -184,14 +197,14 @@ func sysBind(fd int, ip netip.AddrPort) error {
 	if err != nil {
 		return err
 	}
-	if C.bind(C.SOCKET(fd), unsafe.Pointer(&sa), 16) == C.SOCKET_ERROR {
+	if C.bind(C.SOCKET(fd), unsafe.Pointer(&sa), 16) == socketError {
 		return lastErrno()
 	}
 	return nil
 }
 
 func sysListen(fd, backlog int) error {
-	if C.listen(C.SOCKET(fd), C.int(backlog)) == C.SOCKET_ERROR {
+	if C.listen(C.SOCKET(fd), C.int(backlog)) == socketError {
 		return lastErrno()
 	}
 	return nil
@@ -201,7 +214,7 @@ func sysAccept(fd int) (int, netip.AddrPort, error) {
 	var sa sockaddrInet4
 	n := C.int(16)
 	s := C.accept(C.SOCKET(fd), unsafe.Pointer(&sa), &n)
-	if s == C.INVALID_SOCKET {
+	if s == invalidSocket {
 		return -1, netip.AddrPort{}, lastErrno()
 	}
 	return int(s), fromSockaddr(sa), nil
@@ -212,14 +225,14 @@ func sysConnect(fd int, ip netip.AddrPort) error {
 	if err != nil {
 		return err
 	}
-	if C.connect(C.SOCKET(fd), unsafe.Pointer(&sa), 16) == C.SOCKET_ERROR {
+	if C.connect(C.SOCKET(fd), unsafe.Pointer(&sa), 16) == socketError {
 		return lastErrno()
 	}
 	return nil
 }
 
 func sysClose(fd int) error {
-	if C.closesocket(C.SOCKET(fd)) == C.SOCKET_ERROR {
+	if C.closesocket(C.SOCKET(fd)) == socketError {
 		return lastErrno()
 	}
 	return nil
@@ -227,7 +240,7 @@ func sysClose(fd int) error {
 
 func sysSend(fd int, buf []byte, flags int) (int, error) {
 	n := int(C.send(C.SOCKET(fd), (*C.char)(unsafe.Pointer(&buf[0])), C.int(len(buf)), C.int(flags)))
-	if n == int(C.SOCKET_ERROR) {
+	if n == int(socketError) {
 		return -1, lastErrno()
 	}
 	return n, nil
@@ -235,7 +248,7 @@ func sysSend(fd int, buf []byte, flags int) (int, error) {
 
 func sysRecv(fd int, buf []byte, flags int) (int, error) {
 	n := int(C.recv(C.SOCKET(fd), (*C.char)(unsafe.Pointer(&buf[0])), C.int(len(buf)), C.int(flags)))
-	if n == int(C.SOCKET_ERROR) {
+	if n == int(socketError) {
 		return -1, lastErrno()
 	}
 	return n, nil
@@ -243,7 +256,7 @@ func sysRecv(fd int, buf []byte, flags int) (int, error) {
 
 func sysSetReuseAddr(fd int) error {
 	one := C.int(1)
-	if C.setsockopt(C.SOCKET(fd), osSOL_SOCKET, osSO_REUSEADDR, (*C.char)(unsafe.Pointer(&one)), 4) == C.SOCKET_ERROR {
+	if C.setsockopt(C.SOCKET(fd), osSOL_SOCKET, osSO_REUSEADDR, (*C.char)(unsafe.Pointer(&one)), 4) == socketError {
 		return lastErrno()
 	}
 	return nil
@@ -260,19 +273,19 @@ func sysSetSockOpt(fd int, level, opt int, value interface{}) error {
 		if v {
 			iv = 1
 		}
-		if C.setsockopt(C.SOCKET(fd), C.int(osLevel), C.int(osOpt), (*C.char)(unsafe.Pointer(&iv)), 4) == C.SOCKET_ERROR {
+		if C.setsockopt(C.SOCKET(fd), C.int(osLevel), C.int(osOpt), (*C.char)(unsafe.Pointer(&iv)), 4) == socketError {
 			return lastErrno()
 		}
 		return nil
 	case int:
 		iv := C.int(v)
-		if C.setsockopt(C.SOCKET(fd), C.int(osLevel), C.int(osOpt), (*C.char)(unsafe.Pointer(&iv)), 4) == C.SOCKET_ERROR {
+		if C.setsockopt(C.SOCKET(fd), C.int(osLevel), C.int(osOpt), (*C.char)(unsafe.Pointer(&iv)), 4) == socketError {
 			return lastErrno()
 		}
 		return nil
 	case float64:
 		iv := C.int(v)
-		if C.setsockopt(C.SOCKET(fd), C.int(osLevel), C.int(osOpt), (*C.char)(unsafe.Pointer(&iv)), 4) == C.SOCKET_ERROR {
+		if C.setsockopt(C.SOCKET(fd), C.int(osLevel), C.int(osOpt), (*C.char)(unsafe.Pointer(&iv)), 4) == socketError {
 			return lastErrno()
 		}
 		return nil
@@ -345,7 +358,7 @@ func waitFD(fd int, read bool, deadline time.Time) error {
 func sysLocalAddr(fd int) (netip.AddrPort, error) {
 	var sa sockaddrInet4
 	n := C.int(16)
-	if C.getsockname(C.SOCKET(fd), unsafe.Pointer(&sa), &n) == C.SOCKET_ERROR {
+	if C.getsockname(C.SOCKET(fd), unsafe.Pointer(&sa), &n) == socketError {
 		return netip.AddrPort{}, lastErrno()
 	}
 	return fromSockaddr(sa), nil

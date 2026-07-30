@@ -149,10 +149,13 @@ how_to_run_on_windows:
     netdev/tls_windows.go carries no tinygo tag, so netdev's TestIPProtoTLS
     hits Schannel even under a plain `go test ./netdev`.
   requires: >
-    CGO_ENABLED=1 and a C compiler on PATH. Go on windows silently falls back
-    to CGO_ENABLED=0 when it finds none, and netdev does not build without cgo
-    at all, so the symptom is undefined symbols rather than a skipped backend.
-    This matches darwin, which has the same property.
+    CGO_ENABLED=1 and a C compiler on PATH, because Schannel itself is cgo. Go
+    on windows silently falls back to CGO_ENABLED=0 when it finds none; the
+    backend then reports ErrPlatformNotSupported instead of failing to build.
+  cgo_free_builds: >
+    netdev builds and runs without cgo on windows since the pure-Go socket
+    backend was added. Sockets work fully; only IPPROTO_TLS is unavailable.
+    This is windows-only: darwin still fails to build netdev without cgo.
   link_check_done: >
     all 7 packages with tests cross-compile and link for windows/amd64 in both
     tag configurations, under mingw-w64 14.0.0.
