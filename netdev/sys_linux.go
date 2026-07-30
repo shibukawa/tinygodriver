@@ -82,6 +82,7 @@ static int h_select(int nfds, void *rfds, void *wfds, void *efds, void *timeout)
 */
 import "C"
 import (
+	"fmt"
 	"net/netip"
 	"time"
 	"unsafe"
