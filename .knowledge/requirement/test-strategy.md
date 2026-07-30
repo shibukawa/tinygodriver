@@ -28,13 +28,14 @@ layers:
   linux_from_darwin:
     command: >
       docker run --platform linux/arm64 -v $PWD:/src -w /src golang:1.26, then
-      apt-get install libssl-dev and the two go test layers above
+      the two go test layers above. No package install is needed since
+      decision:netdev-crypto-tls-on-linux.
     value: >
       the darwin development host has no cgo cross toolchain for linux, so a
       container is the only way to compile the //go:build linux files at all.
       That is not a convenience: netdev/sys_linux.go shipped a missing fmt
       import that no darwin build could ever have caught.
-    covers: system:mbedtls for TLS and system:tinygo-netdev over OpenSSL
+    covers: system:mbedtls for TLS, plus system:tinygo-netdev sockets and DNS
     status: >
       passing on linux/arm64 for every package, and on linux/amd64 under
       emulation for the https suite

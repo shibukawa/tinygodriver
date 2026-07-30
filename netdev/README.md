@@ -100,13 +100,19 @@ go run ./examples/httpserver
 
   TLS is the one part that does need cgo. A cgo-free host-Go build keeps full
   socket support and returns `ErrProtocolNotSupported` for `IPPROTO_TLS`.
-- Standard Go Linux builds can exercise the same OpenSSL adapter. TinyGo Linux
-  cannot safely call the distribution's shared OpenSSL because it bypasses
-  glibc process initialization, so TinyGo Linux currently returns
+- `IPPROTO_TLS` uses **`crypto/tls`** on host-Go Linux. Trust anchors come from
+  `x509.SystemCertPool`, which honors `SSL_CERT_FILE` and `SSL_CERT_DIR`.
+  TinyGo Linux cannot safely call the distribution's shared OpenSSL, because it
+  bypasses glibc process initialization, so it returns
   `ErrProtocolNotSupported` for `IPPROTO_TLS`.
-- OpenSSL 3 is a build and runtime dependency **on host-Go Linux only**
-  (`libssl-dev` on Debian/Ubuntu). macOS and TinyGo Linux need neither it nor a
-  package manager.
+
+  Linux is the only platform where the host-Go TLS backend is not also the one
+  a TinyGo binary runs. That is exactly why the standard library is the right
+  answer here and the wrong one on macOS and Windows: an OpenSSL adapter made
+  `libssl` a dependency of every Linux build in order to serve a path that
+  never ships.
+- **No package manager is needed anywhere.** No platform requires OpenSSL, at
+  build time or at run time.
 - DNS uses `/etc/hosts` (or the Windows hosts file) plus a simple UDP A-record
   resolver. Nameservers come from `/etc/resolv.conf`, falling back to `8.8.8.8`
   when none is found.

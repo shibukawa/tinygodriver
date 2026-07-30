@@ -44,4 +44,6 @@ behaviour_preserved:
 error_reporting: >
     the OpenSSL implementation collapsed every failure into four generic
     strings. The replacement names the failure class and carries the OSStatus.
-still_openssl: host-Go linux, where netdev/tls_openssl_linux.go is unchanged
+still_openssl: >
+  nothing. host-Go linux was the last holdout and moved to crypto/tls in
+  decision:netdev-crypto-tls-on-linux.

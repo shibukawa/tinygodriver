@@ -3,31 +3,28 @@ id: system:openssl
 type: system
 title: OpenSSL 3 Backend
 ---
-Not a backend of this package. Retained because system:tinygo-netdev still uses OpenSSL for its own IPPROTO_TLS path, and because the failed integration attempts justify decision:linux-mbedtls.
+No longer used anywhere in the repository. Retained only because the failed integration attempts justify decision:linux-mbedtls.
 
 ```yaml
-state: not_used_by_this_package
-status_note: >
-  OpenSSL is no longer a backend anywhere. darwin excluded it to avoid Homebrew
-  per decision:macos-network-framework, and linux replaced it with
-  system:mbedtls per decision:linux-mbedtls. This concept is retained because
-  system:tinygo-netdev still uses OpenSSL for its own IPPROTO_TLS path.
-platform: linux, netdev only
-model: fd_attached
-availability: libssl3 runtime, libssl-dev at build time; not installed by default everywhere
-symbols:
-  handshake: [TLS_client_method, SSL_CTX_new, SSL_new, SSL_set_fd, SSL_connect]
-  sni_and_name: [SSL_ctrl SSL_CTRL_SET_TLSEXT_HOSTNAME, SSL_set1_host]
-  verify: [SSL_CTX_set_verify, SSL_CTX_set_default_verify_paths, SSL_get_verify_result]
-  custom_ca: [SSL_CTX_load_verify_file, X509_STORE_add_cert, BIO_new_mem_buf, PEM_read_bio_X509]
-  client_cert: [SSL_CTX_use_certificate, SSL_CTX_use_PrivateKey]
-  io: [SSL_read, SSL_write, SSL_shutdown, SSL_get_error]
-trust_store: default verify paths, overridable by SSL_CERT_FILE and SSL_CERT_DIR
-existing_asset: >
-  netdev/tls_openssl.h already implements connect, read, write, and close for
-  system:tinygo-netdev and can be extended rather than rewritten
-gaps_for_this_package:
-  - no custom CA, client cert, or InsecureSkipVerify support
+state: removed
+removed_on: 2026-07-31
+history:
+  darwin: excluded to avoid Homebrew, per decision:macos-network-framework
+  linux_https: replaced by system:mbedtls, per decision:linux-mbedtls
+  linux_netdev: >
+    the last user. netdev/tls_openssl_linux.go carried the tag
+    `linux && !tinygo`, so it was reachable only from a host-Go build while the
+    tinygo side of the seam refuses IPPROTO_TLS. It made libssl a dependency of
+    every linux build in order to serve a path that never shipped, and was
+    replaced by crypto/tls. See decision:netdev-crypto-tls-on-linux.
+consequence: >
+  no platform requires OpenSSL at build or run time, so libssl-dev is gone from
+  the test environment described in requirement:test-strategy
+why_retained: >
+  requirement:linux-tinygo-openssl-poc is the evidence behind
+  decision:linux-mbedtls, and that evidence is about OpenSSL specifically
+past_gaps_that_kept_it_out_of_this_package:
+  - no custom CA, client cert, or InsecureSkipVerify support in the netdev adapter
   - coarse error codes, insufficient for requirement:error-classification
-  - a global mutex serializes every handshake
+  - a global mutex serialized every handshake
 risk: requirement:linux-tinygo-openssl-poc

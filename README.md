@@ -12,7 +12,7 @@ and tests between both compilers.
 
 | Package | Import | Description |
 |---------|--------|-------------|
-| [`netdev`](./netdev) | `github.com/shibukawa/tinygodriver/netdev` | Host TCP/IP Netdever (BSD sockets + optional OpenSSL TLS) |
+| [`netdev`](./netdev) | `github.com/shibukawa/tinygodriver/netdev` | Host TCP/IP Netdever (BSD sockets + OS-native TLS) |
 | [`https`](./https) | `github.com/shibukawa/tinygodriver/https` | `net/http`-compatible HTTPS client using the OS TLS stack |
 | [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
@@ -97,7 +97,7 @@ func main() {
 
 See the package READMEs for detailed API behavior and limitations:
 
-- [`netdev`](./netdev/README.md): TLS (OpenSSL), DNS, and platform notes
+- [`netdev`](./netdev/README.md): TLS, DNS, and platform notes
 - [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
@@ -108,10 +108,10 @@ See the package READMEs for detailed API behavior and limitations:
   and vendored mbedTLS on Linux, all with **no external TLS library to
   install**. Other TinyGo targets return `ErrPlatformNotSupported`; standard Go
   builds delegate to `net/http`.
-- **`netdev` TLS (`IPPROTO_TLS`)**: Secure Transport on macOS and Schannel on
-  Windows, neither of which needs a package manager. TinyGo on Linux returns
-  `ErrProtocolNotSupported`; host-Go Linux uses OpenSSL 3 (`libssl-dev` on
-  Debian/Ubuntu). The `https` package needs none of this.
+- **`netdev` TLS (`IPPROTO_TLS`)**: Secure Transport on macOS, Schannel on
+  Windows and `crypto/tls` on host-Go Linux, none of which needs a package
+  manager. TinyGo on Linux returns `ErrProtocolNotSupported`. The `https`
+  package needs none of this.
 
 ## Install
 

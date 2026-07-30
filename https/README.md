@@ -356,8 +356,5 @@ mingw-w64 toolchain, which that file already required.
   arbitrary `io.Reader`. Keep `Transport.IdleConnTimeout` (20s by default)
   below the server's own idle timeout, or set `DisableKeepAlives` to go back to
   one connection per request.
-- On Linux, `go test -tags force_tinygo_logic` also links `netdev`, which uses
-  OpenSSL on host-Go builds, so that test run needs `libssl-dev`. TinyGo builds
-  do not.
 - **HTTP/1.1 only.** No ALPN negotiation to h2.
 - Server-side TLS is not provided.

@@ -25,12 +25,9 @@ solution:
     Connect resolves the host itself when the address is invalid, so DNS still
     works, and the descriptor is an ordinary OS fd that mbedTLS can drive.
   ownership: Go owns the fd and closes it; the C layer only reads and writes it
-consequence_to_document:
-  detail: >
-    the linux native path imports netdev, and netdev uses OpenSSL on host-Go
-    builds, so `go test -tags force_tinygo_logic` on linux needs libssl-dev.
-    TinyGo builds do not, because netdev's tinygo linux TLS is a stub.
-  follow_up: >
-    making netdev's OpenSSL path optional behind a build tag would remove this
-    from the test environment
+former_consequence: >
+  the linux native path imports netdev, and netdev used to link OpenSSL on
+  standard-Go builds, so `go test -tags force_tinygo_logic` on linux needed
+  libssl-dev. Resolved by decision:netdev-crypto-tls-on-linux; no build needs
+  it now.
 applies_to: flow:tls-dial-tinygo
