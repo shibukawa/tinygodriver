@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+// lookupHost resolves a name to one IPv4 address.
+//
+// The order is deliberate:
+//
+//  1. localhost, which must never depend on a resolver being reachable
+//  2. the hosts file, which is the documented escape hatch when the rest fails
+//  3. NETDEV_DNS, because an explicit override has to beat everything below it
+//  4. the system resolver, which knows the search list and any domain-scoped
+//     resolvers a VPN installed
+//  5. the built-in UDP query, for builds with no system resolver to call
+//
+// Step 4 is what makes an internal name resolvable. Step 5 alone cannot: it
+// queries whatever nameserver it can discover, and on Windows there is nothing
+// to discover, so it always ended up asking a public resolver about a private
+// zone.
 func lookupHost(name string) (netip.Addr, error) {
 	name = strings.TrimSuffix(strings.ToLower(name), ".")
 	if name == "localhost" {
@@ -16,7 +31,21 @@ func lookupHost(name string) (netip.Addr, error) {
 	if ip, ok := lookupHostsFile(name); ok {
 		return ip, nil
 	}
-	for _, ns := range nameservers() {
+
+	// An explicit override means the caller knows which resolver can answer,
+	// so consulting the system one first would defeat the point.
+	if ns := nameserversFromEnv(); len(ns) > 0 {
+		return queryNameservers(name, ns)
+	}
+
+	if ip, ok := systemLookupHost(name); ok {
+		return ip, nil
+	}
+	return queryNameservers(name, nameservers())
+}
+
+func queryNameservers(name string, list []netip.AddrPort) (netip.Addr, error) {
+	for _, ns := range list {
 		ip, err := dnsQueryA(name, ns)
 		if err == nil {
 			return ip, nil

@@ -7,7 +7,7 @@ What netdev can discover is not always what the machine actually uses, so NETDEV
 
 ```yaml
 priority: must
-state: mitigated by an override; system integration still absent
+state: implemented where the linker allows it; see system_resolver
 found: 2026-07-30, by a user who could not reach an internal https server
 original_gap:
   windows:
@@ -42,20 +42,47 @@ other_platforms:
 workaround_still_valid:
   what: an entry in /etc/hosts or %SystemRoot%\System32\drivers\etc\hosts
   why: lookupHostsFile runs before any resolver is consulted
-remaining_work:
-  windows:
-    call: DnsQuery_W from dnsapi.dll
-    why: >
-      it delegates the whole lookup to the system resolver, so the DNS suffix
-      search list, NRPT policy and any DoH configuration apply. A corporate
-      short name usually needs the search list, which a server list alone
-      cannot supply.
-    tinygo: reachable through cgo, as netdev already reaches winsock
-    nocgo: reachable through syscall.NewLazyDLL on host Go
-  macos:
-    call: the System Configuration framework, which scutil --dns reads
-  not_done_because: >
-    the override unblocks the reported case on every platform, and the
-    system-integration work is per-platform and individually larger
+system_resolver:
+  order: localhost, hosts file, NETDEV_DNS, system resolver, built-in UDP query
+  why_env_precedes_system: >
+    an explicit override means the caller knows which resolver can answer, so
+    falling back to the system one would silently bypass it
+  implementations:
+    host_go_any_os:
+      call: net.LookupHost
+      safe_because: >
+        register_std.go makes useNetdev a no-op outside TinyGo, so net does not
+        route back into this package. The same call under TinyGo would recurse.
+    windows_cgo:
+      call: getaddrinfo via ws2_32
+      covers: TinyGo windows and host-Go windows with cgo
+      why_getaddrinfo_over_dnsquery: >
+        DnsQuery_W would need DNS_RECORD union parsing; getaddrinfo gives the
+        same DNS Client service behaviour, including the suffix search list and
+        NRPT, for a fraction of the surface
+      layout_hazard: >
+        ADDRINFOA is hand-declared because TinyGo compiles cgo without the
+        system headers, and the windows layout is not the unix one:
+        ai_canonname precedes ai_addr and ai_addrlen is a size_t. A wrong
+        layout yields a plausible wrong address rather than a crash, which is
+        why TestSystemLookupHostLocalhost asserts 127.0.0.1 specifically.
+  not_implemented:
+    builds: TinyGo on darwin and linux
+    reason: linker, not design
+    evidence:
+      - "tinygo darwin: linking getaddrinfo fails with 'could not find symbol _getaddrinfo'"
+      - "pointing the linker at a real SDK libSystem breaks the build instead"
+      - "sys_linux.go states TinyGo's linux linker does not expose libc socket stubs"
+    why_not_attempted: >
+      a link failure is compile-time and cannot degrade gracefully, so adding
+      the call would break a platform that currently works
+    consequence: no search list and no domain-scoped resolvers on those builds
+verified:
+  darwin_host: system resolver used; localhost layout check passes
+  windows_under_wine: >
+    getaddrinfo path resolves, the hand-declared layout checks out against
+    localhost, a real https.Get returns 200 OK, and NETDEV_DNS pointed at an
+    unroutable server correctly fails instead of falling back
+  tinygo_darwin: builds; takes the no-system-resolver path
 related: requirement:http-proxy-support, found in the same session on the same network
 ```

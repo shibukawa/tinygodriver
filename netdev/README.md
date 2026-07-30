@@ -110,6 +110,26 @@ go run ./examples/httpserver
 - DNS uses `/etc/hosts` (or the Windows hosts file) plus a simple UDP A-record
   resolver. Nameservers come from `/etc/resolv.conf`, falling back to `8.8.8.8`
   when none is found.
+- **Name resolution asks the OS first**, so the DNS suffix search list and any
+  domain-scoped resolvers a VPN installs both apply. The lookup order is:
+  `localhost`, the hosts file, `NETDEV_DNS`, the system resolver, then the
+  built-in UDP query.
+
+  | Build | System resolver |
+  |---|---|
+  | host Go, any OS | `net.LookupHost` |
+  | Windows, cgo (incl. TinyGo) | `getaddrinfo` via `ws2_32` |
+  | TinyGo on macOS and Linux | **none**, falls through to the UDP query |
+
+  TinyGo cannot reach a system resolver on macOS or Linux, and this is a linker
+  limitation rather than a choice: `getaddrinfo` is absent from TinyGo's
+  macos-minimal-sdk libSystem stubs, and TinyGo's Linux linker does not expose
+  the libc socket stubs either — which is why `sys_linux.go` issues raw
+  syscalls instead of calling libc. A link failure cannot be recovered from at
+  run time, so attempting it would break builds that currently work. On those
+  two builds an unqualified short name will not resolve; use `NETDEV_DNS` or
+  the hosts file.
+
 - **`NETDEV_DNS` overrides which resolvers are used**, on every platform:
 
   ```bash
