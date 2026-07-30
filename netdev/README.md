@@ -107,5 +107,17 @@ go run ./examples/httpserver
 - OpenSSL 3 is a build and runtime dependency **on host-Go Linux only**
   (`libssl-dev` on Debian/Ubuntu). macOS and TinyGo Linux need neither it nor a
   package manager.
-- DNS uses `/etc/hosts` (or the Windows hosts file) plus a simple UDP A-record resolver.
+- DNS uses `/etc/hosts` (or the Windows hosts file) plus a simple UDP A-record
+  resolver. Nameservers come from `/etc/resolv.conf`, falling back to `8.8.8.8`
+  when none is found.
+- **On Windows the resolver is always `8.8.8.8`.** There is no
+  `/etc/resolv.conf`, `resolvPath` returns an empty string, and nothing reads
+  the addresses Windows actually has configured, so the fallback is the only
+  path. A name that only the corporate or split-horizon DNS can answer fails
+  with `Host unknown`, and no environment variable overrides it.
+
+  The hosts file is read first, so an entry in
+  `%SystemRoot%\System32\drivers\etc\hosts` is the workaround until this is
+  fixed. The fix is to ask Windows itself — `DnsQuery_W` also applies the
+  suffix search list and NRPT policy, which reading a server list would not.
 - Multiple goroutines may call socket methods concurrently; the driver serializes bookkeeping and relies on OS sockets for I/O.
