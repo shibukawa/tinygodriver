@@ -20,6 +20,8 @@ and tests between both compilers.
 | [`pgxstdlib`](./database/sql/pgxstdlib) | `github.com/shibukawa/tinygodriver/database/sql/pgxstdlib` | PostgreSQL `database/sql` driver built on pgx, TLS included |
 | [`mysql`](./database/sql/mysql) | `github.com/shibukawa/tinygodriver/database/sql/mysql` | MySQL and MariaDB `database/sql` driver built on go-sql-driver, TLS included |
 | [`storage/s3`](./storage/s3) | `github.com/shibukawa/tinygodriver/storage/s3` | S3 client (SigV4), where `aws-sdk-go-v2` does not build |
+| [`nosql/dynamodb`](./nosql/dynamodb) | `github.com/shibukawa/tinygodriver/nosql/dynamodb` | DynamoDB client, JSON protocol, retries and pooled connections |
+| [`cloud/aws`](./cloud/aws) | `github.com/shibukawa/tinygodriver/cloud/aws` | SigV4 signing and credentials, shared by the AWS clients |
 
 ## Quick start
 
@@ -92,6 +94,7 @@ func main() {
 | HTTPS client | [`examples/httpsclient`](./examples/httpsclient) | `https.Get` over the OS TLS stack, with an optional custom CA |
 | HTTPS platform demo | [`examples/httpsdemo`](./examples/httpsdemo) | One source, every platform: verifies trust, refusal behavior, and deadlines |
 | S3 object storage | [`examples/s3demo`](./examples/s3demo) | Put, get, range-read, list, and delete against any S3-compatible endpoint |
+| DynamoDB | [`examples/dynamodbdemo`](./examples/dynamodbdemo) | Table lifecycle, conditional writes, batches, and paged queries |
 
 ## Platform notes
 
@@ -102,6 +105,8 @@ See the package READMEs for detailed API behavior and limitations:
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 - [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
+- [`nosql/dynamodb`](./nosql/dynamodb/README.md): attribute values, pagination, retries and what a retry can deliver twice
+- [`cloud/aws`](./cloud/aws/README.md): signing another AWS service with this signer
 
 - **IPv4 only** (matches TinyGo’s net port).
 - **HTTPS client (`https`)**: Network.framework on macOS, Schannel on Windows,
@@ -122,6 +127,7 @@ go get github.com/shibukawa/tinygodriver/netdev@latest
 go get github.com/shibukawa/tinygodriver/httpmux@latest
 go get github.com/shibukawa/tinygodriver/httprevproxy@latest
 go get github.com/shibukawa/tinygodriver/storage/s3@latest
+go get github.com/shibukawa/tinygodriver/nosql/dynamodb@latest
 ```
 
 Requires [TinyGo](https://tinygo.org/getting-started/install/) for TinyGo builds. Compatible with the Netdever interface in [tinygo-org/drivers/netdev](https://github.com/tinygo-org/drivers/tree/dev/netdev).
