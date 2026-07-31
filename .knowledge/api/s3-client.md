@@ -30,6 +30,9 @@ defaults:
   timeout: 60s
 implementation:
   shared: signing, request building, XML decoding
+  signing_and_credentials: >
+    api:aws-signer. s3.Credentials is an alias and s3.CredentialsFromEnv a
+    wrapper, so this API is unchanged by decision:aws-shared-package.
   std_go: net/http with crypto/tls, Backend == "net/http"
   tinygo: api:https-transport, Backend == "https"
   redirects: requirement:s3-redirect-resigning

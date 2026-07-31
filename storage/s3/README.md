@@ -4,7 +4,9 @@ The maintained Go clients do not build with TinyGo. `aws-sdk-go-v2` reaches for
 the full `net/http.Transport` API, which TinyGo declares as an empty struct, and
 its transport layer imports `net/http/httputil`, which does not compile under
 TinyGo at all; `minio-go` fails even earlier, on `net/http/cookiejar`. This
-package therefore speaks the S3 REST API directly.
+package therefore speaks the S3 REST API directly, over the SigV4 signer in
+[`cloud/aws`](../../cloud/aws), which [`nosql/dynamodb`](../../nosql/dynamodb)
+shares.
 
 ```go
 import "github.com/shibukawa/tinygodriver/storage/s3"

@@ -31,4 +31,9 @@ tested_by:
   - TestEscapedPathMatchesSignature asserts EscapedPath equals RequestURI equals the AWS form
   - TestPutSignsAndSendsBody asserts the request line the server receives
   - the integration test uses a key with a space, parentheses and multi-byte characters
-applies_to: storage/s3
+scope_note: >
+  this is the S3 canonicalization rule. It is single-encoding, which the SigV4
+  spec reserves for S3; other services normalize and double-encode the path. The
+  shared signer takes that choice as an argument, see
+  rule:sigv4-service-parameterization.
+applies_to: storage/s3 request building, cloud/aws encoding helpers

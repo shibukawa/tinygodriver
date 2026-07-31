@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/cloud/aws"
 )
 
 // Internal failures that are not S3 error documents.
@@ -124,8 +126,8 @@ func WithHTTPClient(client *http.Client) Option {
 // environment, so a configured shell needs no options at all.
 func New(opts ...Option) (*Client, error) {
 	cfg := &config{
-		endpoint: endpointFromEnv(),
-		region:   regionFromEnv(),
+		endpoint: aws.EndpointFromEnv("s3"),
+		region:   aws.RegionFromEnv(),
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -133,7 +135,7 @@ func New(opts ...Option) (*Client, error) {
 	if !cfg.credsSet {
 		cfg.creds = CredentialsFromEnv()
 	}
-	if !cfg.creds.valid() {
+	if !cfg.creds.Valid() {
 		return nil, ErrNoCredentials
 	}
 	if cfg.region == "" {

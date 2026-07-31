@@ -5,20 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/shibukawa/tinygodriver/cloud/aws"
 )
 
 // Sentinel errors. S3 error codes are mapped onto them so application code can
 // branch with errors.Is without matching strings.
 var (
-	ErrNoSuchKey       = errors.New("s3: no such key")
-	ErrNoSuchBucket    = errors.New("s3: no such bucket")
-	ErrAccessDenied    = errors.New("s3: access denied")
-	ErrBucketExists    = errors.New("s3: bucket already exists")
-	ErrBucketNotEmpty  = errors.New("s3: bucket not empty")
-	ErrInvalidRange    = errors.New("s3: requested range not satisfiable")
-	ErrBadCredentials  = errors.New("s3: credentials rejected")
-	ErrNoCredentials   = errors.New("s3: no credentials configured")
-	ErrNoRegion        = errors.New("s3: no region configured")
+	ErrNoSuchKey      = errors.New("s3: no such key")
+	ErrNoSuchBucket   = errors.New("s3: no such bucket")
+	ErrAccessDenied   = errors.New("s3: access denied")
+	ErrBucketExists   = errors.New("s3: bucket already exists")
+	ErrBucketNotEmpty = errors.New("s3: bucket not empty")
+	ErrInvalidRange   = errors.New("s3: requested range not satisfiable")
+	ErrBadCredentials = errors.New("s3: credentials rejected")
+
+	// Configuration failures are the shared ones, so errors.Is matches whether
+	// the caller compares against s3 or cloud/aws.
+	ErrNoCredentials   = aws.ErrNoCredentials
+	ErrNoRegion        = aws.ErrNoRegion
 	ErrTooManyRedirect = errors.New("s3: too many redirects")
 )
 

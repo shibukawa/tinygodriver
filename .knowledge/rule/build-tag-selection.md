@@ -35,11 +35,13 @@ rules:
 precedent:
   - httpmux/mux_std.go
   - compress/zstd/writer_klauspost.go
-  - storage/s3/transport_std.go
+  - cloud/aws/transport_std.go, moved there by decision:aws-shared-package
 redirect_policy_files: >
-  storage/s3 splits on "!tinygo" rather than the std_path tag, because the tinygo
-  code path runs under host go through force_tinygo_logic and needs the host
-  http.Client told not to follow redirects; see requirement:s3-redirect-resigning
+  the no-redirect helper splits on "!tinygo" rather than the std_path tag, because
+  the tinygo code path runs under host go through force_tinygo_logic and needs the
+  host http.Client told not to follow redirects; see
+  requirement:s3-redirect-resigning. The helper is shared, the S3 re-signing
+  behaviour is not; nosql/dynamodb has no redirects.
 cgo_flag_files: >
   cgo flags live in per-OS, per-compiler files because tinygo and host go need
   different ones; see rule:tinygo-cgo-flag-limits
