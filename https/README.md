@@ -96,10 +96,23 @@ with it; the remainder is the round trip itself.
 `CloseIdleConnections()` drops the pooled connections without touching requests
 in flight.
 
+`MaxIdleConnsPerHost` is the whole pool when every request goes to one host,
+which is what talking to a single service endpoint looks like. Four concurrent
+requests against the default of 2 measured two reused connections at 15–17 ms
+and two fresh handshakes at 94–97 ms. Set it to the concurrency you actually
+run.
+
 The default `IdleConnTimeout` is far below `net/http`'s 90 seconds on purpose.
 `net/http` can cheaply notice that a pooled connection died; the native
 backends cannot, so a stale entry costs a retry instead. Keep it under the
 server's own idle timeout.
+
+That retry puts the request on the wire a second time. It is gated on no
+response byte having arrived and on a body `net/http` can rebuild, but a
+request that must not be delivered twice still can be, because the server may
+have acted before the connection died. Only a pooled connection is ever
+replayed, so `DisableKeepAlives` — at the cost of a handshake per request — is
+what removes the possibility.
 
 TLS session resumption is **not** used. Forcing it on and off on the macOS dial
 path both measured identical to the default, and Network.framework's session

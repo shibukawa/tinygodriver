@@ -43,6 +43,19 @@ after_connection_reuse:
   control: >
     the same run with DisableKeepAlives set stayed at 89..105 ms, which is the
     v1 behavior reproduced on demand
+  concurrency_note:
+    measured_on: 2026-07-31, same endpoint, four goroutines per wave
+    result: >
+      the second wave produced two pooled calls at 15..17 ms and two fresh
+      handshakes at 94..97 ms, because MaxIdleConnsPerHost defaults to 2
+    reading: >
+      the default suits a client spreading requests over hosts. A single-host
+      RPC workload should raise it to its concurrency, which
+      decision:dynamodb-connection-policy does.
+  post_idle:
+    measured_on: 2026-07-31
+    result: 141 ms on the first call after 21 s idle, then 11 ms
+    reading: IdleConnTimeout expiring on lease, as designed
 attribution_of_the_per_connection_cost:
   network_rtt_ms: ~10, from the reuse steady state
   session_resumption: >
@@ -55,6 +68,10 @@ attribution_of_the_per_connection_cost:
   conclusion: >
     the ~90 ms is nw_connection establishment plus the handshake itself and is
     not reachable from the caller. The only lever is not opening the connection.
+documented_in: >
+  https README, section "Connection reuse". The concurrency result and the
+  replay caveat were added there on 2026-07-31; the steady-state numbers were
+  already there.
 drives:
   - decision:handshake-cost-mitigation
   - requirement:connection-reuse
