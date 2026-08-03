@@ -18,6 +18,7 @@ caller_surface: |
 
   func Send(ctx context.Context, db *sql.DB, b *Batch, opts ...Option) error
   func WithoutTransaction() Option
+  func WithFallback() Option
 
   type CommandTag struct {
       RowsAffected    int64
@@ -27,6 +28,7 @@ caller_surface: |
 adapter_surface: |
   type Adapter func(ctx context.Context, dc any, b *Batch, o Options) (Results, error)
   func Register(drv driver.Driver, a Adapter)
+  func RegisterSequential(drv driver.Driver)
   type Options struct{ Transaction bool }
   type Results interface{ Exec() (CommandTag, error); Query() (Rows, error); QueryRow() Row; Close() error }
   func (b *Batch) Queued() []*QueuedQuery
@@ -41,6 +43,19 @@ usage: |
   b.Queue("INSERT INTO t(a) VALUES ($1)", 1)
   b.Queue("SELECT count(*) FROM t").QueryRow(func(r sqlbatch.Row) error { return r.Scan(&n) })
   err := sqlbatch.Send(ctx, db, b)
+sequential_path:
+  what: >
+    runs the queued statements one at a time on the leased connection, in one
+    transaction, reached either by RegisterSequential or by WithFallback
+  stays_above_database_sql: >
+    unlike the adapters it never touches a driver.Conn. *sql.Rows already
+    satisfies Rows, *sql.Row already satisfies Row, and sql.Result reports both
+    affected rows and the insert id, so there is no conversion layer and no
+    dependence on whether a driver accepts several statements in one Exec
+  reuses_drive: >
+    seqResults executes each statement as its result is asked for, so the queue
+    order drive walks is also the execution order and every callback path is
+    shared with the adapters
 design:
   callbacks_only: >
     Results is exported for adapters but never handed to a caller. Send drives

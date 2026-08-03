@@ -24,8 +24,8 @@
 //
 // A batch stops at the first failing statement, and nothing it did survives.
 // Later statements do not run, even independent ones. That is PostgreSQL's
-// native pipeline behavior, and the other adapters reproduce it with an
-// explicit transaction. WithoutTransaction gives it up deliberately.
+// native pipeline behavior, and the other drivers reproduce it with an explicit
+// transaction. WithoutTransaction gives it up deliberately.
 //
 // The number of round trips a batch costs depends on the driver and is allowed
 // to differ. The results and errors a caller observes are not.
@@ -35,9 +35,14 @@
 // A driver package registers its own adapter, so importing the driver you
 // already open the database with is enough.
 //
-//	postgres  pgxstdlib  exec and query, pipelined
-//	mysql     mysql      exec only, through multiStatements
-//	sqlite    sqlite     not supported
+//	postgres  pgxstdlib  exec and query, pipelined into one round trip
+//	mysql     mysql      exec in one round trip, through multiStatements
+//	sqlite    sqlite     one statement at a time, in one transaction
+//
+// SQLite is not a lesser case, just a different cost. There is no network, so
+// there are no round trips to save; what costs is the fsync each autocommit
+// statement pays, and one transaction removes it. Measured here, 200 inserts
+// go from ~50ms to ~1ms on all three SQLite backends.
 //
 // The MySQL path needs multiStatements=true, and interpolateParams=true
 // whenever a statement carries arguments. Both are DSN settings negotiated when
@@ -45,19 +50,18 @@
 //
 // # Unsupported drivers
 //
-// Send never falls back to running the statements one at a time. A driver that
-// cannot serve the batch makes it fail, because the alternative is worse: a
-// silent fallback would report success while costing N round trips instead of
-// one, and would quietly drop the all-or-nothing guarantee that a batch on a
-// working driver provides. Refusing keeps the cost of a batch something a
-// caller can reason about.
+// Send does not silently fall back to running the statements one at a time. A
+// driver that cannot serve the batch, and did not register for the sequential
+// path the way SQLite does, makes it fail. The alternative is worse: a silent
+// fallback would report success while costing N round trips instead of one, and
+// would quietly drop the all-or-nothing guarantee. Refusing keeps the cost of a
+// batch something a caller can reason about.
 //
 // Every refusal is an [*UnsupportedError] naming the driver, what was missing,
 // and where possible what would fix it:
 //
-//   - No adapter registered, which today means SQLite and any third-party
-//     driver. Capability is "batch". SQLite would gain nothing anyway: a local
-//     file has no round trip to save.
+//   - No adapter registered, which today means any third-party driver.
+//     Capability is "batch".
 //   - A capability the adapter lacks, such as a queued Query on MySQL.
 //     Capability names it, and the batch is refused as a whole rather than
 //     running the statements it could.
@@ -67,18 +71,27 @@
 // In all of these the batch executes nothing at all: the refusal happens before
 // any statement reaches the server, so there is no partial effect to undo.
 //
-// Detect it with errors.As, and fall back explicitly if that suits the caller
-// better than failing:
+// [WithFallback] turns a refusal into sequential execution instead, for
+// portable code that would rather be slow on one database than not run there.
+// It is opt-in because the cost changes from one round trip to one per
+// statement, and a caller who batched for speed should not get that silently.
+// The semantics do not change: same order, same stop at the first error, same
+// rollback.
 //
-//	err := sqlbatch.Send(ctx, db, b)
+//	err := sqlbatch.Send(ctx, db, b, sqlbatch.WithFallback())
+//
+// Or detect it and decide for yourself:
+//
 //	var unsupported *sqlbatch.UnsupportedError
-//	if errors.As(err, &unsupported) {
-//		// Run them one at a time instead, accepting the round trips.
-//	}
+//	if errors.As(sqlbatch.Send(ctx, db, b), &unsupported) { ... }
 //
-// Writing that fallback by hand is deliberate. It is the caller who knows
-// whether N round trips are acceptable, and whether the statements need a
-// transaction around them once the batch is no longer providing one.
+// # What a batch does not promise
+//
+// Reads in one batch do not necessarily see the same snapshot. PostgreSQL takes
+// a fresh one per statement at READ COMMITTED, while SQLite and MySQL InnoDB
+// share one across the transaction the batch runs in. Nothing here can
+// reconcile that, so a batch promises only that the statements run in order,
+// stop at the first error, and roll back together.
 package sqlbatch
 
 import (
@@ -234,7 +247,20 @@ type Options struct {
 }
 
 // An Option adjusts how a batch is sent.
-type Option func(*Options)
+type Option func(*settings)
+
+type settings struct {
+	transaction bool
+	fallback    bool
+}
+
+func resolve(opts []Option) settings {
+	s := settings{transaction: true}
+	for _, opt := range opts {
+		opt(&s)
+	}
+	return s
+}
 
 // WithoutTransaction lets the statements commit as they go, giving up the
 // all-or-nothing guarantee in exchange for one less round trip on drivers that
@@ -243,14 +269,36 @@ type Option func(*Options)
 // It has no effect on PostgreSQL, whose pipeline is atomic by construction:
 // there is no way to ask for less.
 func WithoutTransaction() Option {
-	return func(o *Options) { o.Transaction = false }
+	return func(s *settings) { s.transaction = false }
+}
+
+// WithFallback runs the statements one at a time when the driver refuses the
+// batch, instead of failing. Use it for portable code that would rather be slow
+// on one database than not run there.
+//
+// The batch keeps its semantics either way: the statements run in order, stop
+// at the first error, and roll back together. What changes is the cost, from
+// one round trip to one per statement, which is why this is not the default.
+//
+// It is safe because a refusal happens before any statement reaches the server,
+// so there is nothing to have run twice. Adapters must keep that true.
+func WithFallback() Option {
+	return func(s *settings) { s.fallback = true }
 }
 
 // An Adapter runs a batch on one driver's raw connection. dc is the value
 // [sql.Conn.Raw] yields, valid only until the returned Results is closed.
+//
+// An adapter that cannot serve a batch must return [*UnsupportedError] without
+// having executed anything, so the caller is never left with a partial effect
+// and WithFallback can retry safely.
 type Adapter func(ctx context.Context, dc any, b *Batch, o Options) (Results, error)
 
-var registry sync.Map // reflect.Type of driver.Driver -> Adapter
+// registry maps a driver's reflect.Type to its entry. A nil adapter marks a
+// driver registered for the sequential path.
+var registry sync.Map
+
+type entry struct{ adapter Adapter }
 
 // Register associates an adapter with a driver, and is meant to be called from
 // a driver package's init. The key is the driver's type, so every handle opened
@@ -261,23 +309,42 @@ func Register(drv driver.Driver, a Adapter) {
 	if drv == nil || a == nil {
 		panic("sqlbatch: Register needs a driver and an adapter")
 	}
+	store(drv, entry{adapter: a})
+}
+
+// RegisterSequential declares that a driver has no batch transport and that
+// running the statements one at a time is the right answer for it anyway.
+//
+// SQLite is the case this exists for. There is no network, so there are no
+// round trips to save, but the statements still run in one transaction rather
+// than paying an fsync each, which is the cost that actually matters there.
+// Such a driver therefore needs no WithFallback: batching it is already the
+// best available shape.
+func RegisterSequential(drv driver.Driver) {
+	if drv == nil {
+		panic("sqlbatch: RegisterSequential needs a driver")
+	}
+	store(drv, entry{})
+}
+
+func store(drv driver.Driver, e entry) {
 	t := reflect.TypeOf(drv)
-	if _, loaded := registry.LoadOrStore(t, a); loaded {
+	if _, loaded := registry.LoadOrStore(t, e); loaded {
 		panic("sqlbatch: adapter already registered for " + t.String())
 	}
 }
 
-func lookup(drv driver.Driver) (Adapter, string) {
+func lookup(drv driver.Driver) (e entry, name string, ok bool) {
 	t := reflect.TypeOf(drv)
-	name := "<nil>"
+	name = "<nil>"
 	if t != nil {
 		name = t.String()
 	}
-	a, ok := registry.Load(t)
+	v, ok := registry.Load(t)
 	if !ok {
-		return nil, name
+		return entry{}, name, false
 	}
-	return a.(Adapter), name
+	return v.(entry), name, true
 }
 
 // UnsupportedError says a driver cannot serve part of a batch. It is returned
@@ -333,12 +400,13 @@ func Send(ctx context.Context, db *sql.DB, b *Batch, opts ...Option) error {
 	if b == nil || b.Len() == 0 {
 		return nil
 	}
-	adapter, name := lookup(db.Driver())
-	if adapter == nil {
+	s := resolve(opts)
+	e, name, found := lookup(db.Driver())
+	if !found && !s.fallback {
 		return &UnsupportedError{
 			Driver:     name,
 			Capability: "batch",
-			Hint:       "import the driver package that registers an adapter",
+			Hint:       "import the driver package that registers an adapter, or pass WithFallback",
 		}
 	}
 	conn, err := db.Conn(ctx)
@@ -346,7 +414,19 @@ func Send(ctx context.Context, db *sql.DB, b *Batch, opts ...Option) error {
 		return err
 	}
 	defer conn.Close()
-	return run(ctx, conn, adapter, b, opts)
+
+	if !found || e.adapter == nil {
+		return sequential(ctx, conn, b, s)
+	}
+	err = run(ctx, conn, e.adapter, b, s)
+
+	// A refusal costs nothing to retry: the adapter contract requires it to
+	// happen before any statement reaches the server.
+	var unsupported *UnsupportedError
+	if s.fallback && errors.As(err, &unsupported) {
+		return sequential(ctx, conn, b, s)
+	}
+	return err
 }
 
 // There is deliberately no variant taking a *sql.Conn the caller already holds.
@@ -354,11 +434,8 @@ func Send(ctx context.Context, db *sql.DB, b *Batch, opts ...Option) error {
 // *sql.DB but not on *sql.Conn, so such a variant would have to take both and
 // trust that they match. Batches needing session affinity are a follow-up.
 
-func run(ctx context.Context, conn *sql.Conn, adapter Adapter, b *Batch, opts []Option) error {
-	o := Options{Transaction: true}
-	for _, opt := range opts {
-		opt(&o)
-	}
+func run(ctx context.Context, conn *sql.Conn, adapter Adapter, b *Batch, s settings) error {
+	o := Options{Transaction: s.transaction}
 	return conn.Raw(func(dc any) error {
 		res, err := adapter(ctx, dc, b, o)
 		if err != nil {

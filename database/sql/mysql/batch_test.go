@@ -215,3 +215,86 @@ func count(t *testing.T, db *sql.DB, ctx context.Context) int {
 	}
 	return n
 }
+
+// WithFallback turns the refusal into sequential execution. The batch costs one
+// round trip per statement then, which is why it is not the default, but the
+// results and the error behaviour are the ones a batched driver gives.
+func TestFallbackRunsQueriesSequentially(t *testing.T) {
+	db, ctx := batchDB(t, batchDSN)
+	seed(t, db, ctx, 1, 2, 3)
+
+	var total int
+	var values []int
+	b := &sqlbatch.Batch{}
+	b.Queue("SELECT count(*) FROM batch_item").
+		QueryRow(func(r sqlbatch.Row) error { return r.Scan(&total) })
+	b.Queue("SELECT value FROM batch_item ORDER BY value").
+		Query(func(rows sqlbatch.Rows) error {
+			for rows.Next() {
+				var v int
+				if err := rows.Scan(&v); err != nil {
+					return err
+				}
+				values = append(values, v)
+			}
+			return nil
+		})
+
+	if err := sqlbatch.Send(ctx, db, b, sqlbatch.WithFallback()); err != nil {
+		t.Fatalf("Send with fallback: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("count = %d, want 3", total)
+	}
+	if len(values) != 3 || values[0] != 1 || values[2] != 3 {
+		t.Errorf("values = %v, want [1 2 3]", values)
+	}
+}
+
+// The retry after a refusal is only safe because the adapter refused before
+// executing anything. If that ever stopped holding, the writes here would land
+// twice.
+func TestFallbackDoesNotDoubleApplyWrites(t *testing.T) {
+	db, ctx := batchDB(t, batchDSN)
+
+	b := &sqlbatch.Batch{}
+	b.Queue("INSERT INTO batch_item(value) VALUES (?)", 1)
+	b.Queue("INSERT INTO batch_item(value) VALUES (?)", 2)
+	b.Queue("SELECT count(*) FROM batch_item").
+		QueryRow(func(r sqlbatch.Row) error { return nil }) // forces the refusal
+
+	if err := sqlbatch.Send(ctx, db, b, sqlbatch.WithFallback()); err != nil {
+		t.Fatalf("Send with fallback: %v", err)
+	}
+	if n := count(t, db, ctx); n != 2 {
+		t.Fatalf("table holds %d rows, want 2: the refused attempt also ran", n)
+	}
+}
+
+// Falling back must not quietly drop atomicity either.
+func TestFallbackStillRollsBack(t *testing.T) {
+	db, ctx := batchDB(t, batchDSN)
+	seed(t, db, ctx, 7)
+
+	b := &sqlbatch.Batch{}
+	b.Queue("INSERT INTO batch_item(value) VALUES (?)", 8)
+	b.Queue("INSERT INTO batch_item(value) VALUES (?)", 7) // duplicate
+	b.Queue("SELECT 1").QueryRow(func(r sqlbatch.Row) error { return nil })
+
+	err := sqlbatch.Send(ctx, db, b, sqlbatch.WithFallback())
+	if err == nil {
+		t.Fatal("expected the duplicate value to fail the batch")
+	}
+	var se *sqlbatch.StatementError
+	if !errors.As(err, &se) {
+		t.Fatalf("error %v is not a *StatementError", err)
+	}
+	// Sequential execution knows exactly which statement failed, unlike the
+	// multi-statement path.
+	if se.Index != 1 {
+		t.Errorf("failure attributed to statement %d, want 1", se.Index)
+	}
+	if n := count(t, db, ctx); n != 1 {
+		t.Fatalf("table holds %d rows, want 1: the fallback did not roll back", n)
+	}
+}

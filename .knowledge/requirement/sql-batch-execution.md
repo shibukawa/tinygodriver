@@ -44,7 +44,21 @@ supported_drivers:
       decision:batch-transport-per-driver
     registered_by: mysql/batch.go, which needs no build tag: it reaches everything
       through database/sql/driver interfaces and one structural assertion
-  sqlite: not registered, so Send reports UnsupportedError; p3
+  sqlite:
+    transport: sequential, one statement at a time in one transaction
+    exec: shipped
+    query: shipped
+    registered_by: sqlite/batch.go via RegisterSequential, no adapter at all
+    why_default_on: >
+      there are no round trips to lose, so the objection that gates
+      WithFallback does not apply. What it buys instead is the fsync each
+      autocommit statement pays: 200 inserts to a file go from ~50ms to ~1ms on
+      all three backends, measured
+    bonus: >
+      executing separately gives per-statement RowsAffected and LastInsertID and
+      an exact failing index, both better than the mysql path manages, and it
+      keeps the batch off multi-statement SQL, which the three sqlite backends
+      do not agree on
 capability_reporting:
   contract: >
     an unsupported combination returns UnsupportedError naming the driver, the
@@ -57,19 +71,40 @@ capability_reporting:
     know whether N round trips are acceptable and whether the statements now
     need a transaction of their own
   three_shapes:
-    no_adapter: sqlite and any third-party driver; Capability is "batch"
+    no_adapter: any third-party driver; Capability is "batch"
     missing_capability: a queued Query on mysql; the batch is refused whole
     wrong_dsn: mysql without interpolateParams; Hint names the setting
+  with_fallback:
+    what: WithFallback turns a refusal into sequential execution
+    opt_in_because: >
+      the cost goes from one round trip to one per statement. A caller who
+      batched for speed must not get that silently; the semantics are unchanged
+    safe_because: >
+      a refusal happens before any statement reaches the server, so the retry
+      cannot double-apply. That is the adapter contract, and mysql asserts it
+      with a batch whose writes would land twice if it broke
+    not_needed_for_sequential_drivers: >
+      sqlite registered for the sequential path outright, so it is already at
+      its best shape and needs no opt-in
   executes_nothing: >
     all three refuse before any statement reaches the server, so there is no
     partial effect to undo. The mysql ErrSkip cases return before the write, and
     a missing multiStatements makes the joined statement a parse error
   documented_in: the sqlbatch package doc and README, both with the errors.As pattern
-degradation_boundary: >
-  round-trip count is allowed to differ per driver and per statement mix, because
-  that is what an optimization does. Observable behaviour is not: see
-  failure_semantics. A caller reading only results and errors must not be able to
-  tell which transport ran
+degradation_boundary:
+  rule: >
+    round-trip count is allowed to differ per driver and per statement mix,
+    because that is what an optimization does. Observable behaviour is not: see
+    failure_semantics
+  one_documented_exception:
+    what: reads in a batch do not necessarily share a snapshot
+    why: >
+      postgres takes a fresh one per statement at READ COMMITTED, while sqlite
+      and mysql innodb share one across the transaction the batch runs in
+    resolution: >
+      nothing in this package can reconcile that, so the batch promises only
+      order, stop-at-first-error and rollback. Stated in the package doc and
+      README rather than papered over
 must:
   - one public api that compiles and behaves the same under tinygo and host go
   - queue statements with arguments and read per-statement results in order
