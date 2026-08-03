@@ -71,16 +71,28 @@ it and the query runs to completion with no error. This package installs the
 ## Reaching pgx directly
 
 `Batch`, `CopyFrom` and `LISTEN`/`NOTIFY` have no `database/sql` equivalent.
-They stay reachable on both compilers:
+`WithConn` leases a pooled connection and hands over the pgx connection behind
+it:
 
 ```go
-conn, err := db.Conn(ctx)
-err = conn.Raw(func(dc any) error {
-	pgxConn := dc.(*stdlib.Conn).Conn()
-	_, err := pgxConn.CopyFrom(ctx, ...)
-	return err
+err := pgxstdlib.WithConn(ctx, db, func(c *pgxstdlib.Conn) error {
+	b := &pgxstdlib.Batch{}
+	b.Queue("INSERT INTO t(a) VALUES ($1)", 1)
+	b.Queue("INSERT INTO t(a) VALUES ($1)", 2)
+	return c.SendBatch(ctx, b).Close()
 })
 ```
+
+`Conn`, `Batch`, `Rows`, `PgError` and the rest are aliases for the pgx types,
+so the values are pgx's own. Going through this package is mandatory rather
+than tidy: the TinyGo build uses the vendored pgx under `internal/`, which no
+package outside `pgxstdlib` may import, so hand-writing the `sql.Conn.Raw`
+assertion compiles on standard Go and fails on TinyGo with *use of internal
+package not allowed*. `examples/pgxdemo` is built on both paths and is what
+keeps that from regressing.
+
+`c` is only valid inside the callback, as with `sql.Conn.Raw`. Read and close
+`BatchResults` and `Rows` before returning.
 
 ## Updating the vendored pgx
 

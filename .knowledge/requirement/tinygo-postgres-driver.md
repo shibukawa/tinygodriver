@@ -16,10 +16,32 @@ implementation: decision:postgres-backend-split
 surface:
   shape: database/sql only, mirroring database/sql/sqlite
   entry: Open returning *sql.DB
-  native_escape_hatch: >
-    sql.Conn.Raw yields *stdlib.Conn and then *pgx.Conn, so Batch, CopyFrom and
-    LISTEN/NOTIFY stay reachable without widening the public api. Verified under
-    tinygo
+  native_escape_hatch:
+    intent: >
+      Batch, CopyFrom and LISTEN/NOTIFY stay reachable without widening the
+      public api into a second query surface
+    state: shipped 2026-08-02, api:pgx-raw-conn, after the defect below
+    was_broken_on_tinygo:
+      what: >
+        the documented form was a hand-written sql.Conn.Raw plus an assertion to
+        *stdlib.Conn. That names a type which, on the tinygo path, is
+        .../pgxstdlib/internal/pgx/stdlib.Conn. Go refuses the import from any
+        package outside pgxstdlib: "use of internal package ... not allowed"
+      so: >
+        the hatch worked on host go and was unreachable from user code under
+        tinygo, on the compiler where a saved round trip is worth the most. The
+        package doc and README both claimed both compilers
+      why_it_survived: >
+        no test or example exercised it, and a test beside the package cannot
+        catch it: everything under pgxstdlib/ may import its own internal/. Only
+        a caller outside that tree reproduces the failure
+      fix: >
+        pgxstdlib re-exports the pgx types as build-tagged aliases. An alias may
+        point at an internal type, so callers name pgxstdlib.Conn and never
+        import the internal path
+      regression_guard: >
+        examples/pgxdemo now runs a batch and is built on both paths, so the
+        import boundary is checked by the ordinary build rather than by a test
 must:
   - identical public api under every build tag combination
   - accept a libpq-style url or keyword dsn

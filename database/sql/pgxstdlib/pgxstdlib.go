@@ -17,15 +17,25 @@
 //
 // # Reaching pgx directly
 //
-// Batch, CopyFrom and LISTEN/NOTIFY have no database/sql equivalent. They stay
-// reachable through the standard escape hatch, on both compilers:
+// Batch, CopyFrom and LISTEN/NOTIFY have no database/sql equivalent. WithConn
+// hands them the underlying pgx connection, on both compilers:
 //
-//	conn, err := db.Conn(ctx)
-//	err = conn.Raw(func(dc any) error {
-//		pgxConn := dc.(*stdlib.Conn).Conn()
-//		_, err := pgxConn.CopyFrom(ctx, ...)
-//		return err
+//	err := pgxstdlib.WithConn(ctx, db, func(c *pgxstdlib.Conn) error {
+//		b := &pgxstdlib.Batch{}
+//		b.Queue("INSERT INTO t(a) VALUES ($1)", 1)
+//		b.Queue("INSERT INTO t(a) VALUES ($1)", 2)
+//		return c.SendBatch(ctx, b).Close()
 //	})
+//
+// The pgx types are re-exported here as aliases, so Conn is pgx's own Conn and
+// takes pgx's own methods. Naming them through this package is not a style
+// preference on TinyGo, it is the only option: that build uses the vendored pgx
+// under internal/, which no package outside pgxstdlib may import. Writing the
+// sql.Conn.Raw dance by hand works on standard Go and does not compile under
+// TinyGo, because the type assertion has to name a type that is out of reach.
+//
+// Anything derived from c, including BatchResults and Rows, must be finished
+// before the callback returns; see WithConn.
 //
 // # TinyGo notes
 //
