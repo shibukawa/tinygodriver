@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && !darwin
+//go:build (tinygo || force_tinygo_logic) && !darwin && !linux && !windows
 
 package rsasign
 

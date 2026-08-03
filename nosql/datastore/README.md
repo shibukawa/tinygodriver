@@ -107,11 +107,48 @@ loses resolution on the server; the constructor does not hide that.
 An embedded entity has no key. One that carries a key is rejected at encode time
 rather than silently stripped.
 
-`MarshalEntity` and `UnmarshalEntity` are **not implemented**; build entities
-with `Set` for now. If they ever land they will read a `datastore` struct tag,
-which would be authoritative for that path only — a code generator over this
-driver reads its own tag, and two spellings on one field produce two mappings
-that look interchangeable and disagree on every renamed property.
+## Struct mapping
+
+`MarshalEntity` and `UnmarshalEntity` map a struct to an entity. They are the
+only place this package uses reflection, and they live in their own file, so a
+program that never calls them does not link them.
+
+```go
+type Task struct {
+    Key      datastore.Key `datastore:"__key__"`
+    Title    string        `datastore:"title"`
+    Body     string        `datastore:"body,noindex"`
+    Draft    string        `datastore:"draft,omitempty"`
+    Internal string        `datastore:"-"`
+}
+
+e, err := datastore.MarshalEntity(t)
+_, err = client.Put(ctx, e)
+```
+
+A field tagged `__key__` carries the entity's own key and must be a `Key` or
+`*Key`; Datastore reserves that name for the key in queries, so no real property
+can collide. Without such a field the entity comes back with no key and the
+caller attaches one.
+
+Supported: string, the integer and float kinds, bool, `[]byte`, `time.Time`,
+`Key`, `Value`, slices, structs, and pointers to any of those. A nil pointer
+becomes **null**, which is a value and not an absence — use `,omitempty` when
+absent is what you meant. Decoding mirrors that: an explicit null zeroes the
+field, an absent property leaves it alone.
+
+**Maps are refused.** Datastore has no map type, so a map would become an
+embedded entity whose property names come from runtime data rather than from
+the struct — the one thing this mapping exists to avoid.
+
+A `uint64` above `MaxInt64` is refused rather than wrapped: Datastore integers
+are signed 64-bit and have no representation for it.
+
+The `datastore` tag is **authoritative for this path only.** A code generator
+over this driver reads its own tag, and a struct carrying both gets two field
+mappings that look interchangeable and disagree on every renamed property. If
+you generate a codec, treat a field carrying this tag but not yours as an error
+rather than as agreement.
 
 ## Keys
 

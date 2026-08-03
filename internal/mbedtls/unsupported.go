@@ -36,3 +36,18 @@ func SelfTest() error { return errUnsupported }
 
 // HWCaps reports that the concept does not apply in this build.
 func HWCaps() int { return -1 }
+
+// PrivateKey mirrors the real type so callers compile everywhere.
+type PrivateKey struct{}
+
+// ParsePrivateKey always fails in this build.
+func ParsePrivateKey([]byte) (*PrivateKey, error) { return nil, errUnsupported }
+
+// SignPKCS1v15SHA256 always fails in this build.
+func (k *PrivateKey) SignPKCS1v15SHA256([]byte) ([]byte, error) { return nil, errUnsupported }
+
+// Bits always reports zero in this build.
+func (k *PrivateKey) Bits() int { return 0 }
+
+// Close is a no-op in this build.
+func (k *PrivateKey) Close() error { return nil }

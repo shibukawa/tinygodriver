@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibukawa/tinygodriver/https/internal/mbedtls"
+	"github.com/shibukawa/tinygodriver/internal/mbedtls"
 	"github.com/shibukawa/tinygodriver/netdev"
 )
 

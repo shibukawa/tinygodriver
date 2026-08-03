@@ -68,18 +68,29 @@ rsa_signing:
     state: shipped by definition
     backend: crypto/rsa
   tinygo_darwin_arm64:
-    state: spiked and measured 2026-08-02, not yet integrated
+    state: shipped 2026-08-02
     backend: Security.framework, SecKeyCreateWithData plus SecKeyCreateSignature
     cost: 583 KB against 1040 KB for crypto/rsa, and 1.10ms against 2.87ms
   tinygo_linux:
-    state: designed, unmeasured
+    state: shipped 2026-08-03
     backend: system:mbedtls, already linked for TLS
     cost: >
-      no new object code. Every needed module is enabled in the vendored
-      mbedtls_config.h, checked 2026-08-02.
+      no new object code. Every needed module was already enabled in the
+      vendored mbedtls_config.h for TLS.
+    verified: >
+      built and run in a golang:1.26 container, where it signs the committed
+      vector to the same bytes crypto/rsa and Security.framework do
+    structural_change: >
+      the vendored mbedTLS moved from https/internal/mbedtls to
+      internal/mbedtls. Go's internal rule made the old path unreachable from
+      internal/rsasign, and compiling a second copy would have collided at link
+      time, since C symbols are global.
   tinygo_windows_amd64:
-    state: designed, unmeasured, and unmeasurable here
+    state: implemented 2026-08-03; cross-compiles and links, never executed
     backend: CNG, with crypt32 CryptDecodeObjectEx converting the key blob
+    verified: >
+      cross-compiles and vets for windows/amd64 under mingw-w64. Same state
+      system:schannel ships in, and for the same reason.
     gate: requirement:windows-tinygo-feasibility
 unsupported_behavior:
   returns: ErrPlatformNotSupported from api:tls-dialer, and from api:rsa-signer

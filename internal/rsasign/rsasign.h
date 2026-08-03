@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && darwin
+//go:build (tinygo || force_tinygo_logic) && (darwin || windows)
 
 #ifndef TINYGODRIVER_RSASIGN_H
 #define TINYGODRIVER_RSASIGN_H

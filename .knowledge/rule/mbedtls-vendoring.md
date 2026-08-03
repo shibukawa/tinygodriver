@@ -7,7 +7,7 @@ How the mbedTLS sources live in the repository, and the security obligation that
 
 ```yaml
 layout:
-  path: https/internal/mbedtls/
+  path: internal/mbedtls/
   contents: mbedTLS library/*.c and *.h, plus include/, flattened as cgo requires
   reason: >
     cgo only compiles C sources that sit in the package directory, and

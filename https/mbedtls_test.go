@@ -5,7 +5,7 @@ package https_test
 import (
 	"testing"
 
-	"github.com/shibukawa/tinygodriver/https/internal/mbedtls"
+	"github.com/shibukawa/tinygodriver/internal/mbedtls"
 )
 
 // TestMbedTLSSelfTest runs the mbedTLS known-answer vectors. On arm64 this is

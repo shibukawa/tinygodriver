@@ -48,9 +48,17 @@ der_walker:
   input_trust: an operator-supplied key file, not a remote input
 build_selection:
   std_go: crypto/rsa, on every OS
-  tinygo_darwin: securetransport-adjacent bridge into Security.framework
-  tinygo_linux: system:mbedtls, already linked for TLS
-  tinygo_windows: CNG through cgo
+  tinygo_darwin: hand-declared bridge into Security.framework
+  tinygo_linux: >
+    internal/mbedtls, already linked for TLS. This package imports it rather
+    than compiling its own copy: C symbols are global, so two packages building
+    the same sources collide at link time.
+  tinygo_windows: CNG through cgo, with crypt32 converting the key blob
+  shared_mbedtls: >
+    the vendored mbedTLS moved from https/internal/mbedtls to internal/mbedtls
+    on 2026-08-03. Go's internal rule scoped the old path to https/..., which
+    made it unreachable from here, and the package needs no include path of its
+    own, so the move was a rename plus two import lines.
   unsupported: ErrPlatformNotSupported, never a silent fallback to a weaker path
   tags: rule:build-tag-selection
 contract: rule:rsa-signer-agreement

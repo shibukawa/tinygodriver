@@ -8,10 +8,15 @@ A TinyGo build that signs a JWT must reach the RSA operation through the platfor
 ```yaml
 priority: must
 state:
-  darwin: spiked and measured 2026-08-02; not yet integrated
-  linux: not started; the backend is already linked for TLS
-  windows: not started; blocked on requirement:windows-tinygo-feasibility
+  darwin: shipped 2026-08-02, Security.framework
+  linux: shipped 2026-08-03, system:mbedtls, verified in a container
+  windows: implemented 2026-08-03, CNG; cross-compiles and links, never executed
   std_go: satisfied by construction
+  all_three_agree: >
+    the committed vector signs to identical bytes on crypto/rsa,
+    Security.framework and mbedTLS. That is rule:rsa-signer-agreement doing the
+    job it was written for: a deterministic algorithm makes cross-backend
+    equality checkable offline, which no other native backend here can claim.
 budget:
   what_this_requirement_defends: binary size, not latency
   isolated_fixture:
