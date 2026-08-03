@@ -206,6 +206,18 @@ client.UpdateItem(ctx, "counters", key, "ADD hits :one",
 exactly-once — nothing over HTTP does — and on TinyGo builds the transport
 replay remains until `Transport.DisableKeepAlives` is set.
 
+## Limits
+
+Exported so a caller batching work can chunk against them rather than copying
+numbers out of AWS documentation into its own source, where they drift silently.
+
+| Constant | Value |
+| --- | --- |
+| `MaxBatchGet` | 100 items per `BatchGetItem`, across tables |
+| `MaxBatchWrite` | 25 put/delete requests per `BatchWriteItem`, across tables |
+| `MaxItemBytes` | 400 KiB |
+| `MaxRequestBytes` | 16 MiB |
+
 ## Connections
 
 Connections are pooled, which matters more here than for object storage. A TLS

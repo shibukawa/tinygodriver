@@ -7,9 +7,40 @@ import (
 	"fmt"
 )
 
-// Operation limits taken from the published quotas.
+// Service limits, from the published quotas. They are exported because a
+// caller batching work has to chunk against them, and a number copied out of
+// the documentation into every consumer drifts silently when the service
+// changes it.
+//
+// There is deliberately no maximum-mutations-per-commit constant: Google
+// documents no count limit on a commit. A commit is bounded in bytes, by
+// MaxRequestBytes and, inside a transaction, MaxTransactionBytes. The only
+// documented count of 500 is property transformations per entity, which
+// requirement:datastore-client-scope excludes. So chunk a batch write by size,
+// not by count.
 const (
-	maxLookupKeys = 1000
+	// MaxLookupKeys is the most keys one lookup accepts. GetMulti checks this
+	// before sending.
+	MaxLookupKeys = 1000
+
+	// MaxRequestBytes bounds one API request.
+	MaxRequestBytes = 10 << 20
+
+	// MaxTransactionBytes bounds everything one transaction writes.
+	MaxTransactionBytes = 10 << 20
+
+	// MaxEntityBytes is the largest a single entity may be.
+	MaxEntityBytes = 1<<20 - 4
+
+	// MaxKeyBytes is the largest a single key may be.
+	MaxKeyBytes = 6 << 10
+
+	// MaxIndexedStringBytes is where a string property stops being indexed.
+	// A longer value is still stored; it just cannot be filtered or ordered on.
+	MaxIndexedStringBytes = 1500
+
+	// MaxNestingDepth is how deep entity values may nest.
+	MaxNestingDepth = 20
 )
 
 // ErrTooManyKeys is returned before a request the server would reject.
@@ -312,7 +343,7 @@ func (c *Client) lookup(ctx context.Context, keys []Key, transaction string, opt
 	if len(keys) == 0 {
 		return &LookupResult{}, nil
 	}
-	if len(keys) > maxLookupKeys {
+	if len(keys) > MaxLookupKeys {
 		return nil, fmt.Errorf("%w: got %d", ErrTooManyKeys, len(keys))
 	}
 	req := wireLookupRequest{

@@ -193,7 +193,7 @@ func TestGetMultiReturnsAllThreeLists(t *testing.T) {
 func TestLookupKeyLimitIsCheckedLocally(t *testing.T) {
 	s := newStub()
 	client, _ := newTestClient(t, s)
-	keys := make([]Key, maxLookupKeys+1)
+	keys := make([]Key, MaxLookupKeys+1)
 	for i := range keys {
 		keys[i] = IDKey("K", int64(i+1))
 	}

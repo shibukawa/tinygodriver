@@ -84,12 +84,31 @@ key_encoding:
     partitionId is added by the client at encode time from its project and
     namespace, so a Key value stays portable inside a program
 struct_mapping:
-  optional: "func MarshalEntity(v any) (Entity, error) and UnmarshalEntity(Entity, any) error"
-  tag: >
+  state: >
+    NOT IMPLEMENTED as of v1.1.4. Everything below is a design, not a
+    description of shipped API. It was written in the present tense alongside
+    concepts that were shipping, and a downstream reader took it for the latter;
+    that cost them real time and is the reason this marker exists.
+  proposed: "func MarshalEntity(v any) (Entity, error) and UnmarshalEntity(Entity, any) error"
+  proposed_tag: >
     datastore, matching the cloud.google.com/go/datastore spelling so examples
     port over, the same courtesy dynamodbav gets
-  options: "`,noindex` and `,omitempty` on the tag; `-` skips"
+  proposed_options: "`,noindex` and `,omitempty` on the tag; `-` skips"
   cost: reflection, opt-in for the same reason as decision:dynamodb-json-codec
+  hazard_if_it_lands:
+    what: >
+      a code generator over this driver reads its own struct tag. Two tag
+      spellings on one field mapping produce two mappings that look
+      interchangeable and disagree on every renamed property, silently.
+    evidence: >
+      reported from the DynamoDB side, where MarshalItem reads dynamodbav and a
+      downstream generator reads its own tag. That generator had to add a
+      check — a field carrying dynamodbav but no generator tag is an error —
+      purely to catch users who ported an SDK struct.
+    consequence: >
+      not a reason to refuse the feature, but the cost lands downstream rather
+      than here, so the tag must be documented as authoritative for this path
+      only, from the first commit rather than after someone is bitten.
 verified_under_tinygo: >
   not separately measured. requirement:dynamodb-driver-validation established
   encoding/json and reflect under tinygo, and this is the same machinery over a

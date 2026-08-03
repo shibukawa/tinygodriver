@@ -277,7 +277,26 @@ type batchGetResponse struct {
 	UnprocessedKeys map[string]batchGetTable `json:"UnprocessedKeys"`
 }
 
-// BatchGetItem reads up to 100 items across tables in one request.
+// Service limits, from the published quotas. They are exported because a
+// caller batching work has to chunk against them, and a number copied out of
+// the documentation into every consumer drifts silently when the service
+// changes it.
+const (
+	// MaxBatchGet is the most items one BatchGetItem accepts, across tables.
+	MaxBatchGet = 100
+
+	// MaxBatchWrite is the most put and delete requests one BatchWriteItem
+	// accepts, across tables.
+	MaxBatchWrite = 25
+
+	// MaxItemBytes is the largest a single item may be.
+	MaxItemBytes = 400 << 10
+
+	// MaxRequestBytes bounds one API request.
+	MaxRequestBytes = 16 << 20
+)
+
+// BatchGetItem reads up to MaxBatchGet items across tables in one request.
 //
 // One handshake and one round trip serve the whole batch, which is what makes
 // it worth more than the sum of its GetItems.
@@ -312,7 +331,7 @@ type batchWriteResponse struct {
 	UnprocessedItems map[string][]WriteRequest `json:"UnprocessedItems"`
 }
 
-// BatchWriteItem puts and deletes up to 25 items across tables in one request.
+// BatchWriteItem puts and deletes up to MaxBatchWrite items across tables in one request.
 //
 // It is not a transaction: the writes succeed or fail one by one, and the ones
 // that did not happen come back in UnprocessedItems. Conditions are not

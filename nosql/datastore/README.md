@@ -107,8 +107,11 @@ loses resolution on the server; the constructor does not hide that.
 An embedded entity has no key. One that carries a key is rejected at encode time
 rather than silently stripped.
 
-`MarshalEntity` and `UnmarshalEntity` are not implemented yet; build entities
-with `Set` for now.
+`MarshalEntity` and `UnmarshalEntity` are **not implemented**; build entities
+with `Set` for now. If they ever land they will read a `datastore` struct tag,
+which would be authoritative for that path only — a code generator over this
+driver reads its own tag, and two spellings on one field produce two mappings
+that look interchangeable and disagree on every renamed property.
 
 ## Keys
 
@@ -196,6 +199,82 @@ error writes nothing.
 `ABORTED`, and the right response is to re-run the whole closure — the reads it
 decided on are stale. So it must have no side effects outside the transaction.
 That cannot be enforced, only stated.
+
+## Limits and chunking
+
+Exported, because a caller batching work has to chunk against them and a number
+copied out of Google's documentation into every consumer drifts silently when
+the service changes it.
+
+| Constant | Value |
+| --- | --- |
+| `MaxLookupKeys` | 1000 keys per `lookup` — `GetMulti` checks this before sending |
+| `MaxRequestBytes` | 10 MiB |
+| `MaxTransactionBytes` | 10 MiB |
+| `MaxEntityBytes` | 1 MiB − 4 |
+| `MaxKeyBytes` | 6 KiB |
+| `MaxIndexedStringBytes` | 1500; a longer string is stored but not indexed |
+| `MaxNestingDepth` | 20 |
+
+**There is no maximum-mutations-per-commit constant, and that is not an
+oversight.** Google documents no count limit on a commit — the bound is bytes,
+`MaxRequestBytes` and, inside a transaction, `MaxTransactionBytes`. The only
+documented count of 500 is property transformations per entity, which this
+package excludes. So chunk a batch write by size, not by count.
+
+## Composite indexes
+
+Single-property indexes are automatic. A composite index is required when a
+query combines an equality filter with an inequality on a different property,
+orders on a property it also filters on inequality, or otherwise needs more than
+one property considered together. Without one the query fails at runtime with
+`FAILED_PRECONDITION`, on code that compiled cleanly.
+
+`Index` describes one, so a tool that can see the need at build time has
+somewhere to put it:
+
+```go
+idx := datastore.Index{
+    Kind: "Task",
+    Properties: []datastore.IndexProperty{
+        {Name: "done"},
+        {Name: "priority", Direction: datastore.Descending},
+    },
+}
+yaml, err := datastore.MarshalIndexYAML([]datastore.Index{idx})
+// feed to: gcloud datastore indexes create index.yaml
+```
+
+The output is sorted, so a tool that regenerates it produces a stable diff.
+
+This is a description, not a request. **Applying** an index is an admin-API
+operation and stays out of scope; the shape of an index is a property of the
+service rather than of any one tool, which is why the type lives here instead of
+being reinvented by every generator.
+
+There is deliberately no `RequiredIndex(*Query)`. The rule for when a composite
+index is needed is subtle, and a derivation that is quietly wrong is worse than
+none — it would name an index that does not fix the query.
+
+## TTL
+
+**TTL is not expressible on this wire.** It is a policy over an ordinary
+timestamp property, configured out of band:
+
+```sh
+gcloud firestore fields ttls update expiresAt --collection-group=Task --enable-ttl
+```
+
+So an expiring entity needs nothing special from this package: write a
+`datastore.Time(...)` property and point a policy at it. The property must be a
+timestamp; leaving it absent or null disables expiry for that entity, which is
+the per-entity opt-out. One property per kind may be a TTL property, and a
+database may hold at most 500 TTL policies. Deletion happens within about 24
+hours of expiry, so it is a retention mechanism and not a correctness one — a
+read may still return an expired entity, and application code has to check.
+
+Datastore mode additionally cannot use TTL with a concurrency mode of Optimistic
+With Entity Groups.
 
 ## Errors
 
