@@ -73,8 +73,24 @@ type LatLng struct {
 }
 
 // Integer is the set of Go integer types Int accepts.
+//
+// Every member fits int64 on every platform, which is what makes Int total: it
+// cannot be handed a value Datastore has no representation for.
+//
+// ~uint was removed on 2026-08-04. On a 64-bit platform uint holds values int64
+// does not, and Int converted through int64, so Int(uint(math.MaxUint64))
+// stored "-1" and reported no error — the one silent wrong write in a package
+// that refuses out-of-range integer text, refuses widening a double to an
+// integer, and refuses a uint64 in the struct mapper. Int returns no error, so
+// the constraint is the only place this could be fixed without changing the
+// signature.
+//
+// A uint caller writes Int(int64(n)) when the value is known to fit, or
+// IntString(strconv.FormatUint(n, 10)) when it is not — and the latter fails
+// loudly at encode time if it really is too wide. 32-bit callers, where uint
+// always fits, pay a conversion for that.
 type Integer interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint8 | ~uint16 | ~uint32
 }
 
 // Value is one property in its wire form. Exactly one member is set; a slice

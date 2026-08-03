@@ -107,6 +107,14 @@ loses resolution on the server; the constructor does not hide that.
 An embedded entity has no key. One that carries a key is rejected at encode time
 rather than silently stripped.
 
+`Int` accepts every Go integer type that fits `int64` on every platform.
+`uint` is **not** among them: on a 64-bit platform it holds values `int64` does
+not, and `Int` has no error to return, so admitting it meant
+`Int(uint(math.MaxUint64))` storing `-1` silently. A `uint` caller writes
+`Int(int64(n))` when the value is known to fit, or
+`IntString(strconv.FormatUint(n, 10))` when it is not — and the latter fails at
+encode time if it really is too wide.
+
 ## Struct mapping
 
 `MarshalEntity` and `UnmarshalEntity` map a struct to an entity. They are the
@@ -188,16 +196,63 @@ for {
 }
 ```
 
-Filters combine with `AND`; there is no `OR` on this wire. Every builder method
-returns a new `Query`, so a partially built query can be shared without one
-caller's additions reaching another.
+Every builder method returns a new `Query`, so a partially built query can be
+shared without one caller's additions reaching another.
+
+### AND and OR
+
+Repeated `Filter` calls combine with `AND`. For a disjunction, build a condition
+tree and attach it with `Where`:
+
+```go
+q := datastore.NewQuery("Task").
+    Filter("owner", datastore.Equal, datastore.String("me")).
+    Where(datastore.Or(
+        datastore.Prop("state", datastore.Equal, datastore.String("new")),
+        datastore.And(
+            datastore.Prop("starred", datastore.Equal, datastore.Bool(true)),
+            datastore.Prop("done", datastore.Equal, datastore.Bool(false)),
+        ),
+    ))
+```
+
+`Prop`, `And` and `Or` nest freely. `AncestorOf(key)` is a condition too, so an
+ancestor restriction can sit inside a disjunction.
+
+**Repeated `Where` calls, and a `Where` alongside a `Filter`, combine with
+`AND`** — so an `Or` belongs inside one call, not spread across two.
+
+A query is limited to `MaxDisjunctions` (30) once its filter is put in
+disjunctive normal form, so nesting `Or` inside `And` multiplies rather than
+adds. That bound is enforced by the service, not here: the expansion rule is
+the service's, and a client-side count that disagreed would refuse a query that
+works.
 
 There is no iterator hiding round trips. `EndCursor` feeds `Start` explicitly,
 the same shape as `storage/s3` and `nosql/dynamodb`.
 
-`Count` uses `runAggregationQuery`. It exists because counting by paging through
-keys costs a read per entity, so leaving it out would push callers toward the
-expensive thing.
+### Aggregations
+
+```go
+n, err := client.Count(ctx, q)                    // int64
+total, err := client.Sum(ctx, q, "celsius")       // Value: integer or double
+mean, err := client.Avg(ctx, q, "celsius")        // Value: double, or null
+```
+
+All three use `runAggregationQuery`, and all three exist for the same reason:
+the paging alternative costs a read per entity. Counting by paging can at least
+be done keys-only; **summing by paging cannot**, because every entity has to
+come back in full for the caller to add one property up. So paging to sum is
+strictly more expensive than paging to count.
+
+`Sum` and `Avg` return a `Value` rather than a Go number. A sum is an integer
+when every summed value was an integer and a double otherwise, and an average
+over nothing is null — where zero would be a different claim. Flattening either
+would erase the integer-versus-double distinction the rest of this package
+keeps.
+
+They are available inside a transaction too, via `Tx.Count`, `Tx.Sum` and
+`Tx.Avg`.
 
 ## Conditional writes
 
@@ -258,6 +313,28 @@ oversight.** Google documents no count limit on a commit — the bound is bytes,
 `MaxRequestBytes` and, inside a transaction, `MaxTransactionBytes`. The only
 documented count of 500 is property transformations per entity, which this
 package excludes. So chunk a batch write by size, not by count.
+
+`Client.MutationSize` gives that size without a throwaway marshal:
+
+```go
+batch, used := []datastore.Mutation{}, 0
+for _, m := range mutations {
+    n, err := client.MutationSize(m)
+    if err != nil {
+        return err
+    }
+    if used+n > datastore.MaxRequestBytes {
+        client.Mutate(ctx, batch)
+        batch, used = batch[:0], 0
+    }
+    batch, used = append(batch, m), used+n
+}
+```
+
+It is a method on `Client` rather than on `Entity` because it includes the key
+with its project, database and namespace attached, and only the client knows
+those. An `Entity`-level figure would understate every mutation by exactly the
+part the caller cannot see.
 
 ## Composite indexes
 

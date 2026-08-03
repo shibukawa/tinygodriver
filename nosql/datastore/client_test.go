@@ -393,13 +393,16 @@ func TestQueryIsImmutable(t *testing.T) {
 	base := NewQuery("Task").Filter("a", Equal, Int(1))
 	left := base.Filter("b", Equal, Int(2))
 	right := base.Filter("c", Equal, Int(3))
-	if len(base.filters) != 1 {
-		t.Errorf("base gained filters: %d", len(base.filters))
+	if len(base.conditions) != 1 {
+		t.Errorf("base gained conditions: %d", len(base.conditions))
 	}
-	if len(left.filters) != 2 || len(right.filters) != 2 {
-		t.Errorf("branches = %d, %d", len(left.filters), len(right.filters))
+	if len(left.conditions) != 2 || len(right.conditions) != 2 {
+		t.Errorf("branches = %d, %d", len(left.conditions), len(right.conditions))
 	}
-	if left.filters[1].property == right.filters[1].property {
+	// The branches must hold different conditions, not one shared slice.
+	leftProp := left.conditions[1].(propCondition).property
+	rightProp := right.conditions[1].(propCondition).property
+	if leftProp == rightProp {
 		t.Error("branches share state")
 	}
 }

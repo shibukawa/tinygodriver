@@ -68,15 +68,23 @@ methods:
     - func (c *Client) Insert(ctx, e Entity, opts ...WriteOption) (Key, error)
     - func (c *Client) Update(ctx, e Entity, opts ...WriteOption) error
     - func (c *Client) Delete(ctx, key Key, opts ...WriteOption) error
-    - func (c *Client) Mutate(ctx, ms []Mutation, opts ...WriteOption) (*CommitResult, error)
+    - func (c *Client) Mutate(ctx, ms []Mutation) (*CommitResult, error)
   queries:
     - func (c *Client) Run(ctx, q *Query, opts ...ReadOption) (*Batch, error)
     - func (c *Client) Count(ctx, q *Query, opts ...ReadOption) (int64, error)
+    - func (c *Client) Sum(ctx, q *Query, property string, opts ...ReadOption) (Value, error)
+    - func (c *Client) Avg(ctx, q *Query, property string, opts ...ReadOption) (Value, error)
   transactions:
     - func (c *Client) RunInTransaction(ctx, fn func(*Tx) error, opts ...TxOption) error
     - func (c *Client) RunReadOnly(ctx, fn func(*Tx) error, opts ...TxOption) error
   keys:
     - func (c *Client) AllocateIDs(ctx, keys []Key) ([]Key, error)
+  aggregation_results: >
+    Sum and Avg return Value rather than a Go number. A sum is an integer or a
+    double depending on the data, an average over nothing is null, and
+    flattening either would erase what data:datastore-value exists to keep.
+  sizing:
+    - func (c *Client) MutationSize(m Mutation) (int, error)
   admin:
     - func (c *Client) Close() error
     - func (c *Client) ProjectID() string
@@ -96,10 +104,16 @@ entity_return: >
 types:
   Key, Entity, Value: data:datastore-value
   Query: "built by chaining: NewQuery(kind).Filter(...).Order(...).Limit(n).Start(cursor)"
+  Condition: >
+    the filter tree: Prop, And, Or and AncestorOf, attached with Query.Where.
+    Added 2026-08-04 when OR turned out to be on the wire after all; see
+    system:google-datastore. Filter is now sugar over Where(Prop(...)), so no
+    caller changed.
+  Index: "Index, IndexProperty, Direction, MarshalIndexYAML; see index_descriptor"
   Batch: "struct { Entities []Entity; EndCursor Cursor; More MoreResults }, with HasMore()"
   Mutation: "built with InsertOp, UpdateOp, UpsertOp, DeleteOp"
   LookupResult: "struct { Found []Entity; Missing []Key; Deferred []Key }"
-  Tx: "Get, GetMulti, Run, Count, and the mutation verbs, queued until commit"
+  Tx: "Get, GetMulti, Run, Count, Sum, Avg, and the mutation verbs, queued until commit"
 lookup_shape: >
   the wire returns found, missing and deferred lists rather than failing. Get
   turns a one-key lookup into ErrNoSuchEntity; GetMulti hands all three lists
@@ -122,6 +136,14 @@ options:
       drafted here and never built. cloud/google exposes CredentialsFromFile,
       so a caller reads the file and passes WithCredentials; a second spelling
       on the client would only duplicate that.
+    Mutate_write_options: >
+      requested by a downstream reader for symmetry with the other writes and
+      declined 2026-08-04. Every WriteOption that exists is a per-entity
+      precondition, so a batch-level option could only broadcast a baseVersion
+      across entities it does not belong to. Adding a variadic later is
+      source-compatible for ordinary callers, so nothing is lost by waiting for
+      a WriteOption that is not per-entity. This concept claimed the variadic
+      anyway until the audit test caught it.
     WithPropertyMask: >
       the wire has propertyMask on reads and on update mutations. Not built,
       and not merely deferred: a masked read returns an entity missing

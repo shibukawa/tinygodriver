@@ -73,7 +73,38 @@ func (t *Tx) Count(ctx context.Context, q *Query) (int64, error) {
 	if err := t.usable(); err != nil {
 		return 0, err
 	}
-	return t.client.count(ctx, q, t.handle, nil)
+	v, err := t.client.aggregate(ctx, q, t.handle, "count",
+		wireAggregation{Alias: "count", Count: &wireCountAggregation{}}, nil)
+	if err != nil {
+		return 0, err
+	}
+	n, ok := v.AsInt()
+	if !ok {
+		return 0, fmt.Errorf("datastore: count was not an integer")
+	}
+	return n, nil
+}
+
+// Sum totals one property inside the transaction.
+func (t *Tx) Sum(ctx context.Context, q *Query, property string) (Value, error) {
+	if err := t.usable(); err != nil {
+		return Value{}, err
+	}
+	return t.client.aggregate(ctx, q, t.handle, "sum", wireAggregation{
+		Alias: "sum",
+		Sum:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
+	}, nil)
+}
+
+// Avg averages one property inside the transaction.
+func (t *Tx) Avg(ctx context.Context, q *Query, property string) (Value, error) {
+	if err := t.usable(); err != nil {
+		return Value{}, err
+	}
+	return t.client.aggregate(ctx, q, t.handle, "avg", wireAggregation{
+		Alias: "avg",
+		Avg:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
+	}, nil)
 }
 
 // Put queues an upsert.

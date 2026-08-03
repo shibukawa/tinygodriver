@@ -26,6 +26,25 @@ type: |
   type Key struct { Namespace string; Path []PathElement }
   type PathElement struct { Kind string; ID int64; Name string }   // exactly one of ID, Name
   type LatLng struct { Latitude, Longitude float64 }
+integer_constraint:
+  admits: "~int, ~int8, ~int16, ~int32, ~int64, ~uint8, ~uint16, ~uint32"
+  excludes: >
+    ~uint, removed 2026-08-04, and ~uint64, never admitted. Both hold values
+    int64 does not on a 64-bit platform.
+  bug_this_fixed: >
+    Int converts through int64 and returns no error, so with ~uint admitted
+    Int(uint(math.MaxUint64)) stored "-1" and reported nothing. That was the one
+    silent wrong write in a package that refuses out-of-range integer text,
+    refuses widening a double to an integer, and refuses a uint64 in the struct
+    mapper. Found by a downstream reader building a declaration grammar, who had
+    to enumerate every constructor to see what could not be expressed.
+  why_the_constraint: >
+    Int has no error return, so the type set is the only place the guarantee can
+    live. Every remaining member fits int64 on every platform, which makes the
+    conversion total by construction rather than by convention.
+  cost: >
+    a uint caller converts, and on 32-bit that conversion is provably
+    unnecessary. Accepted against a silent wrong write on 64-bit.
 constructors:
   - "func String(v string) Value"
   - "func Int[T Integer](v T) Value"
@@ -85,17 +104,26 @@ key_encoding:
     namespace, so a Key value stays portable inside a program
 struct_mapping:
   state: >
-    NOT IMPLEMENTED as of v1.1.4. Everything below is a design, not a
-    description of shipped API. It was written in the present tense alongside
-    concepts that were shipping, and a downstream reader took it for the latter;
-    that cost them real time and is the reason this marker exists.
-  proposed: "func MarshalEntity(v any) (Entity, error) and UnmarshalEntity(Entity, any) error"
-  proposed_tag: >
+    shipped 2026-08-03, entitymap.go. This block said NOT IMPLEMENTED until then
+    and was stale for one commit after landing, which is the same defect the
+    marker was added to prevent; a concept describing shipped API has to be
+    re-read when the code changes, not only when the concept does.
+  api: "func MarshalEntity(v any) (Entity, error) and UnmarshalEntity(Entity, any) error"
+  tag: >
     datastore, matching the cloud.google.com/go/datastore spelling so examples
     port over, the same courtesy dynamodbav gets
-  proposed_options: "`,noindex` and `,omitempty` on the tag; `-` skips"
+  options: "`,noindex` and `,omitempty` on the tag; `-` skips; `__key__` carries the key"
   cost: reflection, opt-in for the same reason as decision:dynamodb-json-codec
-  hazard_if_it_lands:
+  refusals:
+    maps: >
+      Datastore has no map type, so a map would become an embedded entity whose
+      property names come from runtime data rather than from the struct
+    uint64_above_maxint64: refused rather than wrapped, the same rule integer_constraint states
+    nil_pointer: >
+      becomes null rather than being omitted, because absent and null are
+      different everywhere else here and the mapper cannot be where that stops.
+      ",omitempty" is how a caller asks for absence.
+  hazard:
     what: >
       a code generator over this driver reads its own struct tag. Two tag
       spellings on one field mapping produce two mappings that look

@@ -16,6 +16,7 @@ in_scope:
     - AllocateIDs, because an incomplete key has to come from somewhere
   queries:
     - runQuery with kind, filter, order, projection, distinctOn, limit and offset
+    - AND and OR composition through a condition tree, added 2026-08-04
     - cursor pagination, one batch per call, moreResults surfaced to the caller
     - ancestor queries, which are a filter on the key path
     - EVENTUAL read consistency as an option, STRONG by default
@@ -24,10 +25,22 @@ in_scope:
     - read-only transactions, for a consistent snapshot across several reads
     - single-use transactions where the shape allows, to save a round trip
   aggregation:
-    - runAggregationQuery with COUNT
+    - runAggregationQuery with COUNT, SUM and AVG
     - reason: >
-        counting by paging through keys costs a read per entity, so leaving this
-        out pushes callers toward the expensive thing
+        the paging alternative costs a read per entity, so leaving these out
+        pushes callers toward the expensive thing
+    - sum_and_avg_added: >
+        2026-08-04. They were excluded as "conveniences over data the caller can
+        page" until a downstream reader applied that reasoning consistently:
+        counting by paging can be done keys-only, summing by paging cannot,
+        because every entity has to come back in full to add one property up. So
+        paging to sum is strictly more expensive than paging to count, and the
+        argument that admitted COUNT applies harder here. The original entry had
+        it backwards.
+    - result_type: >
+        Value, not a Go number. A sum is an integer or a double depending on the
+        data and an average over nothing is null, and flattening either would
+        erase the distinction data:datastore-value exists to keep.
   addressing:
     - named databases through the request-level databaseId
     - namespaces on keys, since multi-tenant callers cannot add them later

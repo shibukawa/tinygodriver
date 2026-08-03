@@ -273,6 +273,29 @@ func (c *Client) writeOne(ctx context.Context, m Mutation) (Key, error) {
 	return result.Keys[0], nil
 }
 
+// MutationSize reports how many bytes m contributes to a commit request.
+//
+// It exists so a caller chunking a batch write against MaxRequestBytes does not
+// have to marshal each entity itself and then hand it to this package to be
+// marshalled again. Datastore publishes no per-commit mutation count, so size
+// is the only bound there is to chunk against.
+//
+// This is the encoded mutation, including the key with its project, database
+// and namespace attached — which is why it is a method on Client rather than on
+// Entity: only the client knows the partition, and an Entity-level figure would
+// understate every mutation by exactly the part the caller cannot see.
+func (c *Client) MutationSize(m Mutation) (int, error) {
+	encoded, err := c.encodeMutation(m)
+	if err != nil {
+		return 0, err
+	}
+	raw, err := json.Marshal(encoded)
+	if err != nil {
+		return 0, err
+	}
+	return len(raw), nil
+}
+
 // Mutate applies several mutations in one commit.
 //
 // Without a transaction this is NON_TRANSACTIONAL, where the server requires
@@ -432,12 +455,18 @@ type wireAggregationQuery struct {
 }
 
 type wireAggregation struct {
-	Alias string                `json:"alias"`
-	Count *wireCountAggregation `json:"count,omitempty"`
+	Alias string                   `json:"alias"`
+	Count *wireCountAggregation    `json:"count,omitempty"`
+	Sum   *wirePropertyAggregation `json:"sum,omitempty"`
+	Avg   *wirePropertyAggregation `json:"avg,omitempty"`
 }
 
 type wireCountAggregation struct {
 	UpTo string `json:"upTo,omitempty"`
+}
+
+type wirePropertyAggregation struct {
+	Property wirePropertyReference `json:"property"`
 }
 
 type wireRunAggregationRequest struct {
@@ -460,17 +489,67 @@ type wireRunAggregationResponse struct {
 // It exists because counting by paging through keys costs a read per entity,
 // so leaving it out would push callers toward the expensive thing.
 func (c *Client) Count(ctx context.Context, q *Query, opts ...ReadOption) (int64, error) {
-	return c.count(ctx, q, "", opts)
+	v, err := c.aggregate(ctx, q, "", "count",
+		wireAggregation{Alias: "count", Count: &wireCountAggregation{}}, opts)
+	if err != nil {
+		return 0, err
+	}
+	n, ok := v.AsInt()
+	if !ok {
+		return 0, fmt.Errorf("datastore: count was not an integer")
+	}
+	return n, nil
 }
 
-func (c *Client) count(ctx context.Context, q *Query, transaction string, opts []ReadOption) (int64, error) {
+// Sum totals one property across the entities the query matches.
+//
+// The result is an integer when every summed value is an integer and a double
+// otherwise, which is why this returns a Value rather than one Go type:
+// flattening it would erase the same integer-versus-double distinction the
+// rest of this package keeps. Values of other types are ignored by the service
+// rather than failing the query.
+//
+// It is here for the reason Count is, applied consistently. Counting by paging
+// can be done keys-only; summing by paging cannot, because every entity has to
+// come back in full for the caller to add one property up. So paging to sum is
+// strictly more expensive than paging to count, and the argument that put Count
+// in scope applies harder here. requirement:datastore-client-scope excluded
+// these as "conveniences over data the caller can page" until a downstream
+// reader pointed that out on 2026-08-04.
+func (c *Client) Sum(ctx context.Context, q *Query, property string, opts ...ReadOption) (Value, error) {
+	return c.aggregate(ctx, q, "", "sum", wireAggregation{
+		Alias: "sum",
+		Sum:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
+	}, opts)
+}
+
+// Avg averages one property across the entities the query matches.
+//
+// The result is a double, or null when nothing matched — which is why this
+// returns a Value too: zero would be a different claim from "no data".
+func (c *Client) Avg(ctx context.Context, q *Query, property string, opts ...ReadOption) (Value, error) {
+	return c.aggregate(ctx, q, "", "avg", wireAggregation{
+		Alias: "avg",
+		Avg:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
+	}, opts)
+}
+
+func (c *Client) aggregate(ctx context.Context, q *Query, transaction, alias string,
+	aggregation wireAggregation, opts []ReadOption) (Value, error) {
 	if q == nil {
-		return 0, ErrNoKind
+		return Value{}, ErrNoKind
+	}
+	if aggregation.Count == nil && aggregation.Sum == nil && aggregation.Avg == nil {
+		return Value{}, fmt.Errorf("datastore: aggregation has no operator")
+	}
+	if (aggregation.Sum != nil && aggregation.Sum.Property.Name == "") ||
+		(aggregation.Avg != nil && aggregation.Avg.Property.Name == "") {
+		return Value{}, fmt.Errorf("datastore: %s needs a property name", alias)
 	}
 	partition := c.partition()
 	wq, err := q.wire(partition)
 	if err != nil {
-		return 0, err
+		return Value{}, err
 	}
 	req := wireRunAggregationRequest{
 		DatabaseID:  c.database,
@@ -478,25 +557,21 @@ func (c *Client) count(ctx context.Context, q *Query, transaction string, opts [
 		ReadOptions: buildReadOptions(transaction, opts),
 		AggregationQuery: &wireAggregationQuery{
 			NestedQuery:  wq,
-			Aggregations: []wireAggregation{{Alias: "count", Count: &wireCountAggregation{}}},
+			Aggregations: []wireAggregation{aggregation},
 		},
 	}
 	var resp wireRunAggregationResponse
 	if err := c.call(ctx, "runAggregationQuery", q.kind, req, &resp); err != nil {
-		return 0, err
+		return Value{}, err
 	}
 	if len(resp.Batch.AggregationResults) == 0 {
-		return 0, nil
+		return Value{}, fmt.Errorf("datastore: aggregation reply carried no result")
 	}
-	value, ok := resp.Batch.AggregationResults[0].AggregateProperties["count"]
+	value, ok := resp.Batch.AggregationResults[0].AggregateProperties[alias]
 	if !ok {
-		return 0, fmt.Errorf("datastore: aggregation reply carried no count")
+		return Value{}, fmt.Errorf("datastore: aggregation reply carried no %s", alias)
 	}
-	n, ok := value.AsInt()
-	if !ok {
-		return 0, fmt.Errorf("datastore: count was not an integer")
-	}
-	return n, nil
+	return value, nil
 }
 
 type wireAllocateIDsRequest struct {

@@ -14,8 +14,8 @@ var (
 // Operator is a property filter comparison.
 type Operator string
 
-// The property filter operators. Datastore composes filters with AND only;
-// there is no OR on this wire.
+// The property filter operators. Composition is in condition.go: Datastore
+// supports AND and OR.
 const (
 	LessThan         Operator = "LESS_THAN"
 	LessThanOrEqual  Operator = "LESS_THAN_OR_EQUAL"
@@ -37,12 +37,6 @@ func (o Operator) valid() bool {
 	return false
 }
 
-type filter struct {
-	property string
-	op       Operator
-	value    Value
-}
-
 type order struct {
 	property   string
 	descending bool
@@ -55,7 +49,7 @@ type order struct {
 // without one caller's additions reaching another.
 type Query struct {
 	kind        string
-	filters     []filter
+	conditions  []Condition
 	orders      []order
 	projection  []string
 	distinctOn  []string
@@ -78,28 +72,41 @@ func NewQuery(kind string) *Query {
 
 func (q *Query) clone() *Query {
 	out := *q
-	out.filters = append([]filter(nil), q.filters...)
+	out.conditions = append([]Condition(nil), q.conditions...)
 	out.orders = append([]order(nil), q.orders...)
 	out.projection = append([]string(nil), q.projection...)
 	out.distinctOn = append([]string(nil), q.distinctOn...)
 	return &out
 }
 
-// Filter adds a property comparison. Filters combine with AND.
+// Filter adds a property comparison. Repeated calls combine with AND.
+//
+// It is sugar over Where(Prop(...)) and is kept because most filters are one
+// comparison ANDed with the rest; reach for Where when a query needs OR.
 func (q *Query) Filter(property string, op Operator, value Value) *Query {
+	return q.Where(Prop(property, op, value))
+}
+
+// Where adds a condition tree. Repeated calls, and a Where alongside a Filter,
+// combine with AND — so Or belongs inside one call, not across two.
+//
+//	q.Where(datastore.Or(
+//	    datastore.Prop("state", datastore.Equal, datastore.String("new")),
+//	    datastore.Prop("priority", datastore.GreaterThanEqual, datastore.Int(8)),
+//	))
+func (q *Query) Where(c Condition) *Query {
 	out := q.clone()
-	if !op.valid() {
-		out.err = ErrBadOperator
+	if c == nil {
 		return out
 	}
-	out.filters = append(out.filters, filter{property: property, op: op, value: value})
+	out.conditions = append(out.conditions, c)
 	return out
 }
 
 // Ancestor restricts the query to descendants of key, which is a filter on the
 // key path rather than on a property.
 func (q *Query) Ancestor(key Key) *Query {
-	return q.Filter("__key__", HasAncestor, KeyValue(key))
+	return q.Where(AncestorOf(key))
 }
 
 // Order sorts ascending by property.
@@ -291,41 +298,20 @@ func (q *Query) wire(partition *wirePartitionID) (*wireQuery, error) {
 		})
 	}
 
-	filters := make([]wireFilter, 0, len(q.filters))
-	for _, f := range q.filters {
-		value := f.value
-		// A key inside a filter needs the project the request is for, the same
-		// as a key anywhere else.
-		if value.Key != nil {
-			withPartition := value.Key.wire(partition)
-			raw, err := json.Marshal(withPartition)
-			if err != nil {
-				return nil, err
-			}
-			filters = append(filters, wireFilter{PropertyFilter: &wirePropertyFilter{
-				Property: wirePropertyReference{Name: f.property},
-				Op:       string(f.op),
-				Value:    json.RawMessage(`{"keyValue":` + string(raw) + `}`),
-			}})
-			continue
-		}
-		raw, err := json.Marshal(value)
+	switch len(q.conditions) {
+	case 0:
+	case 1:
+		rendered, err := q.conditions[0].wire(partition)
 		if err != nil {
 			return nil, err
 		}
-		filters = append(filters, wireFilter{PropertyFilter: &wirePropertyFilter{
-			Property: wirePropertyReference{Name: f.property},
-			Op:       string(f.op),
-			Value:    raw,
-		}})
-	}
-	switch len(filters) {
-	case 0:
-	case 1:
-		out.Filter = &filters[0]
+		out.Filter = &rendered
 	default:
-		// Datastore composes with AND only.
-		out.Filter = &wireFilter{CompositeFilter: &wireCompositeFilter{Op: "AND", Filters: filters}}
+		rendered, err := And(q.conditions...).wire(partition)
+		if err != nil {
+			return nil, err
+		}
+		out.Filter = &rendered
 	}
 	return out, nil
 }

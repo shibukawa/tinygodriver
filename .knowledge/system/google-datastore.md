@@ -41,6 +41,20 @@ data_model:
   indexes: >
     single-property indexes are automatic; composite indexes are declared out of
     band and are an admin-API concern, not a data-API one
+filters:
+  composition: AND and OR
+  correction: >
+    this catalog and the client said AND only until 2026-08-04. The OR arm
+    arrived with disjunctive queries and Datastore mode was covered by it; a
+    downstream reader asked whether the claim was still true, which it was not.
+    Verified against the published CompositeFilter.Operator enum, which lists
+    OPERATOR_UNSPECIFIED, AND and OR.
+  disjunction_limit: >
+    30, counted after the whole filter is put in disjunctive normal form, so
+    nesting OR inside AND multiplies rather than adds
+  property_operators: >
+    LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL, EQUAL,
+    NOT_EQUAL, IN, NOT_IN, HAS_ANCESTOR
 errors:
   body: '{"error": {"code": int, "message": string, "status": string}}'
   discrimination: the status string, a canonical gRPC code name
