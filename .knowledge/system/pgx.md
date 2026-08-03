@@ -29,6 +29,13 @@ extension_points_used:
   stdlib.OpenDB: takes a pgx.ConnConfig, so the above is reachable from database/sql
   sql.Conn.Raw: yields *stdlib.Conn then *pgx.Conn for Batch, CopyFrom, LISTEN/NOTIFY
   pgconn/ctxwatch: public package, so no fork is needed for cancellation
+  Conn.SendBatch: >
+    pipelines the queued queries over the extended protocol in one round trip, in
+    an implicit transaction, returning BatchResults that must be Closed before the
+    connection is reused. The api shape adopted by api:sql-batch
+  pgconn.StartPipeline: >
+    lower-level Parse, Bind and Sync control under the same pipelining. Not used,
+    because SendBatch already covers requirement:sql-batch-execution
 version_policy: >
   the host path tracks upstream releases; the tinygo fork rebases onto the same
   tag, and the patch should stay build-tag shaped to keep rebases cheap

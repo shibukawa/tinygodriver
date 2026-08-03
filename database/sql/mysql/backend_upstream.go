@@ -5,6 +5,7 @@ package mysql
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"database/sql/driver"
 	"errors"
 
 	upstream "github.com/go-sql-driver/mysql"
@@ -13,6 +14,11 @@ import (
 
 // Backend identifies the implementation selected by build constraints.
 const Backend = "go-sql-driver"
+
+// driverInstance identifies this backend's driver for sqlbatch.Register, which
+// keys on the driver's type. It is the value this backend registers with
+// database/sql, so every handle Open returns finds the adapter.
+func driverInstance() driver.Driver { return &upstream.MySQLDriver{} }
 
 // RegisterTLSConfig registers trust settings under a name usable as tls=<name>
 // in a DSN. This backend speaks crypto/tls, so the PEM bytes in cfg are parsed
