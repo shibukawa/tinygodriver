@@ -21,7 +21,10 @@ and tests between both compilers.
 | [`mysql`](./database/sql/mysql) | `github.com/shibukawa/tinygodriver/database/sql/mysql` | MySQL and MariaDB `database/sql` driver built on go-sql-driver, TLS included |
 | [`storage/s3`](./storage/s3) | `github.com/shibukawa/tinygodriver/storage/s3` | S3 client (SigV4), where `aws-sdk-go-v2` does not build |
 | [`nosql/dynamodb`](./nosql/dynamodb) | `github.com/shibukawa/tinygodriver/nosql/dynamodb` | DynamoDB client, JSON protocol, retries and pooled connections |
+| [`nosql/datastore`](./nosql/datastore) | `github.com/shibukawa/tinygodriver/nosql/datastore` | Firestore in Datastore mode client, where neither Google Go client builds |
 | [`cloud/aws`](./cloud/aws) | `github.com/shibukawa/tinygodriver/cloud/aws` | SigV4 signing and credentials, shared by the AWS clients |
+| [`cloud/google`](./cloud/google) | `github.com/shibukawa/tinygodriver/cloud/google` | Google credentials and bearer tokens, RSA signed by the OS on TinyGo |
+| [`jwt`](./jwt) | `github.com/shibukawa/tinygodriver/jwt` | Bounded signed JWT subset, HS256 and RS256 |
 
 ## Quick start
 
@@ -95,6 +98,7 @@ func main() {
 | HTTPS platform demo | [`examples/httpsdemo`](./examples/httpsdemo) | One source, every platform: verifies trust, refusal behavior, and deadlines |
 | S3 object storage | [`examples/s3demo`](./examples/s3demo) | Put, get, range-read, list, and delete against any S3-compatible endpoint |
 | DynamoDB | [`examples/dynamodbdemo`](./examples/dynamodbdemo) | Table lifecycle, conditional writes, batches, and paged queries |
+| Datastore | [`examples/datastoredemo`](./examples/datastoredemo) | Typed round trip, ancestor query over two pages, and a transaction |
 
 ## Platform notes
 
@@ -106,7 +110,9 @@ See the package READMEs for detailed API behavior and limitations:
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 - [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
 - [`nosql/dynamodb`](./nosql/dynamodb/README.md): attribute values, pagination, retries and what a retry can deliver twice
+- [`nosql/datastore`](./nosql/datastore/README.md): values, keys, queries, conditional writes and contention
 - [`cloud/aws`](./cloud/aws/README.md): signing another AWS service with this signer
+- [`cloud/google`](./cloud/google/README.md): token sources, clock skew, and where the RSA code goes
 
 - **IPv4 only** (matches TinyGo’s net port).
 - **HTTPS client (`https`)**: Network.framework on macOS, Schannel on Windows,

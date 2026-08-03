@@ -1,0 +1,530 @@
+package datastore
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
+)
+
+// Codec failures. A Value carries exactly one member on the wire, because it is
+// a proto3 oneof, so neither zero nor two is something this package can encode
+// on the caller's behalf.
+var (
+	ErrEmptyValue     = errors.New("datastore: value has no member set")
+	ErrAmbiguousValue = errors.New("datastore: value has more than one member set")
+	ErrBadValue       = errors.New("datastore: malformed value on the wire")
+)
+
+// Kind identifies which member of a Value is set.
+type Kind int
+
+// The Value kinds, in the order the wire format lists them.
+const (
+	KindInvalid Kind = iota
+	KindNull
+	KindBool
+	KindInteger
+	KindDouble
+	KindTimestamp
+	KindKey
+	KindString
+	KindBlob
+	KindGeoPoint
+	KindEntity
+	KindArray
+)
+
+// String names the kind, for error messages.
+func (k Kind) String() string {
+	switch k {
+	case KindNull:
+		return "null"
+	case KindBool:
+		return "boolean"
+	case KindInteger:
+		return "integer"
+	case KindDouble:
+		return "double"
+	case KindTimestamp:
+		return "timestamp"
+	case KindKey:
+		return "key"
+	case KindString:
+		return "string"
+	case KindBlob:
+		return "blob"
+	case KindGeoPoint:
+		return "geoPoint"
+	case KindEntity:
+		return "entity"
+	case KindArray:
+		return "array"
+	}
+	return "invalid"
+}
+
+// LatLng is a geographical point.
+type LatLng struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+// Integer is the set of Go integer types Int accepts.
+type Integer interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32
+}
+
+// Value is one property in its wire form. Exactly one member is set; a slice
+// member counts as set when it is non-nil, so an empty array and an absent one
+// are different values.
+//
+// Integer is text because proto3 JSON encodes int64 as a string, which is also
+// what keeps a 64-bit id from passing through float64 on the way in. Double is
+// a real JSON number: Datastore stores the two as different types, and
+// collapsing them would change sort order and equality filters.
+type Value struct {
+	Null      bool
+	Bool      *bool
+	Integer   *string
+	Double    *float64
+	Timestamp *time.Time
+	Key       *Key
+	String    *string
+	Blob      []byte
+	GeoPoint  *LatLng
+	Entity    *Entity
+	Array     []Value
+
+	// ExcludeFromIndexes is not part of the union. It rides alongside whichever
+	// member is set.
+	ExcludeFromIndexes bool
+}
+
+// String builds a string value.
+func String(v string) Value { return Value{String: &v} }
+
+// Int builds an integer value from any Go integer type.
+func Int[T Integer](v T) Value {
+	s := strconv.FormatInt(int64(v), 10)
+	return Value{Integer: &s}
+}
+
+// IntString builds an integer value from its decimal text, for a uint64 beyond
+// int64 or to avoid a conversion the caller does not want.
+func IntString(v string) Value { return Value{Integer: &v} }
+
+// Float builds a double value.
+func Float(v float64) Value { return Value{Double: &v} }
+
+// Bool builds a boolean value.
+func Bool(v bool) Value { return Value{Bool: &v} }
+
+// Time builds a timestamp value.
+//
+// Datastore stores microseconds, so a value with finer resolution loses it on
+// the round trip. That truncation happens on the server and is not hidden here.
+func Time(v time.Time) Value { return Value{Timestamp: &v} }
+
+// Blob builds a byte-string value, base64 on the wire.
+func Blob(v []byte) Value {
+	if v == nil {
+		v = []byte{}
+	}
+	return Value{Blob: v}
+}
+
+// KeyValue builds a value referring to another entity.
+func KeyValue(k Key) Value { return Value{Key: &k} }
+
+// GeoPoint builds a geographical point value.
+func GeoPoint(lat, lng float64) Value {
+	return Value{GeoPoint: &LatLng{Latitude: lat, Longitude: lng}}
+}
+
+// Nested builds a value holding an embedded entity.
+//
+// An embedded entity has no key. One that carries a key is rejected at encode
+// time rather than silently stripped.
+func Nested(e Entity) Value { return Value{Entity: &e} }
+
+// Array builds a list value. An array of zero values is legal and is distinct
+// from an absent property.
+func Array(vs ...Value) Value {
+	if vs == nil {
+		vs = []Value{}
+	}
+	return Value{Array: vs}
+}
+
+// Null builds the null value, which is distinct from an absent property.
+func Null() Value { return Value{Null: true} }
+
+// Unindexed returns v with ExcludeFromIndexes set. It composes with every
+// constructor, because indexing is not one of the union members.
+func Unindexed(v Value) Value {
+	v.ExcludeFromIndexes = true
+	return v
+}
+
+// Kind reports which member is set, or KindInvalid when zero or several are.
+func (v Value) Kind() Kind {
+	kind, n := v.kind()
+	if n != 1 {
+		return KindInvalid
+	}
+	return kind
+}
+
+func (v Value) kind() (Kind, int) {
+	kind, n := KindInvalid, 0
+	set := func(k Kind) {
+		kind, n = k, n+1
+	}
+	if v.Null {
+		set(KindNull)
+	}
+	if v.Bool != nil {
+		set(KindBool)
+	}
+	if v.Integer != nil {
+		set(KindInteger)
+	}
+	if v.Double != nil {
+		set(KindDouble)
+	}
+	if v.Timestamp != nil {
+		set(KindTimestamp)
+	}
+	if v.Key != nil {
+		set(KindKey)
+	}
+	if v.String != nil {
+		set(KindString)
+	}
+	if v.Blob != nil {
+		set(KindBlob)
+	}
+	if v.GeoPoint != nil {
+		set(KindGeoPoint)
+	}
+	if v.Entity != nil {
+		set(KindEntity)
+	}
+	if v.Array != nil {
+		set(KindArray)
+	}
+	return kind, n
+}
+
+// MarshalJSON emits exactly one union member, plus excludeFromIndexes when set.
+func (v Value) MarshalJSON() ([]byte, error) {
+	kind, n := v.kind()
+	switch {
+	case n == 0:
+		return nil, ErrEmptyValue
+	case n > 1:
+		return nil, ErrAmbiguousValue
+	}
+
+	member, err := v.marshalMember(kind)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(member)+40)
+	out = append(out, '{')
+	out = append(out, member...)
+	if v.ExcludeFromIndexes {
+		out = append(out, `,"excludeFromIndexes":true`...)
+	}
+	out = append(out, '}')
+	return out, nil
+}
+
+func (v Value) marshalMember(kind Kind) ([]byte, error) {
+	encode := func(name string, value any) ([]byte, error) {
+		body, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]byte, 0, len(name)+len(body)+4)
+		out = append(out, '"')
+		out = append(out, name...)
+		out = append(out, `":`...)
+		return append(out, body...), nil
+	}
+	switch kind {
+	case KindNull:
+		return []byte(`"nullValue":null`), nil
+	case KindBool:
+		return encode("booleanValue", *v.Bool)
+	case KindInteger:
+		// Text on the wire, and validated here rather than at the server: an
+		// unparseable integer is a caller mistake worth catching locally.
+		if _, err := strconv.ParseInt(*v.Integer, 10, 64); err != nil {
+			return nil, fmt.Errorf("%w: integerValue %q is not an int64", ErrBadValue, *v.Integer)
+		}
+		return encode("integerValue", *v.Integer)
+	case KindDouble:
+		return encode("doubleValue", *v.Double)
+	case KindTimestamp:
+		return encode("timestampValue", v.Timestamp.UTC().Format(time.RFC3339Nano))
+	case KindKey:
+		return encode("keyValue", v.Key)
+	case KindString:
+		return encode("stringValue", *v.String)
+	case KindBlob:
+		return encode("blobValue", base64.StdEncoding.EncodeToString(v.Blob))
+	case KindGeoPoint:
+		return encode("geoPointValue", v.GeoPoint)
+	case KindEntity:
+		if v.Entity.Key != nil {
+			return nil, fmt.Errorf("%w: an embedded entity must not carry a key", ErrBadValue)
+		}
+		return encode("entityValue", v.Entity)
+	case KindArray:
+		body, err := json.Marshal(struct {
+			Values []Value `json:"values"`
+		}{Values: v.Array})
+		if err != nil {
+			return nil, err
+		}
+		return append([]byte(`"arrayValue":`), body...), nil
+	}
+	return nil, ErrEmptyValue
+}
+
+type wireArray struct {
+	Values []Value `json:"values"`
+}
+
+// nonUnionMembers ride alongside the union member rather than being one.
+// meaning is a deprecated field the server still sends on some values; it is
+// read and discarded so its presence does not look like a second member.
+var nonUnionMembers = map[string]bool{
+	"excludeFromIndexes": true,
+	"meaning":            true,
+}
+
+// UnmarshalJSON reads exactly one union member.
+//
+// It decodes to a member map first rather than to a struct of pointers. A
+// struct cannot see nullValue at all: encoding/json resolves a JSON null by
+// setting the pointer field to nil, so the one member whose value is literally
+// null becomes indistinguishable from an absent one. Counting keys also makes
+// an unknown member an error instead of silently nothing.
+func (v *Value) UnmarshalJSON(b []byte) error {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(b, &members); err != nil {
+		return fmt.Errorf("%w: %s", ErrBadValue, err)
+	}
+
+	out := Value{}
+	if raw, ok := members["excludeFromIndexes"]; ok {
+		if err := json.Unmarshal(raw, &out.ExcludeFromIndexes); err != nil {
+			return fmt.Errorf("%w: excludeFromIndexes", ErrBadValue)
+		}
+	}
+
+	name, count := "", 0
+	for key := range members {
+		if nonUnionMembers[key] {
+			continue
+		}
+		name, count = key, count+1
+	}
+	switch {
+	case count == 0:
+		return ErrEmptyValue
+	case count > 1:
+		return ErrAmbiguousValue
+	}
+
+	raw := members[name]
+	switch name {
+	case "nullValue":
+		// The proto NullValue enum has exactly one JSON form. Anything else
+		// under this name is not a value Datastore sends.
+		if string(raw) != "null" {
+			return fmt.Errorf("%w: nullValue must be null, got %s", ErrBadValue, raw)
+		}
+		out.Null = true
+	case "booleanValue":
+		var value bool
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("%w: booleanValue", ErrBadValue)
+		}
+		out.Bool = &value
+	case "integerValue":
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("%w: integerValue must be a string", ErrBadValue)
+		}
+		out.Integer = &value
+	case "doubleValue":
+		var value float64
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("%w: doubleValue", ErrBadValue)
+		}
+		out.Double = &value
+	case "timestampValue":
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return fmt.Errorf("%w: timestampValue", ErrBadValue)
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, text)
+		if err != nil {
+			return fmt.Errorf("%w: timestampValue %q", ErrBadValue, text)
+		}
+		out.Timestamp = &parsed
+	case "keyValue":
+		var key Key
+		if err := json.Unmarshal(raw, &key); err != nil {
+			return fmt.Errorf("%w: keyValue: %s", ErrBadValue, err)
+		}
+		out.Key = &key
+	case "stringValue":
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("%w: stringValue", ErrBadValue)
+		}
+		out.String = &value
+	case "blobValue":
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return fmt.Errorf("%w: blobValue", ErrBadValue)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(text)
+		if err != nil {
+			return fmt.Errorf("%w: blobValue is not base64", ErrBadValue)
+		}
+		if decoded == nil {
+			decoded = []byte{}
+		}
+		out.Blob = decoded
+	case "geoPointValue":
+		var point LatLng
+		if err := json.Unmarshal(raw, &point); err != nil {
+			return fmt.Errorf("%w: geoPointValue", ErrBadValue)
+		}
+		out.GeoPoint = &point
+	case "entityValue":
+		var entity Entity
+		if err := json.Unmarshal(raw, &entity); err != nil {
+			return fmt.Errorf("%w: entityValue: %s", ErrBadValue, err)
+		}
+		out.Entity = &entity
+	case "arrayValue":
+		var array wireArray
+		if err := json.Unmarshal(raw, &array); err != nil {
+			return fmt.Errorf("%w: arrayValue: %s", ErrBadValue, err)
+		}
+		if array.Values == nil {
+			array.Values = []Value{}
+		}
+		out.Array = array.Values
+	default:
+		return fmt.Errorf("%w: unknown member %q", ErrBadValue, name)
+	}
+
+	*v = out
+	return nil
+}
+
+// AsString returns the string value.
+func (v Value) AsString() (string, bool) {
+	if v.String == nil {
+		return "", false
+	}
+	return *v.String, true
+}
+
+// AsInt parses the integer value.
+func (v Value) AsInt() (int64, bool) {
+	if v.Integer == nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(*v.Integer, 10, 64)
+	return n, err == nil
+}
+
+// AsNumber returns the integer value as stored text, without a conversion.
+func (v Value) AsNumber() (string, bool) {
+	if v.Integer == nil {
+		return "", false
+	}
+	return *v.Integer, true
+}
+
+// AsFloat returns the double value.
+//
+// It does not accept an integer value. The two are distinct types to Datastore,
+// and quietly widening one to the other is how a filter stops matching.
+func (v Value) AsFloat() (float64, bool) {
+	if v.Double == nil {
+		return 0, false
+	}
+	return *v.Double, true
+}
+
+// AsBool returns the boolean value.
+func (v Value) AsBool() (bool, bool) {
+	if v.Bool == nil {
+		return false, false
+	}
+	return *v.Bool, true
+}
+
+// AsTime returns the timestamp value.
+func (v Value) AsTime() (time.Time, bool) {
+	if v.Timestamp == nil {
+		return time.Time{}, false
+	}
+	return *v.Timestamp, true
+}
+
+// AsBytes returns the blob value.
+func (v Value) AsBytes() ([]byte, bool) {
+	if v.Blob == nil {
+		return nil, false
+	}
+	return v.Blob, true
+}
+
+// AsKey returns the key value.
+func (v Value) AsKey() (Key, bool) {
+	if v.Key == nil {
+		return Key{}, false
+	}
+	return *v.Key, true
+}
+
+// AsGeoPoint returns the geographical point value.
+func (v Value) AsGeoPoint() (LatLng, bool) {
+	if v.GeoPoint == nil {
+		return LatLng{}, false
+	}
+	return *v.GeoPoint, true
+}
+
+// AsEntity returns the embedded entity value.
+func (v Value) AsEntity() (Entity, bool) {
+	if v.Entity == nil {
+		return Entity{}, false
+	}
+	return *v.Entity, true
+}
+
+// AsArray returns the list value.
+func (v Value) AsArray() ([]Value, bool) {
+	if v.Array == nil {
+		return nil, false
+	}
+	return v.Array, true
+}
+
+// IsNull reports whether this is the null value, which is not the same as an
+// absent property.
+func (v Value) IsNull() bool { return v.Null }
