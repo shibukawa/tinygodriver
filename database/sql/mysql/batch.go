@@ -115,16 +115,22 @@ func split(res driver.Result, wrapped bool, want int) (affected, insertIDs []int
 	return affected, insertIDs, nil
 }
 
-// batchError translates the two failures a caller is most likely to hit into
-// something that names the DSN setting to change.
+// batchError translates the failures a caller is most likely to hit into
+// something that names what to change.
 //
 // The index is never known here: MySQL reports one error for the whole
 // comQuery, and on error no Result comes back to count against.
 func batchError(err error, hadArgs bool) error {
 	if errors.Is(err, driver.ErrSkip) {
+		// The driver spends one error value on three separate causes, and
+		// nothing out here distinguishes them: interpolateParams being off, an
+		// argument it cannot inline, and the rendered statement exceeding
+		// max_allowed_packet all arrive as ErrSkip. Naming only the first would
+		// send a caller who already set it looking in the wrong place.
 		hint := "the batch may exceed max_allowed_packet"
 		if hadArgs {
-			hint = "set interpolateParams=true in the DSN; a multi-statement batch cannot be prepared"
+			hint = "set interpolateParams=true in the DSN (a multi-statement batch cannot be prepared); " +
+				"or the batch exceeds max_allowed_packet; or an argument has a type the driver cannot inline"
 		}
 		return &sqlbatch.UnsupportedError{Driver: Backend, Capability: "batch with these settings", Hint: hint}
 	}
