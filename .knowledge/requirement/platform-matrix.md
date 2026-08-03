@@ -60,8 +60,29 @@ matrix:
       tinygo cannot cross-compile to windows from darwin at all; `tinygo
       targets` lists no windows entry. The build check used host go with
       force_tinygo_logic, which is what requirement:test-strategy intends.
+rsa_signing:
+  note: >
+    the first entry here that is not about TLS. Seam api:rsa-signer, decided by
+    decision:native-rsa-signing.
+  std_go_all_os:
+    state: shipped by definition
+    backend: crypto/rsa
+  tinygo_darwin_arm64:
+    state: spiked and measured 2026-08-02, not yet integrated
+    backend: Security.framework, SecKeyCreateWithData plus SecKeyCreateSignature
+    cost: 583 KB against 1040 KB for crypto/rsa, and 1.10ms against 2.87ms
+  tinygo_linux:
+    state: designed, unmeasured
+    backend: system:mbedtls, already linked for TLS
+    cost: >
+      no new object code. Every needed module is enabled in the vendored
+      mbedtls_config.h, checked 2026-08-02.
+  tinygo_windows_amd64:
+    state: designed, unmeasured, and unmeasurable here
+    backend: CNG, with crypt32 CryptDecodeObjectEx converting the key blob
+    gate: requirement:windows-tinygo-feasibility
 unsupported_behavior:
-  returns: ErrPlatformNotSupported from api:tls-dialer
+  returns: ErrPlatformNotSupported from api:tls-dialer, and from api:rsa-signer
   never: fall back to plaintext http or to an unverified connection
 constraint: IPv4 only while system:tinygo-netdev is IPv4 only
 asymmetry_to_document:

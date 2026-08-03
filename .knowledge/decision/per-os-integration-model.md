@@ -54,3 +54,13 @@ rejected:
       IPPROTO_TLS hides TLS below net.Conn, leaving no place to attach
       data:https-config per request
 cost_accepted: three independent native implementations and three test paths
+sibling_without_a_socket:
+  what: api:rsa-signer, added by decision:native-rsa-signing
+  why_it_is_not_in_the_table: >
+    this taxonomy classifies backends by who owns the socket. A signer owns
+    none: bytes in, bytes out, plus a key handle. It obeys
+    rule:cgo-bridge-contract and the toolchain rules unchanged, and it needs no
+    model of its own.
+  consequence: >
+    "per-OS" in this repository now covers more than TLS, so this concept's
+    title is narrower than its subject matter

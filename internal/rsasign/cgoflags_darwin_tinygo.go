@@ -1,0 +1,21 @@
+//go:build tinygo && darwin
+
+package rsasign
+
+// Security.framework needs neither Clang blocks nor libdispatch here:
+// SecKeyCreateSignature is a plain call. Only Security and CoreFoundation are
+// linked, and internal/securetransport already links both on this platform.
+//
+// TinyGo ignores CGO_CFLAGS and CGO_LDFLAGS and rejects -F in CFLAGS, so the
+// SDK location must be literal. Both standard locations are listed; the linker
+// silently ignores a search path that does not exist, so one entry covers Xcode
+// installs and the other covers Command Line Tools.
+
+/*
+#cgo LDFLAGS: -L/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib
+#cgo LDFLAGS: -L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib
+#cgo LDFLAGS: -F/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks
+#cgo LDFLAGS: -F/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks
+#cgo LDFLAGS: -framework Security -framework CoreFoundation
+*/
+import "C"
