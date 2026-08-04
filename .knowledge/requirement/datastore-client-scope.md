@@ -24,6 +24,10 @@ in_scope:
     - read-write via RunInTransaction, with the ABORTED retry loop inside it
     - read-only transactions, for a consistent snapshot across several reads
     - single-use transactions where the shape allows, to save a round trip
+    - single_use_state: >
+        in scope and not implemented as of v1.1.6; tracked by
+        requirement:datastore-single-use-transaction. Listed here since the
+        first draft, which is how it came to be described elsewhere as done.
   aggregation:
     - runAggregationQuery with COUNT, SUM and AVG
     - reason: >

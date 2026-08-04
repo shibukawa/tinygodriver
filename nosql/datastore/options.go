@@ -123,6 +123,29 @@ func (o readTimeOption) applyRead(c *readConfig) {
 }
 
 // WithReadTime reads the database as of a past instant.
+//
+// Two windows, and which one you are in changes what a legal instant is:
+//
+//   - Within the past hour, any microsecond-granularity instant, whether or not
+//     point-in-time recovery is enabled on the database.
+//   - From one hour to seven days back, whole-minute timestamps only, and only
+//     with point-in-time recovery enabled.
+//
+// Neither window reaches before the database's earliestVersionTime, which on a
+// young database can be later than both.
+//
+// A read older than an hour must therefore be truncated by the caller:
+//
+//	at := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
+//
+// Without that, the service refuses the read as "read_time is too old", which
+// names the age when the precision is what was wrong. This does not truncate
+// for you, because truncating would change the instant you asked for, and the
+// boundary between the two windows moves while the request is in flight.
+//
+// None of this is checked here. The client cannot see whether PITR is enabled
+// or what earliestVersionTime is, so a local range check would refuse reads
+// that work.
 func WithReadTime(at time.Time) ReadOption { return readTimeOption{at: at} }
 
 type baseVersionOption struct{ version int64 }

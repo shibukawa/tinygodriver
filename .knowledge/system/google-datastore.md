@@ -79,6 +79,20 @@ limits:
 consistency:
   default: strong, including non-ancestor queries, which is the Firestore backend behaviour
   option: readOptions.readConsistency EVENTUAL, or a transaction handle, or readTime
+read_time:
+  within_one_hour: any microsecond-granularity instant, PITR on or off
+  one_hour_to_seven_days: whole-minute timestamps only, and only with PITR enabled
+  floor: the database's earliestVersionTime, which can be later than either bound
+  error: >
+    a sub-minute instant older than an hour is refused as read_time too old,
+    which names the age rather than the precision that was actually wrong
+  consumed_by: requirement:datastore-read-time-bound
+transaction_fold:
+  members: readOptions.newTransaction and CommitRequest.singleUseTransaction
+  effect: >
+    a read may start the transaction it reads in, and its reply carries the
+    handle, so one read plus one commit costs two round trips rather than three
+  used_by_this_client: not yet; requirement:datastore-single-use-transaction
 emulator: decision:datastore-emulator-endpoint
 consumed_by: api:datastore-client
 compared_with: concept:dynamodb-datastore-mapping

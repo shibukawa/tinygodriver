@@ -54,3 +54,72 @@ func TestConceptMatchesTheCode(t *testing.T) {
 	}
 	t.Logf("checked %d client methods against the declarations", found)
 }
+
+// TestNotInScopeNamesNothingExported checks the README's not-in-scope list
+// against the exported surface.
+//
+// SUM and AVG sat on that list for a day after shipping, and a consumer read it
+// and wrote the paging loop including them was meant to prevent. A list of
+// feature names is the one part of prose that can be checked mechanically, and
+// it is the part that has actually been wrong.
+//
+// It deliberately checks nothing else in the README. A check that fails on a
+// rewording teaches people to edit around it, which is worse than no check.
+func TestNotInScopeNamesNothingExported(t *testing.T) {
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Skipf("no README here: %v", err)
+	}
+	section := notInScopeSection(string(readme))
+	if section == "" {
+		t.Fatal(`no "## Not in scope" section found; the check is not doing anything`)
+	}
+
+	out, err := exec.Command("go", "doc", "-all", ".").Output()
+	if err != nil {
+		t.Skipf("go doc unavailable: %v", err)
+	}
+	exported := exportedNames(string(out))
+	if len(exported) == 0 {
+		t.Fatal("no exported names parsed; the check is not doing anything")
+	}
+
+	// Only names the list actually claims are absent. Backticked identifiers
+	// are how the list spells a feature it is naming.
+	for _, m := range regexp.MustCompile("`(\\w+)`").FindAllStringSubmatch(section, -1) {
+		if exported[m[1]] {
+			t.Errorf("the not-in-scope list names %q, which this package exports", m[1])
+		}
+	}
+	// The list also names features in prose. Check the ones that are also Go
+	// identifiers, upper-cased, since that is how a feature turns into API.
+	for _, word := range regexp.MustCompile(`\b[A-Z]{2,}\b`).FindAllString(section, -1) {
+		name := strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
+		if exported[name] {
+			t.Errorf("the not-in-scope list names %q, which this package exports as %s", word, name)
+		}
+	}
+}
+
+func notInScopeSection(readme string) string {
+	start := strings.Index(readme, "## Not in scope")
+	if start < 0 {
+		return ""
+	}
+	rest := readme[start+len("## Not in scope"):]
+	if end := strings.Index(rest, "\n## "); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+func exportedNames(doc string) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^func (?:\([^)]*\) )?([A-Z]\w*)`).FindAllStringSubmatch(doc, -1) {
+		out[m[1]] = true
+	}
+	for _, m := range regexp.MustCompile(`(?m)^type ([A-Z]\w*)`).FindAllStringSubmatch(doc, -1) {
+		out[m[1]] = true
+	}
+	return out
+}

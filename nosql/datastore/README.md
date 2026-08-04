@@ -226,6 +226,27 @@ q := datastore.NewQuery("Task").
 `Prop`, `And` and `Or` nest freely. `AncestorOf(key)` is a condition too, so an
 ancestor restriction can sit inside a disjunction.
 
+### Narrowing what comes back
+
+```go
+q = q.Project("title", "priority")   // only these properties, read from an index
+q = q.KeysOnly()                     // keys alone, the cheapest read there is
+q = q.DistinctOn("owner")            // collapse results sharing these properties
+q = q.Offset(20)                     // skip, but see below
+```
+
+Every projected property must be indexed, because a projection query reads from
+the index rather than from the entity.
+
+`Offset` skips results the server has already read and billed you for.
+`Batch.SkippedResults` reports how many, which is the number to look at when
+deciding to move to a cursor instead — `Start` resumes without paying for what
+came before.
+
+Projection and distinct constraints are the service's and they are subtle, so
+they are passed through unvalidated: a client-side check that was wrong would
+refuse a query that works.
+
 **Repeated `Where` calls, and a `Where` alongside a `Filter`, combine with
 `AND`** — so an `Or` belongs inside one call, not spread across two.
 
@@ -261,6 +282,11 @@ keeps.
 They are available inside a transaction too, via `Tx.Count`, `Tx.Sum` and
 `Tx.Avg`.
 
+`Sum` and `Avg` shipped on 2026-08-04, and the "not in scope" list below still
+excluded them for a day afterwards. A consumer read that line and wrote the
+paging loop including them was meant to prevent. A test now fails if that list
+names anything this package exports, which is why the list is only a list.
+
 ## Conditional writes
 
 There is no condition expression language here. What the wire offers is:
@@ -293,6 +319,10 @@ against a value read *outside* one is a race with a confident-looking API.
 
 Mutations are queued and sent with the commit, so a closure that returns an
 error writes nothing.
+
+`RunReadOnly` is the same shape without the writes: several reads over one
+consistent snapshot, taking no write locks. A closure that queues a mutation
+inside one is refused rather than silently dropped.
 
 **The closure can run more than once.** Datastore reports contention as
 `ABORTED`, and the right response is to re-run the whole closure — the reads it
@@ -463,6 +493,14 @@ owns the transport.
 | `WithMaxIdleConns` | 4 |
 | `WithRetry` | 3 attempts, 25 ms base |
 
+`WithReadTime` reads as of a past instant. Within the past hour any
+microsecond-granularity instant is legal; from one hour to seven days back only
+whole-minute timestamps are, and only with point-in-time recovery enabled.
+Truncate to a whole minute yourself for the older window — the client does not,
+because that would change the instant you asked for, and the service refuses an
+untruncated one as "read_time is too old", naming the age when the precision was
+the problem.
+
 A value with no scheme is taken as `http`, which is what `DATASTORE_EMULATOR_HOST`
 carries. When the emulator variable is set and no endpoint is given, the client
 sends no `Authorization` header at all: the emulator ignores it, and minting a
@@ -470,9 +508,9 @@ token it will not read would be pretending to test something.
 
 ## Not in scope
 
-GQL, `reserveIds`, `SUM` and `AVG` aggregations, the admin API (index
-management, import, export), auto-pagination, and Firestore native mode's
-listeners, which Datastore mode does not have.
+GQL, `reserveIds`, the admin API (index management, import, export),
+auto-pagination, and Firestore native mode's listeners, which Datastore mode
+does not have.
 
 Property transformations — server-side increment and array-append — are
 excluded deliberately: they exist on the wire only inside `commit`, and they

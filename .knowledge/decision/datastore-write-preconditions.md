@@ -44,10 +44,21 @@ why_not_emulate_condition_expressions:
     catches a concurrent write the caller never read
 transaction_cost:
   round_trips: beginTransaction, then the reads, then commit; three at minimum
-  single_use: >
-    readOptions.newTransaction and CommitRequest.singleUseTransaction fold the
-    begin into the first call, which the client uses whenever the transaction is
-    one read plus one commit
+  single_use:
+    wire: >
+      readOptions.newTransaction and CommitRequest.singleUseTransaction fold the
+      begin into the first call
+    state: >
+      NOT IMPLEMENTED as of v1.1.6. This entry read "which the client uses
+      whenever the transaction is one read plus one commit", written as a
+      description of behaviour that was only ever an intention. Every
+      transaction still begins explicitly, at three round trips.
+      SingleUseTransaction is declared and never assigned; newTransaction is not
+      declared at all.
+    tracked_by: requirement:datastore-single-use-transaction
+    found_by: >
+      system:popcornwave, who quoted this entry as the intended behaviour while
+      reporting that the client does not do it
   retry: >
     ABORTED means contention and the whole closure re-runs, not just the commit.
     See requirement:datastore-retry-policy, which is where that loop lives.
