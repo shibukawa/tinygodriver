@@ -209,10 +209,18 @@ func (c *Client) encodeKey(k Key) wireKey {
 }
 
 func (c *Client) encodeEntity(e Entity) (json.RawMessage, error) {
+	// The properties go through encodeProperties rather than being marshalled
+	// directly, because a keyValue property needs the partition too. Marshalling
+	// the map would emit a key with no project, which is a stored reference
+	// naming nothing.
+	properties, err := encodeProperties(e.Properties, c.partition())
+	if err != nil {
+		return nil, err
+	}
 	out := struct {
-		Key        *wireKey         `json:"key,omitempty"`
-		Properties map[string]Value `json:"properties,omitempty"`
-	}{Properties: e.Properties}
+		Key        *wireKey                   `json:"key,omitempty"`
+		Properties map[string]json.RawMessage `json:"properties,omitempty"`
+	}{Properties: properties}
 	if e.Key != nil {
 		key := c.encodeKey(*e.Key)
 		out.Key = &key

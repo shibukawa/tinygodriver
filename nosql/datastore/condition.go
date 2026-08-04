@@ -1,7 +1,6 @@
 package datastore
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -80,21 +79,13 @@ func (c propCondition) wire(partition *wirePartitionID) (wireFilter, error) {
 	if c.err != nil {
 		return wireFilter{}, c.err
 	}
-	var raw json.RawMessage
-	if c.value.Key != nil {
-		// A key inside a filter needs the project the request is for, the same
-		// as a key anywhere else.
-		encoded, err := json.Marshal(c.value.Key.wire(partition))
-		if err != nil {
-			return wireFilter{}, err
-		}
-		raw = json.RawMessage(`{"keyValue":` + string(encoded) + `}`)
-	} else {
-		encoded, err := json.Marshal(c.value)
-		if err != nil {
-			return wireFilter{}, err
-		}
-		raw = encoded
+	// A key inside a filter needs the project the request is for, the same as a
+	// key anywhere else — including one nested in an array, which is what
+	// `where ref in {refs}` produces. encodeValue is recursive so that holds at
+	// any depth.
+	raw, err := encodeValue(c.value, partition)
+	if err != nil {
+		return wireFilter{}, err
 	}
 	return wireFilter{PropertyFilter: &wirePropertyFilter{
 		Property: wirePropertyReference{Name: c.property},

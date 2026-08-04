@@ -87,6 +87,30 @@ codec:
   keys_in_values: >
     a keyValue carries a full partitionId, so encoding one needs the project and
     namespace the client was built with, not just the path
+  keys_in_values_bug:
+    what: >
+      this rule was stated correctly here and implemented at one level only.
+      Until 2026-08-04 a key got its partition when it was directly a filter's
+      value and not when it sat inside an array, a nested entity, or an entity
+      property — so `where ref in {refs}` queried on keys naming no project, and
+      every stored reference was written the same way.
+    found_by: >
+      a downstream reader, from the code alone. The two branches of the filter
+      encoder disagreed, so one of them had to be wrong whichever way the
+      service behaves; that argument needed no access to the service, and they
+      said so rather than claiming more than they could check.
+    scope_was_wider_than_reported: >
+      they saw the filter half. The property half writes data, and it is the
+      same defect: Value.MarshalJSON has no partition to attach, so any path
+      that reaches it directly emits a key without one.
+    fix: >
+      encodeValue in wirevalue.go, recursive over Key, Array and Entity. Every
+      request path now goes through it or through Client.encodeKey; nothing
+      sends a Value through the public codec.
+    why_it_could_happen: >
+      the concept said "not just the path" and the code honoured it once. A rule
+      that holds at one level reads as implemented, which is what made this
+      survive a review that produced the encoder in the first place.
   nested_entity: >
     an entityValue has no key. Encoding an Entity with a key inside a value is
     rejected rather than silently dropped.

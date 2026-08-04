@@ -172,6 +172,13 @@ A key carries what identifies the entity and nothing else. The project and
 database are added by the client at encode time, so a `Key` stays portable
 inside a program.
 
+That applies wherever a key appears, not just to an entity's own key: a
+`KeyValue` stored as a property, one inside an `Array` — which is what
+`ref IN (...)` needs — and one inside a nested entity all get the partition
+attached on the way out. Marshalling a `Key` or a `Value` yourself produces one
+*without* a partition, by design, because nothing below the client knows which
+project it is for.
+
 An incomplete key is legal only in an `Insert` or `AllocateIDs`. Only the last
 path element may be incomplete: an ancestor without an identifier does not name
 anything.
