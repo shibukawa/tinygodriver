@@ -28,12 +28,38 @@ func WithTxRetries(n int) TxOption {
 //
 // Mutations are queued and sent with the commit, so a closure that returns an
 // error writes nothing and needs no rollback on the ordinary path.
+//
+// The transaction starts lazily. handle is empty until a read or the commit
+// starts it, which is what removes the separate beginTransaction round trip:
+// the first read asks to start one and the reply carries the handle, and a
+// closure that never reads folds its transaction into the commit instead. A Tx
+// is used by one goroutine, the closure's, so this needs no lock.
 type Tx struct {
-	client *Client
-	handle string
-	closed bool
+	client   *Client
+	handle   string
+	readOnly bool
+	closed   bool
 
 	mutations []Mutation
+}
+
+// options are the TransactionOptions this transaction starts with, whether it
+// starts inside a read or inside the commit.
+func (t *Tx) options() json.RawMessage {
+	if t.readOnly {
+		return json.RawMessage(`{"readOnly":{}}`)
+	}
+	return json.RawMessage(`{"readWrite":{}}`)
+}
+
+// adopt records the handle a read's reply carried, if this read is what started
+// the transaction. It is a no-op outside a transaction and on every read after
+// the first.
+func (t *Tx) adopt(handle string) {
+	if t == nil || handle == "" || t.handle != "" {
+		return
+	}
+	t.handle = handle
 }
 
 // Get reads inside the transaction.
@@ -41,7 +67,7 @@ func (t *Tx) Get(ctx context.Context, key Key) (*Entity, error) {
 	if err := t.usable(); err != nil {
 		return nil, err
 	}
-	result, err := t.client.lookup(ctx, []Key{key}, t.handle, nil)
+	result, err := t.client.lookup(ctx, []Key{key}, t, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +83,7 @@ func (t *Tx) GetMulti(ctx context.Context, keys []Key) (*LookupResult, error) {
 	if err := t.usable(); err != nil {
 		return nil, err
 	}
-	return t.client.lookup(ctx, keys, t.handle, nil)
+	return t.client.lookup(ctx, keys, t, nil)
 }
 
 // Run executes a query inside the transaction.
@@ -65,7 +91,7 @@ func (t *Tx) Run(ctx context.Context, q *Query) (*Batch, error) {
 	if err := t.usable(); err != nil {
 		return nil, err
 	}
-	return t.client.runQuery(ctx, q, t.handle, nil)
+	return t.client.runQuery(ctx, q, t, nil)
 }
 
 // Count aggregates inside the transaction.
@@ -73,7 +99,7 @@ func (t *Tx) Count(ctx context.Context, q *Query) (int64, error) {
 	if err := t.usable(); err != nil {
 		return 0, err
 	}
-	v, err := t.client.aggregate(ctx, q, t.handle, "count",
+	v, err := t.client.aggregate(ctx, q, t, "count",
 		wireAggregation{Alias: "count", Count: &wireCountAggregation{}}, nil)
 	if err != nil {
 		return 0, err
@@ -90,7 +116,7 @@ func (t *Tx) Sum(ctx context.Context, q *Query, property string) (Value, error) 
 	if err := t.usable(); err != nil {
 		return Value{}, err
 	}
-	return t.client.aggregate(ctx, q, t.handle, "sum", wireAggregation{
+	return t.client.aggregate(ctx, q, t, "sum", wireAggregation{
 		Alias: "sum",
 		Sum:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
 	}, nil)
@@ -101,7 +127,7 @@ func (t *Tx) Avg(ctx context.Context, q *Query, property string) (Value, error) 
 	if err := t.usable(); err != nil {
 		return Value{}, err
 	}
-	return t.client.aggregate(ctx, q, t.handle, "avg", wireAggregation{
+	return t.client.aggregate(ctx, q, t, "avg", wireAggregation{
 		Alias: "avg",
 		Avg:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
 	}, nil)
@@ -196,24 +222,21 @@ func (c *Client) RunInTransaction(ctx context.Context, fn func(*Tx) error, opts 
 }
 
 func (c *Client) runOneTransaction(ctx context.Context, fn func(*Tx) error, cfg txConfig) (err error) {
-	var begin wireBeginTransactionRequest
-	begin.DatabaseID = c.database
-	if cfg.readOnly {
-		begin.TransactionOptions = json.RawMessage(`{"readOnly":{}}`)
-	}
-	var started wireBeginTransactionResponse
-	if err := c.call(ctx, "beginTransaction", "", begin, &started); err != nil {
-		return err
-	}
-	if started.Transaction == "" {
-		return fmt.Errorf("datastore: beginTransaction returned no handle")
-	}
-
-	tx := &Tx{client: c, handle: started.Transaction}
+	// No beginTransaction here. The transaction starts inside whichever call
+	// needs it first — a read, through readOptions.newTransaction, or the
+	// commit, through singleUseTransaction — which is what makes one read plus
+	// one commit cost two round trips instead of three.
+	//
+	// The saving is not confined to that shape. N reads cost N+1 rather than
+	// N+2, a write-only closure costs one rather than three, and a closure that
+	// neither reads nor writes costs none: there is no handle to release
+	// because none was ever taken.
+	tx := &Tx{client: c, readOnly: cfg.readOnly}
 	committed := false
 	defer func() {
 		tx.closed = true
-		if committed {
+		if committed || tx.handle == "" {
+			// Nothing to roll back when no call ever started a transaction.
 			return
 		}
 		// Roll back on the failure path so the handle is not left holding
@@ -224,26 +247,46 @@ func (c *Client) runOneTransaction(ctx context.Context, fn func(*Tx) error, cfg 
 			rollbackCtx = context.WithoutCancel(ctx)
 		}
 		_ = c.call(rollbackCtx, "rollback", "",
-			wireRollbackRequest{DatabaseID: c.database, Transaction: started.Transaction}, nil)
+			wireRollbackRequest{DatabaseID: c.database, Transaction: tx.handle}, nil)
 	}()
 
 	if err := fn(tx); err != nil {
 		return err
 	}
 	if len(tx.mutations) == 0 {
-		// Nothing to write. Commit an empty transaction anyway so a read-only
-		// closure still gets a consistent snapshot released cleanly.
-		if _, err := c.commit(ctx, nil, started.Transaction, ""); err != nil {
+		if tx.handle == "" {
+			// A closure that neither read nor wrote. There is no snapshot to
+			// release and no handle to release it with.
+			committed = true
+			return nil
+		}
+		// Reads happened, so a handle is open. Commit it empty to release the
+		// snapshot rather than leaving it to time out.
+		if err := c.releaseEmpty(ctx, tx); err != nil {
 			return err
 		}
 		committed = true
 		return nil
 	}
-	if _, err := c.commit(ctx, tx.mutations, started.Transaction, ""); err != nil {
+	if _, err := c.commit(ctx, tx.mutations, tx, ""); err != nil {
 		return err
 	}
 	committed = true
 	return nil
+}
+
+// releaseEmpty commits a transaction that read but wrote nothing.
+//
+// commit returns early on an empty mutation list, since that is the ordinary
+// no-op outside a transaction, so the release goes out from here instead.
+func (c *Client) releaseEmpty(ctx context.Context, tx *Tx) error {
+	req := wireCommitRequest{
+		DatabaseID:  c.database,
+		Mode:        "TRANSACTIONAL",
+		Transaction: tx.handle,
+		Mutations:   []wireMutation{},
+	}
+	return c.call(ctx, "commit", "", req, nil)
 }
 
 // RunReadOnly runs fn inside a read-only transaction, which gives several reads

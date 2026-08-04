@@ -7,11 +7,17 @@ A transaction that performs one read and commits once must cost two round trips,
 
 ```yaml
 priority: must
-state: proposed 2026-08-05
+state: shipped 2026-08-05
+measured:
+  one_read_then_commit: 2 round trips, was 3
+  n_reads_then_commit: n+1, was n+2
+  write_only: 1, was 3
+  neither_read_nor_wrote: 0, was 2
+  method: counting the operations a stub server received, per shape
 requested_by: system:popcornwave
-current_behaviour:
+behaviour_before:
   every_transaction_begins_explicitly: >
-    runOneTransaction calls beginTransaction, then the closure's reads, then
+    runOneTransaction called beginTransaction, then the closure's reads, then
     commit. Three round trips, always.
   wire_members_present_but_unused:
     SingleUseTransaction: declared on wireCommitRequest and never assigned
@@ -32,12 +38,21 @@ scope:
     - a read-write transaction whose closure performed exactly one read and queued mutations
     - the read-only equivalent, where a single read needs no separate begin
   out:
-    - folding a transaction with more than one read; the second read needs the handle the first returned
     - any change to RunInTransaction's contract, retry behaviour or closure semantics
-  fallback: >
-    a closure that reads twice, or reads after queueing, takes the explicit
-    begin unchanged. The fold is an optimisation of a recognised shape, never a
-    restriction on what a closure may do.
+  every_shape_improved: >
+    the ask was scoped to one read plus one commit, on the assumption that
+    anything else would keep the explicit begin. Starting the transaction inside
+    the first call that needs one removes it everywhere instead: a second read
+    uses the handle the first brought back, so N reads cost N+1 rather than N+2,
+    and nothing restricts what a closure may do.
+implemented:
+  where: Tx starts lazily; buildReadOptions and commit decide from its state
+  read_side: readOptions.newTransaction on the first read, transaction thereafter
+  commit_side: >
+    singleUseTransaction when no read started one, which turned out to matter
+    more than expected: a write-only closure went from three round trips to one,
+    and that shape was not in the original ask
+  rollback: only when a handle exists, since a closure that never started one has nothing to release
 design_note:
   the_hard_part: >
     the client cannot know the shape until the closure has run, and the first

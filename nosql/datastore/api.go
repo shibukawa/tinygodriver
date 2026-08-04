@@ -184,16 +184,26 @@ type wireCommitResponse struct {
 	CommitTime      string               `json:"commitTime"`
 }
 
-func (c *Client) commit(ctx context.Context, ms []Mutation, transaction string, kind string) (*CommitResult, error) {
+// commit writes ms, inside tx or not.
+//
+// A tx whose reads already started the transaction commits against its handle.
+// A tx that never read carries its options as singleUseTransaction, so a
+// write-only closure is atomic in one round trip rather than three; see
+// requirement:datastore-single-use-transaction.
+func (c *Client) commit(ctx context.Context, ms []Mutation, tx *Tx, kind string) (*CommitResult, error) {
 	if len(ms) == 0 {
 		return &CommitResult{}, nil
 	}
 	req := wireCommitRequest{DatabaseID: c.database, Mutations: make([]wireMutation, 0, len(ms))}
-	if transaction != "" {
-		req.Mode = "TRANSACTIONAL"
-		req.Transaction = transaction
-	} else {
+	switch {
+	case tx == nil:
 		req.Mode = "NON_TRANSACTIONAL"
+	case tx.handle != "":
+		req.Mode = "TRANSACTIONAL"
+		req.Transaction = tx.handle
+	default:
+		req.Mode = "TRANSACTIONAL"
+		req.SingleUseTransaction = tx.options()
 	}
 	for _, m := range ms {
 		encoded, err := c.encodeMutation(m)
@@ -263,7 +273,7 @@ func (c *Client) writeOne(ctx context.Context, m Mutation) (Key, error) {
 	if m.kind != mutationDelete && m.entity.Key != nil {
 		kind = m.entity.Key.Kind()
 	}
-	result, err := c.commit(ctx, []Mutation{m}, "", kind)
+	result, err := c.commit(ctx, []Mutation{m}, nil, kind)
 	if err != nil {
 		return Key{}, err
 	}
@@ -302,27 +312,40 @@ func (c *Client) MutationSize(m Mutation) (int, error) {
 // that no two mutations touch the same entity and does not promise all-or-none.
 // Inside RunInTransaction it is atomic.
 func (c *Client) Mutate(ctx context.Context, ms []Mutation) (*CommitResult, error) {
-	return c.commit(ctx, ms, "", "")
+	return c.commit(ctx, ms, nil, "")
 }
 
 type wireReadOptions struct {
-	ReadConsistency string `json:"readConsistency,omitempty"`
-	Transaction     string `json:"transaction,omitempty"`
-	ReadTime        string `json:"readTime,omitempty"`
+	ReadConsistency string          `json:"readConsistency,omitempty"`
+	Transaction     string          `json:"transaction,omitempty"`
+	NewTransaction  json.RawMessage `json:"newTransaction,omitempty"`
+	ReadTime        string          `json:"readTime,omitempty"`
 }
 
-func buildReadOptions(transaction string, opts []ReadOption) *wireReadOptions {
+// buildReadOptions renders the read options for a read, inside tx or not.
+//
+// A transaction that has not started yet asks the read to start it, which is
+// what removes the separate beginTransaction round trip; the reply carries the
+// handle. See requirement:datastore-single-use-transaction.
+func buildReadOptions(tx *Tx, opts []ReadOption) *wireReadOptions {
 	var cfg readConfig
 	for _, o := range opts {
 		o.applyRead(&cfg)
 	}
-	out := &wireReadOptions{Transaction: transaction, ReadTime: cfg.readTime}
-	// A transaction already fixes consistency, so naming one alongside it is a
-	// request the server rejects.
-	if transaction == "" && cfg.eventual {
-		out.ReadConsistency = "EVENTUAL"
+	out := &wireReadOptions{ReadTime: cfg.readTime}
+	switch {
+	case tx == nil:
+		// A transaction already fixes consistency, so naming one alongside it
+		// is a request the server rejects. Outside one it is the caller's.
+		if cfg.eventual {
+			out.ReadConsistency = "EVENTUAL"
+		}
+	case tx.handle != "":
+		out.Transaction = tx.handle
+	default:
+		out.NewTransaction = tx.options()
 	}
-	if out.ReadConsistency == "" && out.Transaction == "" && out.ReadTime == "" {
+	if out.ReadConsistency == "" && out.Transaction == "" && out.NewTransaction == nil && out.ReadTime == "" {
 		return nil
 	}
 	return out
@@ -335,14 +358,15 @@ type wireLookupRequest struct {
 }
 
 type wireLookupResponse struct {
-	Found    []wireEntityResult `json:"found"`
-	Missing  []wireEntityResult `json:"missing"`
-	Deferred []Key              `json:"deferred"`
+	Found       []wireEntityResult `json:"found"`
+	Missing     []wireEntityResult `json:"missing"`
+	Deferred    []Key              `json:"deferred"`
+	Transaction string             `json:"transaction"`
 }
 
 // Get reads one entity, returning ErrNoSuchEntity when it is absent.
 func (c *Client) Get(ctx context.Context, key Key, opts ...ReadOption) (*Entity, error) {
-	result, err := c.lookup(ctx, []Key{key}, "", opts)
+	result, err := c.lookup(ctx, []Key{key}, nil, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -359,10 +383,10 @@ func (c *Client) Get(ctx context.Context, key Key, opts ...ReadOption) (*Entity,
 // server answers a lookup by partitioning the keys. Deferred keys are handed
 // back, not retried inside the call.
 func (c *Client) GetMulti(ctx context.Context, keys []Key, opts ...ReadOption) (*LookupResult, error) {
-	return c.lookup(ctx, keys, "", opts)
+	return c.lookup(ctx, keys, nil, opts)
 }
 
-func (c *Client) lookup(ctx context.Context, keys []Key, transaction string, opts []ReadOption) (*LookupResult, error) {
+func (c *Client) lookup(ctx context.Context, keys []Key, tx *Tx, opts []ReadOption) (*LookupResult, error) {
 	if len(keys) == 0 {
 		return &LookupResult{}, nil
 	}
@@ -371,7 +395,7 @@ func (c *Client) lookup(ctx context.Context, keys []Key, transaction string, opt
 	}
 	req := wireLookupRequest{
 		DatabaseID:  c.database,
-		ReadOptions: buildReadOptions(transaction, opts),
+		ReadOptions: buildReadOptions(tx, opts),
 		Keys:        make([]wireKey, 0, len(keys)),
 	}
 	for _, k := range keys {
@@ -388,6 +412,7 @@ func (c *Client) lookup(ctx context.Context, keys []Key, transaction string, opt
 	if err := c.call(ctx, "lookup", keys[0].Kind(), req, &resp); err != nil {
 		return nil, err
 	}
+	tx.adopt(resp.Transaction)
 	out := &LookupResult{Deferred: resp.Deferred}
 	for _, r := range resp.Found {
 		out.Found = append(out.Found, r.entity())
@@ -408,7 +433,8 @@ type wireRunQueryRequest struct {
 }
 
 type wireRunQueryResponse struct {
-	Batch wireQueryResultBatch `json:"batch"`
+	Batch       wireQueryResultBatch `json:"batch"`
+	Transaction string               `json:"transaction"`
 }
 
 // Run executes a query and returns one batch.
@@ -416,10 +442,10 @@ type wireRunQueryResponse struct {
 // There is no iterator hiding round trips: feed EndCursor back through
 // Query.Start to continue, the same shape the S3 and DynamoDB clients use.
 func (c *Client) Run(ctx context.Context, q *Query, opts ...ReadOption) (*Batch, error) {
-	return c.runQuery(ctx, q, "", opts)
+	return c.runQuery(ctx, q, nil, opts)
 }
 
-func (c *Client) runQuery(ctx context.Context, q *Query, transaction string, opts []ReadOption) (*Batch, error) {
+func (c *Client) runQuery(ctx context.Context, q *Query, tx *Tx, opts []ReadOption) (*Batch, error) {
 	if q == nil {
 		return nil, ErrNoKind
 	}
@@ -431,13 +457,14 @@ func (c *Client) runQuery(ctx context.Context, q *Query, transaction string, opt
 	req := wireRunQueryRequest{
 		DatabaseID:  c.database,
 		PartitionID: partition,
-		ReadOptions: buildReadOptions(transaction, opts),
+		ReadOptions: buildReadOptions(tx, opts),
 		Query:       wq,
 	}
 	var resp wireRunQueryResponse
 	if err := c.call(ctx, "runQuery", q.kind, req, &resp); err != nil {
 		return nil, err
 	}
+	tx.adopt(resp.Transaction)
 	out := &Batch{
 		EndCursor:      Cursor(resp.Batch.EndCursor),
 		More:           MoreResults(resp.Batch.MoreResults),
@@ -477,7 +504,8 @@ type wireRunAggregationRequest struct {
 }
 
 type wireRunAggregationResponse struct {
-	Batch struct {
+	Transaction string `json:"transaction"`
+	Batch       struct {
 		AggregationResults []struct {
 			AggregateProperties map[string]Value `json:"aggregateProperties"`
 		} `json:"aggregationResults"`
@@ -489,7 +517,7 @@ type wireRunAggregationResponse struct {
 // It exists because counting by paging through keys costs a read per entity,
 // so leaving it out would push callers toward the expensive thing.
 func (c *Client) Count(ctx context.Context, q *Query, opts ...ReadOption) (int64, error) {
-	v, err := c.aggregate(ctx, q, "", "count",
+	v, err := c.aggregate(ctx, q, nil, "count",
 		wireAggregation{Alias: "count", Count: &wireCountAggregation{}}, opts)
 	if err != nil {
 		return 0, err
@@ -517,7 +545,7 @@ func (c *Client) Count(ctx context.Context, q *Query, opts ...ReadOption) (int64
 // these as "conveniences over data the caller can page" until a downstream
 // reader pointed that out on 2026-08-04.
 func (c *Client) Sum(ctx context.Context, q *Query, property string, opts ...ReadOption) (Value, error) {
-	return c.aggregate(ctx, q, "", "sum", wireAggregation{
+	return c.aggregate(ctx, q, nil, "sum", wireAggregation{
 		Alias: "sum",
 		Sum:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
 	}, opts)
@@ -528,13 +556,13 @@ func (c *Client) Sum(ctx context.Context, q *Query, property string, opts ...Rea
 // The result is a double, or null when nothing matched — which is why this
 // returns a Value too: zero would be a different claim from "no data".
 func (c *Client) Avg(ctx context.Context, q *Query, property string, opts ...ReadOption) (Value, error) {
-	return c.aggregate(ctx, q, "", "avg", wireAggregation{
+	return c.aggregate(ctx, q, nil, "avg", wireAggregation{
 		Alias: "avg",
 		Avg:   &wirePropertyAggregation{Property: wirePropertyReference{Name: property}},
 	}, opts)
 }
 
-func (c *Client) aggregate(ctx context.Context, q *Query, transaction, alias string,
+func (c *Client) aggregate(ctx context.Context, q *Query, tx *Tx, alias string,
 	aggregation wireAggregation, opts []ReadOption) (Value, error) {
 	if q == nil {
 		return Value{}, ErrNoKind
@@ -554,7 +582,7 @@ func (c *Client) aggregate(ctx context.Context, q *Query, transaction, alias str
 	req := wireRunAggregationRequest{
 		DatabaseID:  c.database,
 		PartitionID: partition,
-		ReadOptions: buildReadOptions(transaction, opts),
+		ReadOptions: buildReadOptions(tx, opts),
 		AggregationQuery: &wireAggregationQuery{
 			NestedQuery:  wq,
 			Aggregations: []wireAggregation{aggregation},
@@ -564,6 +592,7 @@ func (c *Client) aggregate(ctx context.Context, q *Query, transaction, alias str
 	if err := c.call(ctx, "runAggregationQuery", q.kind, req, &resp); err != nil {
 		return Value{}, err
 	}
+	tx.adopt(resp.Transaction)
 	if len(resp.Batch.AggregationResults) == 0 {
 		return Value{}, fmt.Errorf("datastore: aggregation reply carried no result")
 	}

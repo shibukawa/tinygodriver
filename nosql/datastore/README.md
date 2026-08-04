@@ -324,6 +324,21 @@ error writes nothing.
 consistent snapshot, taking no write locks. A closure that queues a mutation
 inside one is refused rather than silently dropped.
 
+**A transaction costs one fewer round trip than it looks.** There is no separate
+`beginTransaction`: the first read asks to start one and its reply carries the
+handle, and a closure that never reads folds its transaction into the commit.
+
+| closure | round trips |
+| --- | --- |
+| one read, then commit | 2 |
+| N reads, then commit | N+1 |
+| writes only, no read | 1 |
+| neither | 0 |
+
+The last row is not a trick: no handle was ever taken, so there is nothing to
+release. None of this restricts what a closure may do — a second read simply
+uses the handle the first brought back.
+
 **The closure can run more than once.** Datastore reports contention as
 `ABORTED`, and the right response is to re-run the whole closure — the reads it
 decided on are stale. So it must have no side effects outside the transaction.

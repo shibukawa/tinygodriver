@@ -103,8 +103,7 @@ func TestAggregationsNeedAProperty(t *testing.T) {
 
 func TestAggregationsWorkInsideATransaction(t *testing.T) {
 	s := newStub(
-		stubReply{200, beganTransaction},
-		stubReply{200, `{"batch":{"aggregationResults":[{"aggregateProperties":{"sum":{"integerValue":"7"}}}]}}`},
+		stubReply{200, `{"transaction":"dHgtMQ==","batch":{"aggregationResults":[{"aggregateProperties":{"sum":{"integerValue":"7"}}}]}}`},
 		stubReply{200, `{"batch":{"aggregationResults":[{"aggregateProperties":{"avg":{"doubleValue":3.5}}}]}}`},
 		stubReply{200, `{}`},
 	)
@@ -130,12 +129,15 @@ func TestAggregationsWorkInsideATransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunReadOnly: %v", err)
 	}
-	// Both aggregations must carry the transaction handle.
-	for _, call := range s.calls()[1:3] {
-		options, ok := call.Body["readOptions"].(map[string]any)
-		if !ok || options["transaction"] != "dHgtMQ==" {
-			t.Errorf("%s did not carry the handle: %v", call.Op, call.Body["readOptions"])
-		}
+	// The first aggregation starts the transaction; the second uses the handle
+	// its reply carried.
+	first := s.calls()[0].Body["readOptions"].(map[string]any)
+	if _, ok := first["newTransaction"]; !ok {
+		t.Errorf("the first aggregation did not start a transaction: %v", first)
+	}
+	second := s.calls()[1].Body["readOptions"].(map[string]any)
+	if second["transaction"] != "dHgtMQ==" {
+		t.Errorf("the second aggregation did not carry the handle: %v", second)
 	}
 }
 
