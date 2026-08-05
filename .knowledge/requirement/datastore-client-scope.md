@@ -7,7 +7,11 @@ title: Datastore Client Scope
 
 ```yaml
 priority: must
-state: proposed 2026-08-02
+state: >
+  shipped 2026-08-05, nosql/datastore. Drafted 2026-08-02 and left at
+  "proposed" through five tags while every line of in_scope landed, which is
+  the requirement:datastore-doc-accuracy defect applied to this file's own
+  header.
 in_scope:
   entities:
     - Get, GetMulti over lookup
@@ -25,9 +29,11 @@ in_scope:
     - read-only transactions, for a consistent snapshot across several reads
     - single-use transactions where the shape allows, to save a round trip
     - single_use_state: >
-        in scope and not implemented as of v1.1.6; tracked by
-        requirement:datastore-single-use-transaction. Listed here since the
-        first draft, which is how it came to be described elsewhere as done.
+        shipped 2026-08-05 in requirement:datastore-single-use-transaction, and
+        wider than this line describes: the transaction starts inside the first
+        call that needs one, so every shape lost its separate begin, not only
+        the single-use one. Listed here since the first draft and unimplemented
+        for all of it, which is how it came to be described elsewhere as done.
   aggregation:
     - runAggregationQuery with COUNT, SUM and AVG
     - reason: >
@@ -57,11 +63,6 @@ out_of_scope:
     reason: a second request shape for the same queries, and it needs an escaping story
   reserve_ids:
     reason: an import and restore tool, not an application call
-  aggregations_beyond_count:
-    apis: SUM and AVG
-    reason: >
-      COUNT answers the question that otherwise costs a full scan; the other two
-      are conveniences over data the caller can page
   admin_api:
     apis: index management, import, export, operations
     reason: a different host and a different permission model

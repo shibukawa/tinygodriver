@@ -306,6 +306,55 @@ func (c *Client) MutationSize(m Mutation) (int, error) {
 	return len(raw), nil
 }
 
+// CommitOverheadBytes reports how many bytes a commit of n mutations spends on
+// everything that is not the mutations themselves: the mode, the array that
+// holds them, the comma between each pair, and the databaseId when this client
+// has one.
+//
+// MutationSize measures a mutation; this measures the request built around
+// them, which is the part a caller summing MutationSize cannot see. Together
+// they account for the whole body:
+//
+//	c.CommitOverheadBytes(len(ms)) + Σ c.MutationSize(m) == bytes sent to :commit
+//
+// It takes a count rather than the mutations so that chunking stays a running
+// total. A caller asks whether one more fits by adding that one's MutationSize
+// and re-reading the overhead for n+1, instead of re-measuring the batch on
+// every step.
+//
+// A named database is counted twice over, and both are real: once inside each
+// mutation, because every key carries the partition, and once here for the
+// request-level databaseId.
+//
+// This is the non-transactional envelope. A commit inside a transaction also
+// carries a handle or a singleUseTransaction block, and only the transaction
+// knows which; use Tx.CommitOverheadBytes there.
+func (c *Client) CommitOverheadBytes(n int) int {
+	return commitOverhead(wireCommitRequest{
+		DatabaseID: c.database,
+		Mode:       "NON_TRANSACTIONAL",
+		Mutations:  []wireMutation{},
+	}, n)
+}
+
+// commitOverhead marshals req with no mutations and adds the commas that n of
+// them need between them.
+//
+// It measures the real request struct rather than returning a constant, so a
+// field added to the wire shape is counted here without anyone having to
+// remember this function exists. A constant is how the caller got the wrong
+// number in the first place.
+func commitOverhead(req wireCommitRequest, n int) int {
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return 0
+	}
+	if n < 2 {
+		return len(raw)
+	}
+	return len(raw) + n - 1
+}
+
 // Mutate applies several mutations in one commit.
 //
 // Without a transaction this is NON_TRANSACTIONAL, where the server requires

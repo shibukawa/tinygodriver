@@ -3,6 +3,7 @@ package datastore
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -191,3 +192,209 @@ func TestMutationSizeReportsEncodingErrors(t *testing.T) {
 // jsonMarshal re-encodes what the stub decoded, so a size can be compared
 // against the bytes the client actually produced.
 func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
+
+// TestCommitOverheadCompletesTheRequest asserts the identity the two size
+// methods exist to give a caller:
+//
+//	CommitOverheadBytes(n) + Σ MutationSize == the bytes sent to :commit
+//
+// A caller chunking against MaxRequestBytes by summing MutationSize alone
+// undercounts by this envelope, which is what the reporter measured downstream
+// before there was anything here to ask. It is compared against the raw request
+// body rather than a re-encoding of it, since the question is what the server
+// receives.
+func TestCommitOverheadCompletesTheRequest(t *testing.T) {
+	for _, n := range []int{1, 2, 10, 100, 1000} {
+		s := newStub(stubReply{200, `{"mutationResults":[{"version":"1"}]}`})
+		client, _ := newTestClient(t, s)
+
+		ms, sum := sizedMutations(t, client, n)
+		if _, err := client.Mutate(context.Background(), ms); err != nil {
+			t.Fatal(err)
+		}
+
+		body := len(s.calls()[0].Raw)
+		if got := client.CommitOverheadBytes(n) + sum; got != body {
+			t.Errorf("n=%d: overhead+mutations = %d, the commit body is %d bytes", n, got, body)
+		}
+	}
+}
+
+// TestCommitOverheadCountsTheDatabaseTwice pins the one part of this that looks
+// like double counting and is not. Every key carries the database, so a named
+// database is inside each mutation, and the request carries it once more at the
+// top level where MutationSize cannot see it.
+func TestCommitOverheadCountsTheDatabaseTwice(t *testing.T) {
+	plain := newStub(stubReply{200, `{"mutationResults":[{"version":"1"}]}`})
+	plainClient, _ := newTestClient(t, plain)
+	named := newStub(stubReply{200, `{"mutationResults":[{"version":"1"}]}`})
+	namedClient, _ := newTestClient(t, named, WithDatabase("my-named-database"))
+
+	const n = 3
+	for _, c := range []struct {
+		name   string
+		client *Client
+		stub   *stub
+	}{{"default", plainClient, plain}, {"named", namedClient, named}} {
+		ms, sum := sizedMutations(t, c.client, n)
+		if _, err := c.client.Mutate(context.Background(), ms); err != nil {
+			t.Fatal(err)
+		}
+		body := len(c.stub.calls()[0].Raw)
+		if got := c.client.CommitOverheadBytes(n) + sum; got != body {
+			t.Errorf("%s: overhead+mutations = %d, the commit body is %d bytes", c.name, got, body)
+		}
+	}
+
+	// The request-level databaseId is the overhead difference, and it is
+	// counted once however many mutations ride along.
+	const databaseID = `"databaseId":"my-named-database",`
+	for _, n := range []int{1, 100} {
+		diff := namedClient.CommitOverheadBytes(n) - plainClient.CommitOverheadBytes(n)
+		if diff != len(databaseID) {
+			t.Errorf("n=%d: the named database changed the envelope by %d, expected %d", n, diff, len(databaseID))
+		}
+	}
+}
+
+// TestTxCommitOverheadCoversBothTransactionShapes checks the figure a caller
+// chunking inside a transaction needs.
+//
+// The commit carries either the handle a read returned or a
+// singleUseTransaction block, and those are different sizes, which is why this
+// is a Tx method: the same argument that put MutationSize on Client rather than
+// Entity, since only the transaction knows which shape it is in.
+func TestTxCommitOverheadCoversBothTransactionShapes(t *testing.T) {
+	t.Run("write only, folded into the commit", func(t *testing.T) {
+		s := newStub(stubReply{200, `{"mutationResults":[{"version":"1"}]}`})
+		client, _ := newTestClient(t, s)
+
+		var overhead, sum int
+		err := client.RunInTransaction(context.Background(), func(tx *Tx) error {
+			ms, total := sizedMutations(t, client, 4)
+			tx.Mutate(ms...)
+			overhead, sum = tx.CommitOverheadBytes(len(ms)), total
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertCommitAccountedFor(t, s, overhead, sum)
+	})
+
+	t.Run("read first, committed against the handle", func(t *testing.T) {
+		s := newStub(
+			stubReply{200, `{"found":[{"entity":{"key":{"partitionId":{"projectId":"test-project"},` +
+				`"path":[{"kind":"Task","name":"first"}]},"properties":{}},"version":"1"}],` +
+				`"transaction":"aGFuZGxlLWJ5dGVzLWhlcmU="}`},
+			stubReply{200, `{"mutationResults":[{"version":"1"}]}`},
+		)
+		client, _ := newTestClient(t, s)
+
+		var overhead, sum int
+		err := client.RunInTransaction(context.Background(), func(tx *Tx) error {
+			if _, err := tx.Get(context.Background(), NameKey("Task", "first")); err != nil {
+				return err
+			}
+			ms, total := sizedMutations(t, client, 4)
+			tx.Mutate(ms...)
+			overhead, sum = tx.CommitOverheadBytes(len(ms)), total
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertCommitAccountedFor(t, s, overhead, sum)
+	})
+}
+
+// assertCommitAccountedFor checks the identity against the commit the stub
+// received, whichever request that turned out to be.
+func assertCommitAccountedFor(t *testing.T, s *stub, overhead, sum int) {
+	t.Helper()
+	for _, c := range s.calls() {
+		if c.Op != "commit" {
+			continue
+		}
+		if got := overhead + sum; got != len(c.Raw) {
+			t.Errorf("overhead+mutations = %d, the commit body is %d bytes:\n%s", got, len(c.Raw), c.Raw)
+		}
+		return
+	}
+	t.Fatalf("no commit was sent; ops were %v", s.ops())
+}
+
+// TestReadmeChunkingLoopNeverOverflows runs the chunking loop the README
+// documents, against a limit small enough to exercise it.
+//
+// The loop is what a consumer copies, and the version before this change summed
+// MutationSize alone and so undercounted every commit by the envelope. A worked
+// example that is subtly wrong is worse than none, so the example is executed
+// rather than eyeballed: with a named database, varying entity sizes, and a
+// 2000-byte limit, no commit it produces may exceed that limit.
+func TestReadmeChunkingLoopNeverOverflows(t *testing.T) {
+	const limit = 2000
+
+	s := newStub(stubReply{200, `{"mutationResults":[{"version":"1"}]}`})
+	client, _ := newTestClient(t, s, WithDatabase("my-named-database"))
+
+	var mutations []Mutation
+	for i := 0; i < 200; i++ {
+		e := NewEntity(NameKey("Task", fmt.Sprintf("key-%04d", i))).
+			Set("s", String(strings.Repeat("v", i%97)))
+		mutations = append(mutations, UpsertOp(e))
+	}
+
+	ctx := context.Background()
+	batch, used := []Mutation{}, 0
+	for _, m := range mutations {
+		n, err := client.MutationSize(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if used+n+client.CommitOverheadBytes(len(batch)+1) > limit {
+			if _, err := client.Mutate(ctx, batch); err != nil {
+				t.Fatal(err)
+			}
+			batch, used = batch[:0], 0
+		}
+		batch, used = append(batch, m), used+n
+	}
+	if _, err := client.Mutate(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := s.calls()
+	if len(calls) < 5 {
+		t.Fatalf("only %d commits; the limit was not exercised", len(calls))
+	}
+	largest := 0
+	for i, c := range calls {
+		if len(c.Raw) > limit {
+			t.Errorf("commit %d is %d bytes, over the %d limit", i, len(c.Raw), limit)
+		}
+		if len(c.Raw) > largest {
+			largest = len(c.Raw)
+		}
+	}
+	t.Logf("%d commits, largest %d bytes against a %d limit", len(calls), largest, limit)
+}
+
+// sizedMutations builds n upserts and their total measured size.
+func sizedMutations(t *testing.T, client *Client, n int) ([]Mutation, int) {
+	t.Helper()
+	var ms []Mutation
+	sum := 0
+	for i := 0; i < n; i++ {
+		e := NewEntity(NameKey("Task", fmt.Sprintf("key-%04d", i))).
+			Set("s", String(strings.Repeat("v", 64)))
+		m := UpsertOp(e)
+		size, err := client.MutationSize(m)
+		if err != nil {
+			t.Fatalf("MutationSize: %v", err)
+		}
+		ms = append(ms, m)
+		sum += size
+	}
+	return ms, sum
+}

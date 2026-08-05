@@ -366,7 +366,8 @@ oversight.** Google documents no count limit on a commit — the bound is bytes,
 documented count of 500 is property transformations per entity, which this
 package excludes. So chunk a batch write by size, not by count.
 
-`Client.MutationSize` gives that size without a throwaway marshal:
+`Client.MutationSize` gives that size without a throwaway marshal, and
+`Client.CommitOverheadBytes` gives the request built around the mutations:
 
 ```go
 batch, used := []datastore.Mutation{}, 0
@@ -375,7 +376,7 @@ for _, m := range mutations {
     if err != nil {
         return err
     }
-    if used+n > datastore.MaxRequestBytes {
+    if used+n+client.CommitOverheadBytes(len(batch)+1) > datastore.MaxRequestBytes {
         client.Mutate(ctx, batch)
         batch, used = batch[:0], 0
     }
@@ -383,10 +384,33 @@ for _, m := range mutations {
 }
 ```
 
-It is a method on `Client` rather than on `Entity` because it includes the key
-with its project, database and namespace attached, and only the client knows
-those. An `Entity`-level figure would understate every mutation by exactly the
-part the caller cannot see.
+The two account for the whole body exactly:
+
+```text
+CommitOverheadBytes(len(ms)) + Σ MutationSize(m) == bytes sent to :commit
+```
+
+`MutationSize` is a method on `Client` rather than on `Entity` because it
+includes the key with its project, database and namespace attached, and only the
+client knows those. An `Entity`-level figure would understate every mutation by
+exactly the part the caller cannot see.
+
+`CommitOverheadBytes` is the rest of the request: the mode, the array holding
+the mutations, the comma between each pair, and the `databaseId` when the client
+has one. Summing `MutationSize` alone undercounts by 42 + n bytes for n
+mutations, plus the length of `"databaseId":"<name>",` when a database is named.
+It takes a count rather than the mutations so chunking
+stays a running total — the question at each step is whether one more fits, and
+a whole-batch measure would re-encode everything to answer it.
+
+A named database is counted twice, and both are real: every key carries the
+partition, so it is inside each mutation, and the request carries it once more
+at the top level.
+
+Inside a transaction, use `Tx.CommitOverheadBytes` and chunk against
+`MaxTransactionBytes`. That commit also carries either the handle its first read
+returned or a `singleUseTransaction` block, which are different sizes, and only
+the transaction knows which it is in.
 
 ## Composite indexes
 

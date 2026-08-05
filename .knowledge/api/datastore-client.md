@@ -85,6 +85,12 @@ methods:
     flattening either would erase what data:datastore-value exists to keep.
   sizing:
     - func (c *Client) MutationSize(m Mutation) (int, error)
+    - func (c *Client) CommitOverheadBytes(n int) int
+    - func (t *Tx) CommitOverheadBytes(n int) int
+    - sizing_identity: >
+        CommitOverheadBytes(len(ms)) plus MutationSize summed over ms is the
+        commit body exactly, so a caller chunking against MaxRequestBytes has
+        every byte accounted for. See requirement:datastore-commit-envelope.
   admin:
     - func (c *Client) Close() error
     - func (c *Client) ProjectID() string

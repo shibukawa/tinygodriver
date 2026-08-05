@@ -27,12 +27,37 @@ instances:
     note: >
       the reporter quoted this as the intended behaviour, which was generous.
       It is written as a description of what the client does.
+  catalog_out_of_scope:
+    where: requirement:datastore-client-scope, found 2026-08-05 by system:tinybind-go
+    says: SUM and AVG are out of scope, for the reason the same file names as backwards
+    reality: >
+      shipped 2026-08-04, twenty lines above, in the entry that records the
+      reversal. The file stated the correction and the corrected-away claim
+      both as current.
+    why_it_survived_the_fix: >
+      this requirement fixed the README's list and cited
+      requirement:datastore-client-scope as the authority for why that list was
+      wrong, while that file was carrying the identical error. The guard written
+      the same day read README.md alone.
+    also_found_there:
+      - >
+        single_use_state read as unimplemented after the fold shipped. True of
+        v1.1.6 as written, but a scope document is read as current state.
+      - >
+        state was "proposed 2026-08-02" through five tags in which every line of
+        in_scope landed. Not reported; found while fixing the other two, in the
+        header of the file the report was about.
 the_pattern:
   rounds:
     - four stale entries in api:datastore-client, found downstream
     - MarshalEntity in data:datastore-value, found downstream
     - a Mutate variadic in api:datastore-client, found by the audit test the day it was written
-    - this round: the README, and the single_use claim
+    - "2026-08-05: the README, and the single_use claim"
+    - >
+      2026-08-05, the same day: the same SUM and AVG claim in
+      requirement:datastore-client-scope, which the README's fix had cited as
+      its authority. A guard aimed at one artifact says nothing about the
+      identical claim in the next.
   cause_is_constant: >
     a design written before the code, or a code change made after the prose, and
     nobody re-reads the other one. Neither direction is caught by anything that
@@ -50,19 +75,43 @@ what_to_do:
     what: >
       TestConceptMatchesTheCode already checks that every client method the
       concept lists exists with the right variadic shape. Extend the same idea
-      to the README's not-in-scope list: a name in it that is also an exported
+      to the not-in-scope lists: a name in one that is also an exported
       identifier is a contradiction.
+    every_such_list_not_one: >
+      the first version read README.md alone and missed the identical claim in
+      requirement:datastore-client-scope for a further tag. TestNotInScope-
+      NamesNothingExported now reads the README section and the out_of_scope
+      block of every Datastore concept in the catalog.
     limit: >
       prose still cannot be checked. This catches the list-shaped claims, which
       are the ones that have actually been wrong, and says nothing about the
       paragraphs around them.
+    scoped_two_ways_after_measuring: >
+      the unfiltered sweep produced two false positives, and both taught
+      something. It read requirement:sql-batch-execution's out_of_scope, where
+      INSERT is SQL and collides with this package's Insert by coincidence — a
+      concept about another package cannot make a claim about this one's
+      surface, so only Datastore concepts are read. And it objected to COUNT
+      inside a reason explaining why the other aggregations were excluded, which
+      is prose naming an in-scope feature to contrast with it, so reasons are
+      dropped and the keys and their apis values are what gets read.
     do_not: >
       try to check every sentence. A check that fails on a rewording trains
-      people to edit around it, which is worse than not having it.
+      people to edit around it, which is worse than not having it. The two
+      filters above exist because the unfiltered version was already doing that
+      on its first run.
 acceptance:
-  - the not-in-scope list names nothing the package exports
-  - a test fails when it does
+  - no not-in-scope list names anything the package exports, in the README or in the catalog
+  - a test fails when one does, and names the file
+  - the test passes with no false positive on a catalog that is correct
   - SkippedResults, DistinctOn, Project and RunReadOnly appear in the README
   - decision:datastore-write-preconditions no longer claims the fold is implemented
+  - requirement:datastore-client-scope's out_of_scope no longer names SUM or AVG
   - the audit test still passes on both build paths
+state_2026_08_05: >
+  all instances above fixed and the guard extended. The class is not closed:
+  the mechanism now covers list-shaped claims in two artifact kinds, and every
+  round so far has found the next instance in an artifact the previous round's
+  guard did not read.
 related: system:popcornwave
+also_reported_by: system:tinybind-go

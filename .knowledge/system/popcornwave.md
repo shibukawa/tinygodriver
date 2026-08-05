@@ -3,7 +3,7 @@ id: system:popcornwave
 type: system
 title: Popcorn Wave Framework
 ---
-A web framework building its authentication and session backends on `nosql/datastore`, through the `firestorebind` code generator in tinybind-go. It is the first framework-scale consumer of this driver, and the shape of its workload is what makes requirement:datastore-single-use-transaction worth doing.
+A web framework building its authentication and session backends on `nosql/datastore`, through the `firestorebind` code generator in system:tinybind-go. It is the first framework-scale consumer of this driver, and the shape of its workload is what makes requirement:datastore-single-use-transaction worth doing.
 
 ```yaml
 import_path: github.com/shibukawa/popcornwave
@@ -46,3 +46,8 @@ requests_2026_08_05:
     Client.MutationSize instead of a local overhead constant, exporting the
     namespace application, and a declaration-only ttl tag. Recorded here only so
     the split is visible; they are not this repository's to answer.
+  what_the_second_of_those_produced: >
+    wiring MutationSize into firestorebind is what found the commit envelope,
+    since a measure that covers the mutations and not the request around them
+    cannot replace an overhead constant on its own. Answered by
+    requirement:datastore-commit-envelope.

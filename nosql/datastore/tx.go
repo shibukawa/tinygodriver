@@ -145,6 +145,32 @@ func (t *Tx) Update(e Entity, opts ...WriteOption) { t.queue(UpdateOp(e).With(op
 // Delete queues a delete.
 func (t *Tx) Delete(k Key, opts ...WriteOption) { t.queue(DeleteOp(k).With(opts...)) }
 
+// CommitOverheadBytes reports what this transaction's commit will spend on
+// everything that is not the mutations, the same figure as
+// Client.CommitOverheadBytes but for the request this Tx actually sends. Chunk
+// against MaxTransactionBytes with it.
+//
+// A transaction that has read carries the handle its first read brought back; a
+// transaction that has not carries a singleUseTransaction block instead, and
+// the two are different sizes. So the answer describes the transaction as it
+// stands: asked before the first read it describes the single-use shape, and
+// reading changes it, because reading is what changes the commit. Asked where a
+// caller decides whether one more mutation fits, which is after whatever reads
+// the closure does, it is exact.
+func (t *Tx) CommitOverheadBytes(n int) int {
+	req := wireCommitRequest{
+		DatabaseID: t.client.database,
+		Mode:       "TRANSACTIONAL",
+		Mutations:  []wireMutation{},
+	}
+	if t.handle != "" {
+		req.Transaction = t.handle
+	} else {
+		req.SingleUseTransaction = t.options()
+	}
+	return commitOverhead(req, n)
+}
+
 // Mutate queues arbitrary mutations.
 func (t *Tx) Mutate(ms ...Mutation) {
 	for _, m := range ms {
