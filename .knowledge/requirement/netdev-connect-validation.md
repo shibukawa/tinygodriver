@@ -35,5 +35,15 @@ status_2026_07_28:
     net.Dial("tcp4","127.0.0.1:0") returns "can't assign requested address", and
     a second Dial in the same process returns the same error instead of a stale one
   verified_tests: netdev TestConnectPortZeroFails, TestConnectClosedPortReportsFailure
+eintr_2026_08_07:
+  observed: >
+    intermittent "dial error: ... syscall error: errno 4" under host go with
+    force_tinygo_logic; the runtime's preemption signal lands in the blocking
+    connect(2) often enough to fail ordinary test runs
+  fix: >
+    sysConnect on darwin and linux now handles EINTR: POSIX keeps the
+    handshake going in the kernel, so it waits for writability and probes
+    with connect again, treating EISCONN as success and EALREADY as still in
+    flight. Same family as the accept and select retry loops already there
 applies_to: system:tinygo-netdev
 ```

@@ -92,11 +92,17 @@ func (c *upgradedConn) RemoteAddr() net.Addr { return c.remote }
 // plainConn is a plaintext netdev socket that carries its descriptor, so
 // Upgrade can start TLS on it.
 type plainConn struct {
-	// ioMu serializes reads against reads and writes against writes; state
-	// carries the deadlines behind its own lock so SetDeadline never waits for
-	// a blocked read.
-	ioMu  sync.Mutex
-	state connState
+	// readMu serializes reads against reads and writeMu writes against writes.
+	// They are separate locks because the two directions of a TCP socket are
+	// independent, and net.Conn promises full duplex: a blocked read must not
+	// stall a concurrent write. PostgreSQL's COPY protocol relies on that --
+	// pgconn keeps a read pending for server errors while another goroutine
+	// streams data in, and a shared lock deadlocks it. state carries the
+	// deadlines behind its own lock so SetDeadline never waits for a blocked
+	// read either.
+	readMu  sync.Mutex
+	writeMu sync.Mutex
+	state   connState
 
 	fd   int
 	dev  *netdev.Device
@@ -140,8 +146,8 @@ func (c *plainConn) Read(p []byte) (int, error) {
 	if c.isReleased() {
 		return 0, net.ErrClosed
 	}
-	c.ioMu.Lock()
-	defer c.ioMu.Unlock()
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
 
 	n, err := c.dev.Recv(c.fd, p, 0, readDeadline)
 	if err != nil {
@@ -167,8 +173,8 @@ func (c *plainConn) Write(p []byte) (int, error) {
 	if c.isReleased() {
 		return 0, net.ErrClosed
 	}
-	c.ioMu.Lock()
-	defer c.ioMu.Unlock()
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 
 	// netdev.Send may return short, so loop until the buffer is drained.
 	written := 0

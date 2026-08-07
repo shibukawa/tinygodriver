@@ -101,6 +101,8 @@ const (
 	osSOL_TCP       = 6
 	osTCP_KEEPINTVL = 5
 	osEINTR         = 4
+	osEALREADY      = 114
+	osEISCONN       = 106
 )
 
 // Linux sockaddr_in: sin_family is 16-bit, no length field.
@@ -241,10 +243,35 @@ func sysConnect(fd int, ip netip.AddrPort) error {
 	if err != nil {
 		return err
 	}
-	if C.h_connect(C.int(fd), unsafe.Pointer(&sa), 16) != 0 {
+	if C.h_connect(C.int(fd), unsafe.Pointer(&sa), 16) == 0 {
+		return nil
+	}
+	if int(C.h_errno()) != osEINTR {
 		return lastErrno()
 	}
-	return nil
+	// A signal interrupted connect. POSIX keeps the handshake going in the
+	// kernel, so wait for the socket to become writable and probe with connect
+	// again: EISCONN is success, EALREADY still in flight, anything else the
+	// connection's real error. Under host go the runtime's preemption signal
+	// makes this path common enough to see in ordinary test runs.
+	for {
+		var wfds fdSet
+		wfds.set(fd)
+		if C.h_select(C.int(fd+1), nil, unsafe.Pointer(&wfds), nil, nil) < 0 &&
+			int(C.h_errno()) != osEINTR {
+			return lastErrno()
+		}
+		if C.h_connect(C.int(fd), unsafe.Pointer(&sa), 16) == 0 {
+			return nil
+		}
+		switch int(C.h_errno()) {
+		case osEISCONN:
+			return nil
+		case osEINTR, osEALREADY:
+			continue
+		}
+		return lastErrno()
+	}
 }
 
 func sysClose(fd int) error {

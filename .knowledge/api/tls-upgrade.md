@@ -52,6 +52,21 @@ deadline_contract: >
   deadlines under a lock separate from the one serializing session I/O, because
   a caller sets a deadline precisely when a read is blocked. A single lock made
   a cancellation watcher stall behind the query it was cancelling
+duplex_contract:
+  plainconn: >
+    full duplex since 2026-08-07: Read and Write hold separate locks, because
+    the two directions of a TCP socket are independent and net.Conn promises
+    it. One shared lock deadlocked PostgreSQL COPY intermittently: pgconn
+    keeps a read pending for server errors while another goroutine streams
+    data, the blocked read held the lock, and the server was itself waiting
+    for that data. Plain sockets are safe to split; netdev's plain-TCP
+    Recv/Send share no state
+  tls_conns: >
+    still one session lock each; Secure Transport, mbedTLS and Schannel
+    sessions are not full-duplex safe. Consequence: CopyFrom over
+    sslmode!=disable on the native path keeps the deadlock risk the plaintext
+    fix removed. Lifting it means per-backend session locking work, not a
+    mutex split
 verified:
   tests: upgrade_test.go runs on std go, force_tinygo_logic, and darwinstarttlswith13
   e2e: identical source completed a plaintext-then-upgrade GET under go and tinygo

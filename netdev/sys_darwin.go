@@ -124,6 +124,8 @@ const (
 	osSOL_TCP       = 6
 	osTCP_KEEPINTVL = 0x101
 	osEINTR         = 4
+	osEALREADY      = 37
+	osEISCONN       = 56
 )
 
 type sockaddrInet4 struct {
@@ -276,10 +278,35 @@ func sysConnect(fd int, ip netip.AddrPort) error {
 	if err != nil {
 		return err
 	}
-	if C.h_connect(C.int(fd), unsafe.Pointer(&sa), 16) != 0 {
+	if C.h_connect(C.int(fd), unsafe.Pointer(&sa), 16) == 0 {
+		return nil
+	}
+	if int(C.h_syserrno()) != osEINTR {
 		return lastSysErrno()
 	}
-	return nil
+	// A signal interrupted connect. POSIX keeps the handshake going in the
+	// kernel, so wait for the socket to become writable and probe with connect
+	// again: EISCONN is success, EALREADY still in flight, anything else the
+	// connection's real error. Under host go the runtime's preemption signal
+	// makes this path common enough to see in ordinary test runs.
+	for {
+		var wfds fdSet
+		wfds.set(fd)
+		if C.h_select(C.int(fd+1), nil, unsafe.Pointer(&wfds), nil, nil) < 0 &&
+			int(C.h_errno()) != osEINTR {
+			return lastErrno()
+		}
+		if C.h_connect(C.int(fd), unsafe.Pointer(&sa), 16) == 0 {
+			return nil
+		}
+		switch int(C.h_syserrno()) {
+		case osEISCONN:
+			return nil
+		case osEINTR, osEALREADY:
+			continue
+		}
+		return lastSysErrno()
+	}
 }
 
 func sysClose(fd int) error {
