@@ -10,19 +10,20 @@ import (
 	"os"
 	"time"
 
-	"github.com/shibukawa/tinygodriver/database/sql/pgxstdlib"
+	pgx "github.com/shibukawa/tinygodriver/database/pgx"
+	"github.com/shibukawa/tinygodriver/database/pgx/stdlib"
 	"github.com/shibukawa/tinygodriver/database/sql/sqlbatch"
 	_ "github.com/shibukawa/tinygodriver/netdev"
 )
 
 func main() {
-	dsn := os.Getenv("PGXSTDLIB_DSN")
+	dsn := os.Getenv("PGX_DSN")
 	if dsn == "" {
 		dsn = "postgres://user:pass@localhost:55432/db?sslmode=disable"
 	}
 
 	ctx := context.Background()
-	db, err := pgxstdlib.OpenContext(ctx, dsn)
+	db, err := stdlib.OpenContext(ctx, dsn)
 	if err != nil {
 		fmt.Println("open:", err)
 		os.Exit(1)
@@ -56,9 +57,9 @@ func main() {
 	// Batch has no database/sql equivalent, so it goes through WithConn. This
 	// example is also the only place that proves the pgx types are nameable
 	// from outside the package: on tinygo they live under internal/, and the
-	// aliases in pgxstdlib are what make this compile.
-	err = pgxstdlib.WithConn(ctx, db, func(c *pgxstdlib.Conn) error {
-		b := &pgxstdlib.Batch{}
+	// re-exports in database/pgx are what make this compile.
+	err = stdlib.WithConn(ctx, db, func(c *pgx.Conn) error {
+		b := &pgx.Batch{}
 		for i := 1; i <= 3; i++ {
 			b.Queue("SELECT $1::int * 10", i)
 		}
@@ -86,7 +87,7 @@ func main() {
 			ID   int32
 			Name string
 		}
-		rec, err := pgxstdlib.CollectExactlyOneRow(rows, pgxstdlib.RowToStructByName[record])
+		rec, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[record])
 		if err != nil {
 			return err
 		}

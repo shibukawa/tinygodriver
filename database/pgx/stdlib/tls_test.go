@@ -1,6 +1,6 @@
 //go:build !tinygo
 
-package pgxstdlib
+package stdlib
 
 import (
 	"context"
@@ -21,14 +21,14 @@ import (
 //	    -e POSTGRES_DB=db -p 55433:5432 -v "$PWD":/certs:ro postgres:17 \
 //	    -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key
 //
-//	PGXSTDLIB_TLS_DSN='postgres://user:pass@localhost:55433/db' \
-//	PGXSTDLIB_TLS_CA=$PWD/server.crt go test ./database/sql/pgxstdlib/
+//	PGX_TLS_DSN='postgres://user:pass@localhost:55433/db' \
+//	PGX_TLS_CA=$PWD/server.crt go test ./database/pgx/stdlib/
 func tlsEnv(t *testing.T) (dsn, ca string) {
 	t.Helper()
-	dsn = os.Getenv("PGXSTDLIB_TLS_DSN")
-	ca = os.Getenv("PGXSTDLIB_TLS_CA")
+	dsn = os.Getenv("PGX_TLS_DSN")
+	ca = os.Getenv("PGX_TLS_CA")
 	if dsn == "" || ca == "" {
-		t.Skip("set PGXSTDLIB_TLS_DSN and PGXSTDLIB_TLS_CA to run TLS tests")
+		t.Skip("set PGX_TLS_DSN and PGX_TLS_CA to run TLS tests")
 	}
 	return dsn, ca
 }
@@ -122,12 +122,12 @@ func TestTLSVerifyFullRejectsUnknownCA(t *testing.T) {
 //	    -keyout server.key -subj "/CN=other.example" \
 //	    -addext "subjectAltName=DNS:other.example"
 //
-// served on PGXSTDLIB_TLS_WRONGHOST_DSN with PGXSTDLIB_TLS_WRONGHOST_CA.
+// served on PGX_TLS_WRONGHOST_DSN with PGX_TLS_WRONGHOST_CA.
 func TestTLSVerifyFullRejectsHostnameMismatch(t *testing.T) {
-	dsn := os.Getenv("PGXSTDLIB_TLS_WRONGHOST_DSN")
-	ca := os.Getenv("PGXSTDLIB_TLS_WRONGHOST_CA")
+	dsn := os.Getenv("PGX_TLS_WRONGHOST_DSN")
+	ca := os.Getenv("PGX_TLS_WRONGHOST_CA")
 	if dsn == "" || ca == "" {
-		t.Skip("set PGXSTDLIB_TLS_WRONGHOST_DSN and PGXSTDLIB_TLS_WRONGHOST_CA")
+		t.Skip("set PGX_TLS_WRONGHOST_DSN and PGX_TLS_WRONGHOST_CA")
 	}
 
 	// The CA is trusted, so only the name can fail the check.

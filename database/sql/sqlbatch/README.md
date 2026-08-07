@@ -43,7 +43,7 @@ differ. What a caller observes — results and errors — is not.
 
 | Driver | Package | Exec | Query | Cost |
 | --- | --- | --- | --- | --- |
-| PostgreSQL | `pgxstdlib` | yes | yes | one round trip, pipelined |
+| PostgreSQL | `pgx/stdlib` | yes | yes | one round trip, pipelined |
 | MySQL / MariaDB | `mysql` | yes | with `WithFallback()` | one round trip, `multiStatements` |
 | SQLite | `sqlite` | yes | yes | one statement at a time, one transaction |
 

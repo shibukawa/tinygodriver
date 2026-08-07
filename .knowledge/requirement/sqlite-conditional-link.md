@@ -33,7 +33,7 @@ shipped_2026_08_07:
     amalgamation on import unless built with -tags nosqlite. Host go is
     untouched: modernc and mattn stay as they were.
   verified: >
-    wasip1 and wasip2 builds of a project importing sqlite plus pgxstdlib
+    wasip1 and wasip2 builds of a project importing sqlite plus pgx/stdlib
     succeed and report Backend none; force_tinygo_logic with and without
     nosqlite passes the package tests, which skip the functional cases on the
     none backend

@@ -34,13 +34,15 @@ defaults_installed_by_parseconfig:
     what lets sslmode ride api:tls-upgrade
   overridable: both are plain fields on the returned ConnConfig
 layering: >
-  pgxstdlib.open is now ParseConfig here plus stdlib.OpenDB, and its public
-  aliases live in one untagged aliases.go re-exporting this package, so the
-  alias sets cannot drift between the sql and native surfaces
+  the family mirrors upstream pgx since the 2026-08-07 rename: this package
+  is the base, database/pgx/pgxpool the pool, database/pgx/stdlib the
+  database/sql adapter (formerly database/sql/pgxstdlib, no compatibility
+  alias). stdlib.open is ParseConfig here plus the per-build pgx/stdlib
+  OpenDB, and stdlib names pgx types through this package instead of
+  re-exporting its own
 concurrency: >
-  a Conn is single-owner, unlike a sql.DB handle; one conn per goroutine or a
-  pool above this package. pgxpool is not yet exported, see
-  requirement:pgxpool-tinygo
+  a Conn is single-owner, unlike a sql.DB handle; one conn per goroutine, or
+  database/pgx/pgxpool for a shared pool, see requirement:pgxpool-tinygo
 limits:
   pgtype: registering custom codecs needs the pgtype package itself, which
     stays internal on the tinygo build; std-go-only for now

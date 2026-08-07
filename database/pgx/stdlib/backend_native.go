@@ -1,6 +1,6 @@
 //go:build tinygo || force_tinygo_logic
 
-package pgxstdlib
+package stdlib
 
 import (
 	"database/sql"

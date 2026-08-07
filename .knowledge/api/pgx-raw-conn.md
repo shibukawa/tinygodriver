@@ -3,7 +3,7 @@ id: api:pgx-raw-conn
 type: api
 title: pgx Connection Access
 ---
-`WithConn` hands the pgx connection behind a `database/sql` handle to a callback, and `pgxstdlib` re-exports the pgx types so the callback can name what it receives on both compilers.
+`WithConn` hands the pgx connection behind a `database/sql` handle to a callback; since the 2026-08-07 relayering it lives in `database/pgx/stdlib` and the callback names the types through `database/pgx` (api:pgx-native), which is what makes them nameable on both compilers.
 
 ```yaml
 type: |
@@ -26,19 +26,19 @@ aliases:
     resolves per build itself; see api:pgx-native. Before that, duplicated
     per-backend blocks in backend_std.go and backend_native.go
   why: >
-    the tinygo build's pgx sits under internal/, so a caller outside pgxstdlib
-    cannot import it. An alias may point at an internal type, which is what makes
+    the tinygo build's pgx sits under database/internal/, which a caller
+    cannot import. An alias may point at an internal type, which is what makes
     the value usable. See was_broken_on_tinygo in requirement:tinygo-postgres-driver
 compatibility:
   host_go: >
     the aliases are the upstream pgx types themselves, asserted at compile time
-    in compat_std_test.go. A *pgxstdlib.Conn is a *pgx.Conn, so code passes
-    either way with no conversion and no method loss
+    in database/pgx/compat_std_test.go. A database/pgx Conn is a *pgx.Conn, so
+    code passes either way with no conversion and no method loss
   tinygo: >
     same api, different identity. The vendored copy is v5.10.0 under a different
     import path, so its types are not upstream's
   what_that_costs: >
-    own code written against the pgxstdlib names is portable across both
+    own code written against the database/pgx names is portable across both
     compilers. A third-party package whose own signatures name *pgx.Conn is host
     go only, and no alias can fix that
   guard: >
@@ -72,6 +72,6 @@ verified:
     still lands at 610ms. The struct case matters most, since it is reflection
     over field names
   boundary: >
-    the example is outside pgxstdlib/, so its build is what proves the internal
+    the example is outside database/, so its build is what proves the internal
     import rule is satisfied. A test beside the package cannot
 ```

@@ -35,7 +35,7 @@
 // A driver package registers its own adapter, so importing the driver you
 // already open the database with is enough.
 //
-//	postgres  pgxstdlib  exec and query, pipelined into one round trip
+//	postgres  pgx/stdlib  exec and query, pipelined into one round trip
 //	mysql     mysql      exec in one round trip, through multiStatements
 //	sqlite    sqlite     one statement at a time, in one transaction
 //

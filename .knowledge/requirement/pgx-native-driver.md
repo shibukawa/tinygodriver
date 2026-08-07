@@ -8,7 +8,11 @@ A public `database/pgx` package exposing the pgx-native API on both compilers, b
 ```yaml
 priority: must
 requested: 2026-08-07
-state: shipped 2026-08-07 as api:pgx-native; verification lives there
+state: >
+  shipped 2026-08-07 as api:pgx-native; verification lives there. Later the
+  same day the maintainer mirrored upstream layout fully: pgxstdlib became
+  database/pgx/stdlib with no compatibility alias, and database/pgx/pgxpool
+  shipped, closing requirement:pgxpool-tinygo
 package: database/pgx
 import: github.com/shibukawa/tinygodriver/database/pgx
 package_name: pgx, so call sites read as upstream pgx code

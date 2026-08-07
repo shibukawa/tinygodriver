@@ -93,7 +93,7 @@ func withSSLMode(t *testing.T, dsn, mode string) string {
 
 // sslmode must fail loudly on the vendored backend rather than quietly
 // connecting in plaintext. (The test server offers no TLS; the full TLS matrix
-// lives in pgxstdlib's tls_test.go and rides the same code path.)
+// lives in stdlib's tls_test.go and rides the same code path.)
 func TestSSLModeUnsupportedOnVendored(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -35,7 +35,7 @@ supported_drivers:
     query: >
       shipped. pgx already delivers rows per queued query, so withholding them
       would have cost postgres capability for a mysql-side limitation
-    registered_by: pgxstdlib/batch.go, which must live there to name pgx types
+    registered_by: database/pgx/stdlib/batch.go, beside the driver it unwraps
   mysql:
     transport: multiStatements, subject to rule:mysql-multi-statement-batch
     exec: shipped, per statement, with RowsAffected and LastInsertID

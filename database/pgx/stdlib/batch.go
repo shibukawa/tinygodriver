@@ -1,15 +1,16 @@
-package pgxstdlib
+package stdlib
 
 import (
 	"context"
 	"errors"
 
+	pgx "github.com/shibukawa/tinygodriver/database/pgx"
 	"github.com/shibukawa/tinygodriver/database/sql/sqlbatch"
 )
 
-// The adapter lives here rather than in sqlbatch because it names pgx types,
-// and which pgx those are is decided by this package's build tags. On the
-// TinyGo path they are not importable from anywhere else at all.
+// The adapter lives here rather than in sqlbatch because it unwraps this
+// driver's connections; the pgx types come from database/pgx, which resolves
+// per build.
 func init() { sqlbatch.Register(driverInstance(), sendBatch) }
 
 // sendBatch runs the queued statements as one pipelined exchange.
@@ -20,16 +21,16 @@ func init() { sqlbatch.Register(driverInstance(), sendBatch) }
 // a no-op here rather than an error, since the caller gets a stronger guarantee
 // than requested, never a weaker one.
 func sendBatch(ctx context.Context, dc any, b *sqlbatch.Batch, _ sqlbatch.Options) (sqlbatch.Results, error) {
-	unwrapper, ok := dc.(interface{ Conn() *Conn })
+	unwrapper, ok := dc.(interface{ Conn() *pgx.Conn })
 	if !ok {
 		return nil, &sqlbatch.UnsupportedError{
-			Driver:     "pgxstdlib",
+			Driver:     "pgx/stdlib",
 			Capability: "batch",
 			Hint:       "the connection is not a pgx connection",
 		}
 	}
 
-	pb := &Batch{}
+	pb := &pgx.Batch{}
 	for _, q := range b.Queued() {
 		pb.Queue(q.SQL, q.Args...)
 	}
@@ -39,7 +40,7 @@ func sendBatch(ctx context.Context, dc any, b *sqlbatch.Batch, _ sqlbatch.Option
 // results adapts pgx.BatchResults, which differs from the portable interface
 // only in how rows report themselves.
 type results struct {
-	br BatchResults
+	br pgx.BatchResults
 }
 
 func (r *results) Exec() (sqlbatch.CommandTag, error) {
@@ -66,7 +67,7 @@ func (r *results) Close() error { return r.br.Close() }
 
 // pgxRows squares pgx.Rows with the portable interface: Close returns no error
 // there, and column names come from the field descriptions.
-type pgxRows struct{ Rows }
+type pgxRows struct{ pgx.Rows }
 
 func (r *pgxRows) Close() error {
 	r.Rows.Close()
@@ -79,7 +80,7 @@ func (r *pgxRows) Columns() ([]string, error) {
 		if err := r.Rows.Err(); err != nil {
 			return nil, err
 		}
-		return nil, errors.New("pgxstdlib: no column information")
+		return nil, errors.New("pgx/stdlib: no column information")
 	}
 	names := make([]string, len(fds))
 	for i, fd := range fds {

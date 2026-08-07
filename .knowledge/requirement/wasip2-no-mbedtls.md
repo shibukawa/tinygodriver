@@ -33,7 +33,7 @@ shipped_2026_08_07:
     the explicit-failure option; wasi-tls host delegation stays open as the
     follow-up that would make wasip2 a real TLS platform
   verified: >
-    tinygo -target=wasip2 builds netdev+https+sqlite+pgxstdlib and runs under
+    tinygo -target=wasip2 builds netdev+https+sqlite+pgx/stdlib and runs under
     wasmtime (component model), dial returns ErrPlatformNotSupported; needed
     brew-installed wasm-tools for TinyGo's component embed step
 ```

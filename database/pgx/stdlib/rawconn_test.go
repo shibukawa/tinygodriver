@@ -1,6 +1,6 @@
 //go:build !tinygo
 
-package pgxstdlib
+package stdlib
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"database/sql/driver"
 	"errors"
 	"testing"
+
+	pgx "github.com/shibukawa/tinygodriver/database/pgx"
 )
 
 // These cases run on both backends, like the rest of the suite. What they
@@ -15,14 +17,14 @@ import (
 // in the first place: this package may import its own internal/, so a test
 // living beside it compiles either way. examples/pgxdemo is the check that
 // matters, because it sits outside the tree and fails to build without the
-// aliases in backend_std.go and backend_native.go.
+// re-exports in database/pgx.
 
 func TestWithConnReachesPgx(t *testing.T) {
 	db := openTest(t)
 	ctx := context.Background()
 
 	var got string
-	err := WithConn(ctx, db, func(c *Conn) error {
+	err := WithConn(ctx, db, func(c *pgx.Conn) error {
 		return c.QueryRow(ctx, `SELECT 'reached'`).Scan(&got)
 	})
 	if err != nil {
@@ -38,8 +40,8 @@ func TestWithConnBatch(t *testing.T) {
 	ctx := context.Background()
 
 	var got []int
-	err := WithConn(ctx, db, func(c *Conn) error {
-		b := &Batch{}
+	err := WithConn(ctx, db, func(c *pgx.Conn) error {
+		b := &pgx.Batch{}
 		for i := 1; i <= 3; i++ {
 			b.Queue(`SELECT $1::int * 10`, i)
 		}
@@ -74,8 +76,8 @@ func TestWithConnBatchErrorReleasesConn(t *testing.T) {
 	db := openTest(t)
 	ctx := context.Background()
 
-	err := WithConn(ctx, db, func(c *Conn) error {
-		b := &Batch{}
+	err := WithConn(ctx, db, func(c *pgx.Conn) error {
+		b := &pgx.Batch{}
 		b.Queue(`SELECT 1`)
 		b.Queue(`SELECT 1/0`)
 		b.Queue(`SELECT 1`)
@@ -84,7 +86,7 @@ func TestWithConnBatchErrorReleasesConn(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the division by zero to fail the batch")
 	}
-	var pgErr *PgError
+	var pgErr *pgx.PgError
 	if !errors.As(err, &pgErr) {
 		t.Fatalf("expected a *PgError, got %T: %v", err, err)
 	}
@@ -117,8 +119,8 @@ func TestWithConnBatchIsAtomic(t *testing.T) {
 		t.Fatalf("create temp table: %v", err)
 	}
 
-	err = WithSQLConn(sc, func(c *Conn) error {
-		b := &Batch{}
+	err = WithSQLConn(sc, func(c *pgx.Conn) error {
+		b := &pgx.Batch{}
 		b.Queue(`INSERT INTO batch_atomic VALUES (1)`)
 		b.Queue(`INSERT INTO batch_atomic VALUES (1/0)`)
 		return c.SendBatch(ctx, b).Close()
@@ -150,7 +152,7 @@ func TestWithSQLConnUsesTheGivenConn(t *testing.T) {
 	if err := sc.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&viaSQL); err != nil {
 		t.Fatalf("pg_backend_pid through database/sql: %v", err)
 	}
-	err = WithSQLConn(sc, func(c *Conn) error {
+	err = WithSQLConn(sc, func(c *pgx.Conn) error {
 		return c.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&viaPgx)
 	})
 	if err != nil {
@@ -164,14 +166,14 @@ func TestWithSQLConnUsesTheGivenConn(t *testing.T) {
 // A driver that is not pgx must be reported, not panic through a bare type
 // assertion.
 func TestWithSQLConnRejectsForeignDriver(t *testing.T) {
-	sql.Register("pgxstdlib_notpgx", notPgxDriver{})
-	db, err := sql.Open("pgxstdlib_notpgx", "")
+	sql.Register("stdlib_notpgx", notPgxDriver{})
+	db, err := sql.Open("stdlib_notpgx", "")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer db.Close()
 
-	err = WithConn(context.Background(), db, func(*Conn) error {
+	err = WithConn(context.Background(), db, func(*pgx.Conn) error {
 		t.Fatal("fn must not run for a non-pgx driver")
 		return nil
 	})
@@ -180,9 +182,9 @@ func TestWithSQLConnRejectsForeignDriver(t *testing.T) {
 	}
 }
 
-// The row-collection helpers are forwards rather than aliases, so they need
-// their own case: a wrong type parameter or a swapped argument would still
-// compile against the alias set.
+// The row-collection helpers are forwards rather than aliases in
+// database/pgx, so they need their own case: a wrong type parameter or a
+// swapped argument would still compile against the alias set.
 func TestRowCollectionHelpers(t *testing.T) {
 	db := openTest(t)
 	ctx := context.Background()
@@ -195,28 +197,28 @@ func TestRowCollectionHelpers(t *testing.T) {
 	var byName []row
 	var byPos []row
 	var one row
-	err := WithConn(ctx, db, func(c *Conn) error {
+	err := WithConn(ctx, db, func(c *pgx.Conn) error {
 		const q = `SELECT 1::int4 AS id, 'a' AS name UNION ALL SELECT 2, 'b' ORDER BY id`
 
 		rows, err := c.Query(ctx, q)
 		if err != nil {
 			return err
 		}
-		if byName, err = CollectRows(rows, RowToStructByName[row]); err != nil {
+		if byName, err = pgx.CollectRows(rows, pgx.RowToStructByName[row]); err != nil {
 			return err
 		}
 
 		if rows, err = c.Query(ctx, q); err != nil {
 			return err
 		}
-		if byPos, err = CollectRows(rows, RowToStructByPos[row]); err != nil {
+		if byPos, err = pgx.CollectRows(rows, pgx.RowToStructByPos[row]); err != nil {
 			return err
 		}
 
 		if rows, err = c.Query(ctx, `SELECT 7::int4, 'seven'`); err != nil {
 			return err
 		}
-		one, err = CollectExactlyOneRow(rows, RowToStructByPos[row])
+		one, err = pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[row])
 		return err
 	})
 	if err != nil {

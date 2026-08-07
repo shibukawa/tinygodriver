@@ -71,5 +71,5 @@ verified:
   tests: upgrade_test.go runs on std go, force_tinygo_logic, and darwinstarttlswith13
   e2e: identical source completed a plaintext-then-upgrade GET under go and tinygo
   first_consumer: >
-    database/sql/pgxstdlib drives sslmode through this seam, including
+    database/pgx (and its stdlib adapter) drives sslmode through this seam, including
     verify-full with a custom root and cancellation over TLS

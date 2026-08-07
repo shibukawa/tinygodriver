@@ -57,7 +57,7 @@ matrix:
       wasip2 masquerades as GOOS=linux, so every linux constraint needs
       !wasip2; see rule:tinygo-wasip2-goos
     verified: >
-      netdev+https+sqlite+pgxstdlib program builds for both targets and runs
+      netdev+https+sqlite+pgx/stdlib program builds for both targets and runs
       under wasmtime with explicit errors
   tinygo_windows_amd64:
     state: implemented; build verified, runtime unverified

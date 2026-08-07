@@ -1,7 +1,8 @@
 // Package pgx provides the pgx-native PostgreSQL API under both TinyGo and
 // standard Go.
 //
-// It is the native sibling of database/sql/pgxstdlib, for code that wants
+// It is the native sibling of the stdlib adapter under database/pgx/stdlib,
+// for code that wants
 // pgx itself rather than database/sql: no pool mutex on the query path, no
 // driver.Value boxing per parameter, and connection-oriented features such as
 // Batch, CopyFrom and LISTEN/NOTIFY as first-class calls instead of an escape
@@ -40,7 +41,7 @@
 // # sslmode
 //
 // sslmode is honored on both builds with the same semantics as
-// pgxstdlib.Open. On TinyGo two differences from libpq are deliberate:
+// stdlib.Open. On TinyGo two differences from libpq are deliberate:
 // verify-ca is treated as verify-full, and sslcert/sslkey are rejected rather
 // than ignored, because the native TLS backends cannot offer a client
 // certificate. A platform with no TLS backend refuses any mode but disable;
@@ -62,8 +63,8 @@
 //
 // Registering custom pgtype codecs needs the pgtype package itself, which the
 // TinyGo build keeps under internal/ and cannot re-export wholesale; that
-// remains standard-Go-only for now. pgxpool is likewise not yet part of this
-// surface.
+// remains standard-Go-only for now. The pool lives in database/pgx/pgxpool,
+// the database/sql adapter in database/pgx/stdlib.
 package pgx
 
 import "context"

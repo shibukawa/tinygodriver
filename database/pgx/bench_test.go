@@ -2,7 +2,7 @@
 
 // Benchmarks comparing the native surface against the database/sql adapter on
 // the same workload, so the cost of the sql layer is measured rather than
-// asserted. External test package: it imports pgxstdlib, which itself imports
+// asserted. External test package: it imports the stdlib adapter, which itself imports
 // this package.
 package pgx_test
 
@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	pgx "github.com/shibukawa/tinygodriver/database/pgx"
-	"github.com/shibukawa/tinygodriver/database/sql/pgxstdlib"
+	stdlib "github.com/shibukawa/tinygodriver/database/pgx/stdlib"
 )
 
 func benchDSN(b *testing.B) string {
@@ -51,7 +51,7 @@ func BenchmarkQueryRow(b *testing.B) {
 	})
 
 	b.Run("stdlib", func(b *testing.B) {
-		db, err := pgxstdlib.Open(dsn)
+		db, err := stdlib.Open(dsn)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func BenchmarkQueryRowConcurrent(b *testing.B) {
 	})
 
 	b.Run("stdlib", func(b *testing.B) {
-		db, err := pgxstdlib.Open(dsn)
+		db, err := stdlib.Open(dsn)
 		if err != nil {
 			b.Fatal(err)
 		}

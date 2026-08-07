@@ -1,6 +1,6 @@
 //go:build !tinygo
 
-package pgxstdlib
+package stdlib
 
 import (
 	"context"
@@ -12,18 +12,18 @@ import (
 	"time"
 )
 
-// The same suite runs on both backends. Set PGXSTDLIB_TEST_DSN to point at a
+// The same suite runs on both backends. Set PGX_TEST_DSN to point at a
 // PostgreSQL instance; without it the tests skip, so a checkout with no
 // database still passes.
 //
 //	docker run -d --name pgtest -e POSTGRES_PASSWORD=pass -e POSTGRES_USER=user \
 //	    -e POSTGRES_DB=db -p 55432:5432 postgres:17
-//	PGXSTDLIB_TEST_DSN='postgres://user:pass@localhost:55432/db?sslmode=disable' go test ./database/sql/pgxstdlib/
+//	PGX_TEST_DSN='postgres://user:pass@localhost:55432/db?sslmode=disable' go test ./database/pgx/stdlib/
 func testDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("PGXSTDLIB_TEST_DSN")
+	dsn := os.Getenv("PGX_TEST_DSN")
 	if dsn == "" {
-		t.Skip("set PGXSTDLIB_TEST_DSN to run pgxstdlib integration tests")
+		t.Skip("set PGX_TEST_DSN to run stdlib integration tests")
 	}
 	return dsn
 }
@@ -149,17 +149,17 @@ func TestTransactionAndPreparedStatement(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := db.ExecContext(ctx,
-		`DROP TABLE IF EXISTS pgxstdlib_test;
-		 CREATE TABLE pgxstdlib_test(id serial primary key, name text, n int)`); err != nil {
+		`DROP TABLE IF EXISTS stdlib_dbsql_test;
+		 CREATE TABLE stdlib_dbsql_test(id serial primary key, name text, n int)`); err != nil {
 		t.Fatalf("ddl: %v", err)
 	}
-	t.Cleanup(func() { db.ExecContext(context.Background(), `DROP TABLE IF EXISTS pgxstdlib_test`) })
+	t.Cleanup(func() { db.ExecContext(context.Background(), `DROP TABLE IF EXISTS stdlib_dbsql_test`) })
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	st, err := tx.PrepareContext(ctx, `INSERT INTO pgxstdlib_test(name, n) VALUES($1, $2)`)
+	st, err := tx.PrepareContext(ctx, `INSERT INTO stdlib_dbsql_test(name, n) VALUES($1, $2)`)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestTransactionAndPreparedStatement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin2: %v", err)
 	}
-	if _, err := tx2.ExecContext(ctx, `INSERT INTO pgxstdlib_test(name, n) VALUES('gone', 99)`); err != nil {
+	if _, err := tx2.ExecContext(ctx, `INSERT INTO stdlib_dbsql_test(name, n) VALUES('gone', 99)`); err != nil {
 		t.Fatalf("tx2 insert: %v", err)
 	}
 	if err := tx2.Rollback(); err != nil {
@@ -186,7 +186,7 @@ func TestTransactionAndPreparedStatement(t *testing.T) {
 	}
 
 	var n int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pgxstdlib_test`).Scan(&n); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM stdlib_dbsql_test`).Scan(&n); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if n != 5 {

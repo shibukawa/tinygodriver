@@ -1,14 +1,14 @@
-// Package pgxstdlib provides a PostgreSQL database/sql driver that works under
-// both TinyGo and standard Go.
+// Package stdlib adapts database/pgx to database/sql, mirroring upstream
+// pgx's stdlib package, and works under both TinyGo and standard Go.
 //
 // Both builds are pgx/stdlib layered over database/pgx, which supplies the
 // parsed configuration and its defaults. Standard Go uses upstream pgx
 // unmodified; TinyGo uses a vendored copy with TLS removed, because TinyGo
 // ships crypto/tls as a stub that cannot be linked. See
 // database/internal/PATCHES.md. Code that wants pgx itself rather than
-// database/sql should use database/pgx directly.
+// database/sql should use database/pgx (or database/pgx/pgxpool) directly.
 //
-//	db, err := pgxstdlib.Open("postgres://user:pass@localhost:5432/db?sslmode=disable")
+//	db, err := stdlib.Open("postgres://user:pass@localhost:5432/db?sslmode=disable")
 //	if err != nil { ... }
 //	defer db.Close()
 //
@@ -21,21 +21,21 @@
 // # Reaching pgx directly
 //
 // Batch, CopyFrom and LISTEN/NOTIFY have no database/sql equivalent. WithConn
-// hands them the underlying pgx connection, on both compilers:
+// hands them the underlying pgx connection out of a pooled handle, on both
+// compilers:
 //
-//	err := pgxstdlib.WithConn(ctx, db, func(c *pgxstdlib.Conn) error {
-//		b := &pgxstdlib.Batch{}
+//	err := stdlib.WithConn(ctx, db, func(c *pgx.Conn) error {
+//		b := &pgx.Batch{}
 //		b.Queue("INSERT INTO t(a) VALUES ($1)", 1)
 //		b.Queue("INSERT INTO t(a) VALUES ($1)", 2)
 //		return c.SendBatch(ctx, b).Close()
 //	})
 //
-// The pgx types are re-exported here as aliases, so Conn is pgx's own Conn and
-// takes pgx's own methods. Naming them through this package is not a style
-// preference on TinyGo, it is the only option: that build uses the vendored pgx
-// under internal/, which no package outside pgxstdlib may import. Writing the
-// sql.Conn.Raw dance by hand works on standard Go and does not compile under
-// TinyGo, because the type assertion has to name a type that is out of reach.
+// The pgx types are named through database/pgx, which resolves per build to
+// upstream pgx or to the vendored copy. On TinyGo that is the only way to
+// name them at all: the vendored pgx lives under database/internal/, so
+// writing the sql.Conn.Raw dance by hand would have to name a type that is
+// out of reach.
 //
 // Anything derived from c, including BatchResults and Rows, must be finished
 // before the callback returns; see WithConn.
@@ -53,7 +53,7 @@
 //
 // Unix domain sockets and IPv6 are unavailable there, so connect over TCP to an
 // IPv4 host. TLS support depends on the platform; see Open.
-package pgxstdlib
+package stdlib
 
 import (
 	"context"

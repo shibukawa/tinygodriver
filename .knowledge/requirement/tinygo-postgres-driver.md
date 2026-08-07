@@ -7,11 +7,13 @@ A `database/sql` PostgreSQL driver that compiles and runs under both TinyGo and 
 
 ```yaml
 priority: must
-package: database/sql/pgxstdlib
-import: github.com/shibukawa/tinygodriver/database/sql/pgxstdlib
+package: database/pgx/stdlib
+import: github.com/shibukawa/tinygodriver/database/pgx/stdlib
 naming: >
-  named after the backend rather than the database, because the package is
-  pgx/stdlib on both paths and does not implement postgres itself
+  mirrors upstream pgx: the adapter is package stdlib under database/pgx,
+  beside database/pgx/pgxpool. Shipped 2026-07-28 as database/sql/pgxstdlib
+  and renamed 2026-08-07 when the native surface landed; no compatibility
+  alias was kept, per the maintainer
 implementation: decision:postgres-backend-split
 surface:
   shape: database/sql only, mirroring database/sql/sqlite

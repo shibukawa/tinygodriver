@@ -1,6 +1,6 @@
 //go:build !tinygo
 
-package pgxstdlib_test
+package stdlib_test
 
 import (
 	"context"
@@ -10,21 +10,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shibukawa/tinygodriver/database/sql/pgxstdlib"
+	stdlib "github.com/shibukawa/tinygodriver/database/pgx/stdlib"
 	"github.com/shibukawa/tinygodriver/database/sql/sqlbatch"
 )
 
 // This suite is an external test package on purpose. It exercises the batch API
-// the way a caller does, from outside pgxstdlib, which is also the only vantage
+// the way a caller does, from outside the package, which is also the only vantage
 // point that proves the pgx types stay nameable on the vendored backend.
 
 func batchDB(t *testing.T) (*sql.DB, context.Context) {
 	t.Helper()
-	dsn := os.Getenv("PGXSTDLIB_TEST_DSN")
+	dsn := os.Getenv("PGX_TEST_DSN")
 	if dsn == "" {
-		t.Skip("set PGXSTDLIB_TEST_DSN to run pgxstdlib batch tests")
+		t.Skip("set PGX_TEST_DSN to run stdlib batch tests")
 	}
-	db, err := pgxstdlib.Open(dsn)
+	db, err := stdlib.Open(dsn)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
