@@ -44,5 +44,38 @@ value_of_this_reporter: >
   envelope arrived with a measured table that reproduced exactly, and the
   suggested shape, a count-taking overhead rather than a whole-batch size, was
   the right one for the reason they gave.
+request_2026_08_07_rows_interface:
+  status: >
+    filed by system:popcornwave as the single blocker of their pluggable sql
+    backend chain; against tinybind-go's sqlbind, not this repository
+  problem: >
+    sqlbind.Querier.QueryContext returns the concrete *sql.Rows, a struct with
+    unexported fields only database/sql can construct, so an executor outside
+    database/sql (pgxpool) cannot satisfy Querier. Execer needs nothing:
+    sql.Result is already an interface.
+  exposure:
+    - "sqlbind/statement.go:28 Querier.QueryContext returns *sql.Rows"
+    - "sqlbind/rows.go:13 ForEach takes *sql.Rows"
+    - "sqlbind/sql.go:9 ScanRows[T] takes *sql.Rows"
+    - "sqlbind/registry.go:19 RegisterScanRows[T] takes func(*sql.Rows)"
+  requested_shape: >
+    one 4-method Rows interface, Next() bool / Scan(...any) error / Err() error
+    / Close() error, which *sql.Rows already satisfies; Querier returns Rows
+    and the three functions above take it
+  evidence: >
+    generated many-query code calls only Close, Next, Scan and Err, measured
+    from examples/todo/popcornwave/queries/todos_pw_gen.go
+  compatibility:
+    runtime: sql.DB, sql.Conn and sql.Tx satisfy Querier unchanged
+    generated_code: no regeneration needed
+    source: >
+      only callers that annotated the return as *sql.Rows break; a
+      minor-version breaking change
+    pgx_close: >
+      pgx.Rows.Close returns nothing; their adapter wraps it to return error,
+      so the interface keeps Close() error
+  refused_by_requester: >
+    a second row-returning interface, which would fork generated code per
+    backend against their tinybind-sql-runtime decision
 consumes: api:datastore-client
 downstream: system:popcornwave

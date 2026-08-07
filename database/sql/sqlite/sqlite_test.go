@@ -12,6 +12,9 @@ func TestSelectedBackend(t *testing.T) {
 }
 
 func TestPortableDatabaseSQLContract(t *testing.T) {
+	if Backend == "none" {
+		t.Skip("no sqlite backend in this build")
+	}
 	db, err := Open(":memory:")
 	if err != nil {
 		t.Fatal(err)

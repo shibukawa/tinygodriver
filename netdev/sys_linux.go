@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !wasip2
 
 package netdev
 

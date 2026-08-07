@@ -2,6 +2,7 @@ package netdev
 
 import (
 	"encoding/binary"
+	"fmt"
 	"net/netip"
 	"os"
 	"strings"
@@ -45,11 +46,20 @@ func lookupHost(name string) (netip.Addr, error) {
 }
 
 func queryNameservers(name string, list []netip.AddrPort) (netip.Addr, error) {
+	// Keep the last underlying failure. Collapsing every one into a bare
+	// "Host unknown" hides the difference between a name that does not
+	// resolve and a build that cannot open a socket at all, which is what a
+	// WASI target reports. errors.Is still matches ErrHostUnknown.
+	var lastErr error
 	for _, ns := range list {
 		ip, err := dnsQueryA(name, ns)
 		if err == nil {
 			return ip, nil
 		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return netip.Addr{}, fmt.Errorf("%w: %w", ErrHostUnknown, lastErr)
 	}
 	return netip.Addr{}, ErrHostUnknown
 }

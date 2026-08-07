@@ -44,6 +44,21 @@ matrix:
     verified: same stage set as arm64, plus AES-NI detection and self tests
     throughput: unmeasured; the run was emulated, so a native CI job is needed
     client_certs: yes
+  tinygo_wasip1_wasip2:
+    state: >
+      builds and fails explicitly, shipped 2026-08-07; no network or TLS
+      backend exists
+    backend: >
+      none. netdev stubs report the missing socket backend, https returns
+      ErrPlatformNotSupported, sqlite selects Backend none; see
+      requirement:wasip1-netdev, requirement:wasip2-no-mbedtls and
+      requirement:sqlite-conditional-link
+    caveat: >
+      wasip2 masquerades as GOOS=linux, so every linux constraint needs
+      !wasip2; see rule:tinygo-wasip2-goos
+    verified: >
+      netdev+https+sqlite+pgxstdlib program builds for both targets and runs
+      under wasmtime with explicit errors
   tinygo_windows_amd64:
     state: implemented; build verified, runtime unverified
     backend: system:schannel

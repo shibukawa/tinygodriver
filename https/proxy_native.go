@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && (darwin || linux || windows)
+//go:build (tinygo || force_tinygo_logic) && (darwin || (linux && !wasip2) || windows)
 
 package https
 

@@ -7,7 +7,7 @@ A web framework building its authentication and session backends on `nosql/datas
 
 ```yaml
 import_path: github.com/shibukawa/popcornwave
-pins: tinygodriver v1.1.6
+pins: tinygodriver v1.1.9 as of 2026-08-07, previously v1.1.6
 why_not_earlier: >
   v1.1.4 and v1.1.5 write key properties without a partition, fixed on
   2026-08-04. A store keeping a key as a property on those tags writes data it
@@ -51,3 +51,24 @@ requests_2026_08_05:
     since a measure that covers the mutations and not the request around them
     cannot replace an overhead constant on its own. Answered by
     requirement:datastore-commit-envelope.
+requests_2026_08_07:
+  context: >
+    their sql backend work, recorded in their catalog as pluggable-sql-backend,
+    sql-backend-registry, executor-interface-widening and contrib-pgxpool
+  against_this_repository:
+    - requirement:wasip1-netdev
+    - requirement:wasip2-no-mbedtls
+    - requirement:sqlite-conditional-link
+    - requirement:pgxpool-tinygo, deferred by their own priority call
+  against_tinybind_go: >
+    one, and they name it the single blocker of their chain: sqlbind.Querier
+    returns the concrete *sql.Rows, so a pgxpool-backed executor cannot satisfy
+    it. Details in system:tinybind-go; not this repository's to answer.
+  dependency_shape: >
+    the Querier change gates their sql-backend-registry, which gates their
+    host-go pgxpool backend. The wasip and sqlite items are independent of that
+    chain and decide whether a WASM deployment opens at all.
+  diagnoses_verified_here: >
+    all three build failures reproduce from source: no sys_wasip1.go exists,
+    rule:tinygo-wasip2-goos admits mbedtls on wasip2, and the tinygosqlite
+    backend tag links the amalgamation on import.

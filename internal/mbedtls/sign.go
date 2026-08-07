@@ -1,4 +1,4 @@
-//go:build (tinygo || force_tinygo_logic) && (linux || (darwin && darwinstarttlswith13))
+//go:build (tinygo || force_tinygo_logic) && ((linux && !wasip2) || (darwin && darwinstarttlswith13))
 
 package mbedtls
 

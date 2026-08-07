@@ -18,6 +18,9 @@ import (
 
 func batchDB(t *testing.T) (*sql.DB, context.Context) {
 	t.Helper()
+	if sqlite.Backend == "none" {
+		t.Skip("no sqlite backend in this build")
+	}
 	db, err := sqlite.Open(filepath.Join(t.TempDir(), "batch.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -166,6 +169,9 @@ func TestBatchReleasesConnection(t *testing.T) {
 // The transaction is the entire reason SQLite is registered for the sequential
 // path, so assert it is actually buying something rather than trusting it.
 func TestBatchAmortizesTheFsync(t *testing.T) {
+	if sqlite.Backend == "none" {
+		t.Skip("no sqlite backend in this build")
+	}
 	const n = 200
 	ctx := context.Background()
 
