@@ -21,7 +21,10 @@ aliases:
       a generic function can be neither aliased nor bound to a var: "cannot use
       generic function without instantiation". They are one-line forwards
     cost: the only names that must be kept in step by hand across a pgx upgrade
-  bound_in: backend_std.go and backend_native.go, same names against a different pgx
+  bound_in: >
+    since 2026-08-07 one untagged aliases.go re-exporting database/pgx, which
+    resolves per build itself; see api:pgx-native. Before that, duplicated
+    per-backend blocks in backend_std.go and backend_native.go
   why: >
     the tinygo build's pgx sits under internal/, so a caller outside pgxstdlib
     cannot import it. An alias may point at an internal type, which is what makes

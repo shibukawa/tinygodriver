@@ -21,6 +21,10 @@ surface:
       Batch, CopyFrom and LISTEN/NOTIFY stay reachable without widening the
       public api into a second query surface
     state: shipped 2026-08-02, api:pgx-raw-conn, after the defect below
+    successor: >
+      requirement:pgx-native-driver adds a full native surface for the
+      workloads the callback lease cannot serve; WithConn stays for
+      database/sql users
     was_broken_on_tinygo:
       what: >
         the documented form was a hand-written sql.Conn.Raw plus an assertion to

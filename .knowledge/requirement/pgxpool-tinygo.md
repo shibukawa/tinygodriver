@@ -14,4 +14,8 @@ scope_note: >
   decision:postgres-backend-split; the remaining work is rewiring its tls use
   onto api:tls-upgrade, the same patch set rule:pgx-vendoring records for
   pgconn, plus verification on both compilers
+landing_spot: >
+  database/pgx/pgxpool, once requirement:pgx-native-driver ships the core
+  surface; a pool api makes no sense below the database/sql layer, and the
+  alias mechanism there extends to pgxpool.Pool unchanged
 ```

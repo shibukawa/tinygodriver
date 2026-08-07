@@ -45,6 +45,12 @@ rejected:
   pgx_unmodified_on_tinygo:
     what: keep upstream pgx on both paths
     why_not: crypto/tls is a tinygo stub, so pgconn cannot compile at all
+revisited: >
+  2026-08-07: requirement:pgx-native-driver adds a public native surface
+  beside this one, because database/sql's locking and driver.Value
+  conversion cost real performance. The choice here stands for the
+  database/sql surface; what changes is layering, with pgxstdlib becoming
+  the adapter over a fork shared with database/pgx
 divergence_to_document:
   - the tinygo path has no client certificates until api:tls-upgrade carries them
   - tls availability differs per platform, see decision:postgres-tls-via-proxy

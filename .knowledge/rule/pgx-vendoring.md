@@ -7,9 +7,15 @@ How the forked pgx sources live in the repository, following the pattern rule:mb
 
 ```yaml
 layout:
-  path: database/sql/pgxstdlib/internal/pgx/
+  path: database/internal/pgx/
   contents: the whole pgx module, non-test sources only, import paths rewritten
-  rewrite: github.com/jackc/pgx/v5 -> github.com/shibukawa/tinygodriver/database/sql/pgxstdlib/internal/pgx
+  rewrite: github.com/jackc/pgx/v5 -> github.com/shibukawa/tinygodriver/database/internal/pgx
+  moved: >
+    2026-08-07, from database/sql/pgxstdlib/internal/pgx. Go's internal rule
+    scopes database/internal to every package under database/, which is what
+    lets database/pgx and database/sql/pgxstdlib share one copy; under the old
+    path only pgxstdlib could see it. vendor.py, patch.py and PATCHES.md moved
+    with it to database/internal/
 why_whole_module:
   measured: >
     pgconn imports internal/pgio, internal/iobufpool and pgconn/internal/bgreader.

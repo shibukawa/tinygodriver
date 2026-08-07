@@ -1,9 +1,12 @@
 // Package pgxstdlib provides a PostgreSQL database/sql driver that works under
 // both TinyGo and standard Go.
 //
-// Both builds are pgx/stdlib. Standard Go uses upstream pgx unmodified;
-// TinyGo uses a vendored copy with TLS removed, because TinyGo ships crypto/tls
-// as a stub that cannot be linked. See internal/PATCHES.md.
+// Both builds are pgx/stdlib layered over database/pgx, which supplies the
+// parsed configuration and its defaults. Standard Go uses upstream pgx
+// unmodified; TinyGo uses a vendored copy with TLS removed, because TinyGo
+// ships crypto/tls as a stub that cannot be linked. See
+// database/internal/PATCHES.md. Code that wants pgx itself rather than
+// database/sql should use database/pgx directly.
 //
 //	db, err := pgxstdlib.Open("postgres://user:pass@localhost:5432/db?sslmode=disable")
 //	if err != nil { ... }

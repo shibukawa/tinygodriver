@@ -18,6 +18,7 @@ and tests between both compilers.
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
 | [`sqlite`](./database/sql/sqlite) | `github.com/shibukawa/tinygodriver/database/sql/sqlite` | SQLite `database/sql` driver, backend chosen at build time |
 | [`pgxstdlib`](./database/sql/pgxstdlib) | `github.com/shibukawa/tinygodriver/database/sql/pgxstdlib` | PostgreSQL `database/sql` driver built on pgx, TLS included |
+| [`pgx`](./database/pgx) | `github.com/shibukawa/tinygodriver/database/pgx` | pgx-native PostgreSQL API: Batch, CopyFrom, LISTEN/NOTIFY without the `database/sql` layer |
 | [`mysql`](./database/sql/mysql) | `github.com/shibukawa/tinygodriver/database/sql/mysql` | MySQL and MariaDB `database/sql` driver built on go-sql-driver, TLS included |
 | [`storage/s3`](./storage/s3) | `github.com/shibukawa/tinygodriver/storage/s3` | S3 client (SigV4), where `aws-sdk-go-v2` does not build |
 | [`nosql/dynamodb`](./nosql/dynamodb) | `github.com/shibukawa/tinygodriver/nosql/dynamodb` | DynamoDB client, JSON protocol, retries and pooled connections |
