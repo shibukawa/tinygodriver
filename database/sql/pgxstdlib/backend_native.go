@@ -9,10 +9,10 @@ import (
 	"net"
 	"time"
 
-	pgx "github.com/shibukawa/tinygodriver/database/sql/pgxstdlib/internal/pgx"
-	"github.com/shibukawa/tinygodriver/database/sql/pgxstdlib/internal/pgx/pgconn"
-	"github.com/shibukawa/tinygodriver/database/sql/pgxstdlib/internal/pgx/pgconn/ctxwatch"
-	"github.com/shibukawa/tinygodriver/database/sql/pgxstdlib/internal/pgx/stdlib"
+	pgx "github.com/shibukawa/tinygodriver/database/internal/pgx"
+	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgconn"
+	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgconn/ctxwatch"
+	"github.com/shibukawa/tinygodriver/database/internal/pgx/stdlib"
 	"github.com/shibukawa/tinygodriver/https"
 )
 
