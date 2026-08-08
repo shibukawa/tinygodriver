@@ -101,6 +101,31 @@ func (z *Writer) findSequences(p []byte) int {
 		for pos+length < len(p) && p[cand+length] == p[pos+length] {
 			length++
 		}
+
+		// Lazy step: a match one byte later may run longer, and one more literal
+		// costs far less than a sequence whose match was cut short. Only the very
+		// next position is tried, which is where nearly all of the gain is.
+		if pos+minMatch+1 <= len(p) {
+			nh := hash4(p, pos+1)
+			if next := int(z.match[nh]) - 1; next >= 0 &&
+				p[next] == p[pos+1] && p[next+1] == p[pos+2] &&
+				p[next+2] == p[pos+3] && p[next+3] == p[pos+4] {
+				nl := minMatch
+				for pos+1+nl < len(p) && p[next+nl] == p[pos+1+nl] {
+					nl++
+				}
+				// Strictly longer is the whole test. Requiring it to beat the
+				// current match by more than the literal deferring adds was
+				// measured, and costs more on structured content than it saves on
+				// prose.
+				if nl > length {
+					z.match[nh] = int32(pos + 2)
+					pos++
+					cand, length = next, nl
+				}
+			}
+		}
+
 		z.seqs = append(z.seqs, sequence{
 			litLen:   uint32(pos - lit),
 			matchLen: uint32(length),

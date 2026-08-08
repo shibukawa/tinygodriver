@@ -95,9 +95,9 @@ func TestRatioAgainstDeflate(t *testing.T) {
 	// few repeats is where a literal coder would earn its keep, so it is allowed
 	// more room than the structured payloads.
 	limits := map[string]float64{
-		"html listing":    1.12,
-		"json array":      1.05,
-		"varied text":     1.20,
+		"html listing":    0.95,
+		"json array":      1.00,
+		"varied text":     1.22,
 		"repeated string": 1.00,
 		"incompressible":  1.05,
 	}

@@ -66,6 +66,8 @@ backend has the following supported subset:
   predefined tables when a block has too few sequences to pay for a description,
   and to RLE tables when a stream carries one symbol
 - repeat offsets, for the common case of a match at the previous distance
+- a lazy step, which defers a match by one byte when the next position starts a
+  longer one
 - streaming output with at most one input block retained
 - `Flush` at block boundaries without ending the frame
 - SHA-256 and encoded size calculated over bytes successfully written
@@ -81,9 +83,9 @@ server would otherwise negotiate:
 
 | payload | this encoder | deflate |
 |---|---|---|
-| 14 KiB HTML listing | 12.1% | 11.6% |
-| 11 KiB JSON array | 13.2% | 13.3% |
-| 5 KiB varied text | 30.3% | 26.6% |
+| 14 KiB HTML listing | 10.2% | 11.6% |
+| 11 KiB JSON array | 12.8% | 13.3% |
+| 5 KiB varied text | 31.1% | 26.6% |
 | one repeated string | 1.4% | 1.6% |
 | incompressible | 100.1% | 100.1% |
 
@@ -104,6 +106,6 @@ than 128 KiB compresses worse than a general-purpose encoder would manage.
 - frame content checksums (the cache digest is separate)
 
 The TinyGo backend additionally omits Huffman literals, unsafe code, assembly,
-and CGo. Literals are stored raw, which on the payloads above is 15 to 35% of the
-output; a literal coder is the next thing worth adding, and would be worth about
-one percentage point on the HTML case.
+and CGo. Literals are stored raw, and once the lazy step lengthened the matches
+they became the largest part of the output -- 48% of the HTML case -- so a literal
+coder is the next thing worth adding.
