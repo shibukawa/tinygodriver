@@ -2,10 +2,10 @@ package netdev
 
 import (
 	"encoding/binary"
-	"fmt"
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,29 +46,186 @@ func lookupHost(name string) (netip.Addr, error) {
 }
 
 func queryNameservers(name string, list []netip.AddrPort) (netip.Addr, error) {
+	// A resolver is asked about the same few names over and over: every dial
+	// resolves its host again. Serving the answer from memory for its TTL
+	// avoids a UDP round trip per connection; only positive answers are kept,
+	// so a name that starts resolving is never held back by a cached failure.
+	if ip, ok := answerCache.get(name); ok {
+		return ip, nil
+	}
+
 	// Keep the last underlying failure. Collapsing every one into a bare
 	// "Host unknown" hides the difference between a name that does not
 	// resolve and a build that cannot open a socket at all, which is what a
 	// WASI target reports. errors.Is still matches ErrHostUnknown.
 	var lastErr error
 	for _, ns := range list {
-		ip, err := dnsQueryA(name, ns)
+		ip, ttl, err := dnsQueryA(name, ns)
 		if err == nil {
+			answerCache.put(name, ip, ttl)
 			return ip, nil
 		}
 		lastErr = err
 	}
 	if lastErr != nil {
-		return netip.Addr{}, fmt.Errorf("%w: %w", ErrHostUnknown, lastErr)
+		return netip.Addr{}, &wrappedError{sentinel: ErrHostUnknown, cause: lastErr}
 	}
 	return netip.Addr{}, ErrHostUnknown
 }
 
-func lookupHostsFile(name string) (netip.Addr, bool) {
-	data, err := os.ReadFile(hostsPath())
+// answerCache holds resolved names for their TTL.
+//
+// The store is a slice searched linearly, not a map: a process resolves a
+// handful of names, and on TinyGo every distinct map type instantiates its own
+// hashing and growth code, which is real binary size for no gain at this
+// scale.
+var answerCache = dnsCache{}
+
+type dnsCache struct {
+	mu      sync.Mutex
+	entries []dnsCacheEntry
+}
+
+type dnsCacheEntry struct {
+	name    string
+	ip      netip.Addr
+	expires time.Time
+}
+
+const (
+	// dnsCacheMinTTL keeps a zero-TTL answer for a moment anyway, so a burst
+	// of dials does not turn into a burst of identical queries.
+	dnsCacheMinTTL = 5 * time.Second
+
+	// dnsCacheMaxTTL bounds staleness whatever the record claims.
+	dnsCacheMaxTTL = 5 * time.Minute
+
+	// dnsCacheMaxEntries bounds the cache. When the bound is hit, starting
+	// over is cheaper than tracking recency.
+	dnsCacheMaxEntries = 64
+)
+
+func (c *dnsCache) get(name string) (netip.Addr, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.entries {
+		entry := &c.entries[i]
+		if entry.name != name {
+			continue
+		}
+		if time.Now().After(entry.expires) {
+			c.entries[i] = c.entries[len(c.entries)-1]
+			c.entries = c.entries[:len(c.entries)-1]
+			return netip.Addr{}, false
+		}
+		return entry.ip, true
+	}
+	return netip.Addr{}, false
+}
+
+func (c *dnsCache) put(name string, ip netip.Addr, ttl time.Duration) {
+	if ttl < dnsCacheMinTTL {
+		ttl = dnsCacheMinTTL
+	}
+	if ttl > dnsCacheMaxTTL {
+		ttl = dnsCacheMaxTTL
+	}
+	entry := dnsCacheEntry{name: name, ip: ip, expires: time.Now().Add(ttl)}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.entries {
+		if c.entries[i].name == name {
+			c.entries[i] = entry
+			return
+		}
+	}
+	if len(c.entries) >= dnsCacheMaxEntries {
+		c.entries = c.entries[:0]
+	}
+	c.entries = append(c.entries, entry)
+}
+
+// wrappedError carries a sentinel and the underlying cause without pulling in
+// the formatting machinery. errors.Is matches both.
+type wrappedError struct {
+	sentinel error
+	cause    error
+}
+
+func (e *wrappedError) Error() string {
+	return e.sentinel.Error() + ": " + e.cause.Error()
+}
+
+func (e *wrappedError) Unwrap() []error {
+	return []error{e.sentinel, e.cause}
+}
+
+// fileIdentity is the stat identity a cached parse is keyed on. The mtime is
+// kept as nanoseconds so revalidation compares integers instead of linking
+// time.Time comparison.
+type fileIdentity struct {
+	size  int64
+	mtime int64
+}
+
+// statIdentity reads a file's identity, reporting false when it cannot.
+func statIdentity(path string) (fileIdentity, bool) {
+	info, err := os.Stat(path)
 	if err != nil {
+		return fileIdentity{}, false
+	}
+	return fileIdentity{size: info.Size(), mtime: info.ModTime().UnixNano()}, true
+}
+
+// hostsFileCache holds the parsed hosts file, revalidated by stat: a lookup
+// costs one stat instead of a read and a full parse, and an edited file is
+// still picked up on the next call.
+//
+// Entries are a slice, not a map, for the same binary-size reason as
+// dnsCache; hosts files are small and scanned rarely.
+var hostsFileCache struct {
+	mu       sync.Mutex
+	path     string
+	identity fileIdentity
+	entries  []hostsEntry
+}
+
+type hostsEntry struct {
+	name string
+	ip   netip.Addr
+}
+
+func lookupHostsFile(name string) (netip.Addr, bool) {
+	return lookupHostsIn(hostsPath(), name)
+}
+
+func lookupHostsIn(path, name string) (netip.Addr, bool) {
+	identity, ok := statIdentity(path)
+	if !ok {
 		return netip.Addr{}, false
 	}
+
+	c := &hostsFileCache
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.path != path || c.identity != identity {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return netip.Addr{}, false
+		}
+		c.entries = parseHostsFile(data)
+		c.path, c.identity = path, identity
+	}
+	for _, entry := range c.entries {
+		if entry.name == name {
+			return entry.ip, true
+		}
+	}
+	return netip.Addr{}, false
+}
+
+func parseHostsFile(data []byte) []hostsEntry {
+	var entries []hostsEntry
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -86,12 +243,12 @@ func lookupHostsFile(name string) (netip.Addr, bool) {
 			continue
 		}
 		for _, host := range fields[1:] {
-			if strings.ToLower(host) == name {
-				return ip, true
-			}
+			entries = append(entries, hostsEntry{name: strings.ToLower(host), ip: ip})
 		}
 	}
-	return netip.Addr{}, false
+	// Lookup scans in order, so the first entry for a name wins, as it did
+	// when the file was scanned per lookup.
+	return entries
 }
 
 // NetdevDNSEnv names the environment variable that overrides which resolvers
@@ -133,6 +290,15 @@ func nameserversFromEnv() []netip.AddrPort {
 	return out
 }
 
+// resolvConfCache holds the parsed resolv.conf, revalidated by stat like the
+// hosts file.
+var resolvConfCache struct {
+	mu       sync.Mutex
+	path     string
+	identity fileIdentity
+	list     []netip.AddrPort
+}
+
 func nameservers() []netip.AddrPort {
 	// The override wins outright. Falling back to the discovered list would
 	// hide a typo behind a resolver that cannot answer internal names.
@@ -140,55 +306,70 @@ func nameservers() []netip.AddrPort {
 		return out
 	}
 	var out []netip.AddrPort
-	data, err := os.ReadFile(resolvPath())
-	if err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, "nameserver") {
-				continue
+	path := resolvPath()
+	if identity, ok := statIdentity(path); ok {
+		c := &resolvConfCache
+		c.mu.Lock()
+		if c.path != path || c.identity != identity {
+			if data, err := os.ReadFile(path); err == nil {
+				c.list = parseResolvConf(data)
+				c.path, c.identity = path, identity
 			}
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-			ip, err := netip.ParseAddr(fields[1])
-			if err != nil || !ip.Is4() {
-				continue
-			}
-			out = append(out, netip.AddrPortFrom(ip, 53))
 		}
+		out = c.list
+		c.mu.Unlock()
 	}
 	if len(out) == 0 {
-		out = append(out, netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), 53))
+		out = []netip.AddrPort{netip.AddrPortFrom(netip.AddrFrom4([4]byte{8, 8, 8, 8}), 53)}
 	}
 	return out
 }
 
-func dnsQueryA(name string, ns netip.AddrPort) (netip.Addr, error) {
+func parseResolvConf(data []byte) []netip.AddrPort {
+	var out []netip.AddrPort
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "nameserver") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		ip, err := netip.ParseAddr(fields[1])
+		if err != nil || !ip.Is4() {
+			continue
+		}
+		out = append(out, netip.AddrPortFrom(ip, 53))
+	}
+	return out
+}
+
+func dnsQueryA(name string, ns netip.AddrPort) (netip.Addr, time.Duration, error) {
 	fd, err := sysSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
 	if err != nil {
-		return netip.Addr{}, err
+		return netip.Addr{}, 0, err
 	}
 	defer sysClose(fd)
 
 	msg := buildDNSQuery(name)
 	if err := sysConnect(fd, ns); err != nil {
-		return netip.Addr{}, err
+		return netip.Addr{}, 0, err
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	if err := waitWrite(fd, deadline); err != nil {
-		return netip.Addr{}, err
+		return netip.Addr{}, 0, err
 	}
 	if _, err := sysSend(fd, msg, 0); err != nil {
-		return netip.Addr{}, err
+		return netip.Addr{}, 0, err
 	}
 	if err := waitRead(fd, deadline); err != nil {
-		return netip.Addr{}, err
+		return netip.Addr{}, 0, err
 	}
 	buf := make([]byte, 512)
 	n, err := sysRecv(fd, buf, 0)
 	if err != nil || n < 12 {
-		return netip.Addr{}, ErrHostUnknown
+		return netip.Addr{}, 0, ErrHostUnknown
 	}
 	return parseDNSAnswer(buf[:n])
 }
@@ -216,13 +397,13 @@ func buildDNSQuery(name string) []byte {
 	return msg
 }
 
-func parseDNSAnswer(msg []byte) (netip.Addr, error) {
+func parseDNSAnswer(msg []byte) (netip.Addr, time.Duration, error) {
 	if len(msg) < 12 {
-		return netip.Addr{}, ErrHostUnknown
+		return netip.Addr{}, 0, ErrHostUnknown
 	}
 	ancount := int(binary.BigEndian.Uint16(msg[6:8]))
 	if ancount == 0 {
-		return netip.Addr{}, ErrHostUnknown
+		return netip.Addr{}, 0, ErrHostUnknown
 	}
 	// Skip header + question
 	i := 12
@@ -252,7 +433,8 @@ func parseDNSAnswer(msg []byte) (netip.Addr, error) {
 		typ := binary.BigEndian.Uint16(msg[i : i+2])
 		i += 2
 		i += 2 // class
-		i += 4 // ttl
+		ttl := binary.BigEndian.Uint32(msg[i : i+4])
+		i += 4
 		rdlen := int(binary.BigEndian.Uint16(msg[i : i+2]))
 		i += 2
 		if i+rdlen > len(msg) {
@@ -261,9 +443,9 @@ func parseDNSAnswer(msg []byte) (netip.Addr, error) {
 		if typ == 1 && rdlen == 4 { // A
 			var a4 [4]byte
 			copy(a4[:], msg[i:i+4])
-			return netip.AddrFrom4(a4), nil
+			return netip.AddrFrom4(a4), time.Duration(ttl) * time.Second, nil
 		}
 		i += rdlen
 	}
-	return netip.Addr{}, ErrHostUnknown
+	return netip.Addr{}, 0, ErrHostUnknown
 }

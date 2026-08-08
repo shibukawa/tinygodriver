@@ -105,7 +105,6 @@ static int h_select(int nfds, void *rfds, void *wfds, void *efds, void *timeout)
 */
 import "C"
 import (
-	"fmt"
 	"net/netip"
 	"time"
 	"unsafe"
@@ -207,7 +206,7 @@ func errnoError(e int) error {
 		// "syscall error" leaves a user with nothing to act on, and this is
 		// exactly the path an unusual failure takes. errors.Is still matches
 		// ErrSyscall.
-		return fmt.Errorf("%w: errno %d", ErrSyscall, e)
+		return syscallCodeError("errno ", e)
 	}
 }
 

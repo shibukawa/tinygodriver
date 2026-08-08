@@ -20,7 +20,6 @@ package netdev
 
 import (
 	"errors"
-	"fmt"
 	"net/netip"
 	"sync"
 	"syscall"
@@ -98,7 +97,7 @@ func errnoError(e int) error {
 		// "syscall error" leaves a user with nothing to act on, and this is
 		// exactly the path an unusual failure takes. errors.Is still matches
 		// ErrSyscall.
-		return fmt.Errorf("%w: winsock error %d", ErrSyscall, e)
+		return syscallCodeError("winsock error ", e)
 	}
 }
 
