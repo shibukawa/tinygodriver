@@ -8,16 +8,26 @@ import (
 )
 
 const (
-	maxBlockSize   = 128 << 10
-	matchTableSize = 1 << 12
+	maxBlockSize = 128 << 10
+
+	// matchTableBits sizes the match-finder hash table. One candidate is kept per
+	// slot, so this trades memory for how often a repeat is actually found.
+	matchTableBits = 12
+	matchTableSize = 1 << matchTableBits
 )
 
 // Writer emits one Zstandard frame. Writer is not safe for concurrent use.
 // Close must succeed before Result can be read.
 type Writer struct {
-	out    *outputWriter
-	buf    []byte
-	match  [matchTableSize]int32
+	out   *outputWriter
+	buf   []byte
+	match [matchTableSize]int32
+
+	// Reused across blocks so that a frame allocates these once.
+	seqs     []sequence
+	literals []byte
+	block    []byte
+
 	closed bool
 	err    error
 }
@@ -119,11 +129,34 @@ func (z *Writer) Result() (Result, error) {
 }
 
 func (z *Writer) writeBlocks(p []byte, last bool) error {
-	if len(p) < 2 || allSameByte(p) {
+	if len(p) == 0 {
 		return z.writeBlock(p, last)
 	}
-	if match, ok := z.findMatch(p); ok {
-		return z.writeCompressedBlock(p, match, last)
+	for len(p) > 0 {
+		n := z.findSequences(p)
+		chunk := p[:n]
+		isLast := last && n == len(p)
+
+		z.block = z.block[:0]
+		if block, ok := z.appendCompressedBlock(z.block, chunk, isLast); ok {
+			z.block = block
+			if err := z.writeEncoded(z.block); err != nil {
+				return err
+			}
+		} else if err := z.writeStoredBlocks(chunk, isLast); err != nil {
+			return err
+		}
+		p = p[n:]
+	}
+	return nil
+}
+
+// writeStoredBlocks emits p without sequences, as raw blocks split around any
+// run long enough to pay for an RLE block of its own. This is what a block falls
+// back to when matching found nothing, or found too little to beat storing.
+func (z *Writer) writeStoredBlocks(p []byte, last bool) error {
+	if len(p) < 2 || allSameByte(p) {
+		return z.writeBlock(p, last)
 	}
 
 	rawStart := 0
@@ -157,57 +190,8 @@ func (z *Writer) writeBlocks(p []byte, last bool) error {
 	return nil
 }
 
-type blockMatch struct {
-	start  int
-	offset int
-	length int
-}
-
-func (z *Writer) findMatch(p []byte) (blockMatch, bool) {
-	for i := range z.match {
-		z.match[i] = 0
-	}
-	best := blockMatch{}
-	for current := 0; current+4 <= len(p); current++ {
-		v := uint32(p[current]) |
-			uint32(p[current+1])<<8 |
-			uint32(p[current+2])<<16 |
-			uint32(p[current+3])<<24
-		slot := (v * 2654435761) >> (32 - 12)
-		previous := int(z.match[slot]) - 1
-		z.match[slot] = int32(current + 1)
-		if previous < 0 || p[previous] != p[current] || p[previous+1] != p[current+1] ||
-			p[previous+2] != p[current+2] || p[previous+3] != p[current+3] {
-			continue
-		}
-		length := 4
-		for current+length < len(p) && p[previous+length] == p[current+length] {
-			length++
-		}
-		if length > best.length {
-			best = blockMatch{start: current, offset: current - previous, length: length}
-			if current+length == len(p) {
-				break
-			}
-		}
-	}
-	if best.length < 4 {
-		return blockMatch{}, false
-	}
-
-	literalCount := len(p) - best.length
-	llCode, llBits, _ := literalLengthCode(best.start)
-	mlCode, mlBits, _ := matchLengthCode(best.length)
-	offsetValue := best.offset + 3 // Explicit offset; avoid repeat-offset codes.
-	ofCode := bitLength(uint32(offsetValue)) - 1
-	bitstreamSize := int(llBits+mlBits+ofCode+1+7) / 8
-	compressedSize := literalHeaderSize(literalCount) + literalCount + 5 + bitstreamSize
-	if compressedSize+3 >= rleBlockSize(p) || llCode > 35 || mlCode > 52 || ofCode > 31 {
-		return blockMatch{}, false
-	}
-	return best, true
-}
-
+// rleBlockSize is what writeStoredBlocks would emit for p, so that a compressed
+// block is only kept when it actually beats storing.
 func rleBlockSize(p []byte) int {
 	total := 0
 	rawStart := 0
@@ -235,56 +219,11 @@ func rleBlockSize(p []byte) int {
 	return total
 }
 
-func (z *Writer) writeCompressedBlock(p []byte, match blockMatch, last bool) error {
-	literalCount := len(p) - match.length
-	llCode, llBits, llExtra := literalLengthCode(match.start)
-	mlCode, mlBits, mlExtra := matchLengthCode(match.length)
-	offsetValue := uint32(match.offset + 3)
-	ofCode := bitLength(offsetValue) - 1
-	ofExtra := offsetValue - 1<<ofCode
-
-	var bits uint64
-	var bitCount uint8
-	appendBits := func(value uint32, count uint8) {
-		if count != 0 {
-			bits |= uint64(value&((1<<count)-1)) << bitCount
-			bitCount += count
-		}
-	}
-	// Sequence bitstreams are decoded backwards. This forward order makes
-	// the decoder observe offset, match length, then literal length.
-	appendBits(llExtra, llBits)
-	appendBits(mlExtra, mlBits)
-	appendBits(ofExtra, ofCode)
-	appendBits(1, 1) // End marker.
-	bitstreamSize := int((bitCount + 7) / 8)
-
-	compressedSize := literalHeaderSize(literalCount) + literalCount + 5 + bitstreamSize
-	header := uint32(compressedSize)<<3 | uint32(2)<<1
-	if last {
-		header |= 1
-	}
-	if err := z.writeEncoded([]byte{byte(header), byte(header >> 8), byte(header >> 16)}); err != nil {
-		return err
-	}
-	if err := z.writeEncoded(literalHeader(literalCount)); err != nil {
-		return err
-	}
-	if err := z.writeEncoded(p[:match.start]); err != nil {
-		return err
-	}
-	if err := z.writeEncoded(p[match.start+match.length:]); err != nil {
-		return err
-	}
-	// One sequence; RLE mode for literal length, offset, and match length.
-	if err := z.writeEncoded([]byte{1, 0x54, llCode, ofCode, mlCode}); err != nil {
-		return err
-	}
-	var stream [8]byte
-	for i := range bitstreamSize {
-		stream[i] = byte(bits >> (8 * i))
-	}
-	return z.writeEncoded(stream[:bitstreamSize])
+// appendLiterals writes the literals section. The literals are stored raw: see
+// PATCHES-style notes in the README for why Huffman is worth its code here.
+func (z *Writer) appendLiterals(dst []byte) []byte {
+	dst = append(dst, literalHeader(len(z.literals))...)
+	return append(dst, z.literals...)
 }
 
 func literalHeaderSize(size int) int {
