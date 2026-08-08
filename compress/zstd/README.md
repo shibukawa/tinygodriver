@@ -60,11 +60,41 @@ backend has the following supported subset:
 
 - standard Zstandard frames with a 128 KiB window
 - raw and RLE blocks of at most 128 KiB, including profitable interior runs
-- a low-memory compressed level using one LZ match and RLE sequence tables
+- compressed blocks carrying many sequences, from a greedy matcher that keeps
+  one candidate per hash slot
+- FSE sequence tables fitted to each block, falling back to the format's
+  predefined tables when a block has too few sequences to pay for a description,
+  and to RLE tables when a stream carries one symbol
+- repeat offsets, for the common case of a match at the previous distance
 - streaming output with at most one input block retained
 - `Flush` at block boundaries without ending the frame
 - SHA-256 and encoded size calculated over bytes successfully written
 - strong, quoted ETag formatting for the encoded representation
+
+Every block falls back to raw or RLE when a compressed one would not be smaller,
+so output never exceeds the input by more than the block headers.
+
+## Compression ratio
+
+Measured against `compress/flate` at its default level, which is the encoding a
+server would otherwise negotiate:
+
+| payload | this encoder | deflate |
+|---|---|---|
+| 14 KiB HTML listing | 12.1% | 11.6% |
+| 11 KiB JSON array | 13.2% | 13.3% |
+| 5 KiB varied text | 30.3% | 26.6% |
+| one repeated string | 1.4% | 1.6% |
+| incompressible | 100.1% | 100.1% |
+
+`TestRatioAgainstDeflate` holds these within a stated multiple of deflate, and
+every case in the suite decodes through the reference implementation, so no ratio
+here was bought with bytes a real decoder would reject.
+
+Matching stays inside the current block, which is what bounds memory to one
+retained block. A match therefore never reaches back into an earlier block, even
+though the window would allow it, so a payload whose repeats are further apart
+than 128 KiB compresses worse than a general-purpose encoder would manage.
 
 ## Public API exclusions
 
@@ -73,9 +103,7 @@ backend has the following supported subset:
 - compression-level or dictionary options
 - frame content checksums (the cache digest is separate)
 
-The TinyGo backend additionally omits Huffman literals, general FSE tables,
-multi-match blocks, unsafe code, assembly, and CGo.
-
-Content without a useful match can become slightly larger. This basic level is
-optimized for small implementation size and bounded TinyGo memory rather than
-compression-ratio parity with general-purpose Zstandard encoders.
+The TinyGo backend additionally omits Huffman literals, unsafe code, assembly,
+and CGo. Literals are stored raw, which on the payloads above is 15 to 35% of the
+output; a literal coder is the next thing worth adding, and would be worth about
+one percentage point on the HTML case.

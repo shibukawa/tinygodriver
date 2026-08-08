@@ -136,16 +136,58 @@ func sequenceCountHeader(n int) []byte {
 }
 
 // appendSequences writes the sequences section: the count, the
-// Symbol_Compression_Modes byte, and the interleaved bitstream.
+// Symbol_Compression_Modes byte, whatever table descriptions that byte promises,
+// and the interleaved bitstream.
 //
 // The bitstream is read backwards, so it is built from the last sequence to the
 // first. The final sequence contributes only its extra bits, because the three
 // FSE states are seated for it and written at the very end where the decoder
 // finds them first.
-func appendSequences(dst []byte, seqs []sequence) []byte {
+func (z *Writer) appendSequences(dst []byte) []byte {
+	seqs := z.seqs
+
+	// Histogram the three symbol streams so the tables can be fitted to them.
+	llCounts, ofCounts, mlCounts := &z.llCounts, &z.ofCounts, &z.mlCounts
+	*llCounts = [36]uint32{}
+	*ofCounts = [32]uint32{}
+	*mlCounts = [53]uint32{}
+	maxLL, maxOF, maxML := 0, 0, 0
+	for _, s := range seqs {
+		ll, _, _ := literalLengthCode(int(s.litLen))
+		ml, _, _ := matchLengthCode(int(s.matchLen))
+		of := bitLength(s.ofValue) - 1
+		llCounts[ll]++
+		ofCounts[of]++
+		mlCounts[ml]++
+		if int(ll) > maxLL {
+			maxLL = int(ll)
+		}
+		if int(of) > maxOF {
+			maxOF = int(of)
+		}
+		if int(ml) > maxML {
+			maxML = int(ml)
+		}
+	}
+
+	llT := fitTable(llCounts[:], maxLL, len(seqs), maxLiteralLengthLog,
+		ctableLiteralLength, z.llNorm[:])
+	ofT := fitTable(ofCounts[:], maxOF, len(seqs), maxOffsetLog,
+		ctableOffset, z.ofNorm[:])
+	mlT := fitTable(mlCounts[:], maxML, len(seqs), maxMatchLengthLog,
+		ctableMatchLength, z.mlNorm[:])
+
 	dst = append(dst, sequenceCountHeader(len(seqs))...)
-	// All three tables in Predefined_Mode: nothing to transmit.
-	dst = append(dst, 0)
+	dst = append(dst, llT.mode<<6|ofT.mode<<4|mlT.mode<<2)
+	// Descriptions follow the byte in literal-length, offset, match-length order.
+	for _, t := range [3]seqTable{llT, ofT, mlT} {
+		switch t.mode {
+		case modeRLE:
+			dst = append(dst, t.rle)
+		case modeFSE:
+			dst = appendTableDescription(dst, t.norm, t.tableLog)
+		}
+	}
 
 	bw := bitWriter{out: dst}
 
@@ -163,9 +205,9 @@ func appendSequences(dst []byte, seqs []sequence) []byte {
 	llCode, llBits, llExtra, mlCode, mlBits, mlExtra, ofCode, ofExtra := codes(last)
 
 	var llState, ofState, mlState fseState
-	llState.init(ctableLiteralLength, llCode)
-	ofState.init(ctableOffset, ofCode)
-	mlState.init(ctableMatchLength, mlCode)
+	llState.init(llT.ct, llCode)
+	ofState.init(ofT.ct, ofCode)
+	mlState.init(mlT.ct, mlCode)
 
 	bw.addBits(llExtra, llBits)
 	bw.addBits(mlExtra, mlBits)
@@ -225,10 +267,12 @@ func (z *Writer) appendCompressedBlock(dst []byte, p []byte, last bool) ([]byte,
 	start := len(dst)
 	dst = append(dst, 0, 0, 0) // Block_Header, rewritten once the size is known
 	dst = z.appendLiterals(dst)
-	dst = appendSequences(dst, z.seqs)
+	dst = z.appendSequences(dst)
 
 	size := len(dst) - start - 3
-	if size >= rleBlockSize(p) || size >= 1<<21 {
+	// rleBlockSize counts the block headers it would need, so this block's own
+	// three must be counted too or a compressed block wins comparisons it loses.
+	if size+3 >= rleBlockSize(p) || size >= 1<<21 {
 		return dst[:start], false
 	}
 	header := uint32(size)<<3 | 2<<1 // Block_Type 2: compressed

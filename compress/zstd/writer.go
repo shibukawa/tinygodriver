@@ -28,6 +28,14 @@ type Writer struct {
 	literals []byte
 	block    []byte
 
+	// Symbol histograms and the distributions fitted to them, per block.
+	llCounts [36]uint32
+	ofCounts [32]uint32
+	mlCounts [53]uint32
+	llNorm   [36]int16
+	ofNorm   [32]int16
+	mlNorm   [53]int16
+
 	closed bool
 	err    error
 }

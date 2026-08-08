@@ -156,33 +156,20 @@ nothing inside fasthttp reaches any of it.
 ### Why not the repository's own `compress/zstd`
 
 Substituting `compress/zstd`, whose bounded TinyGo encoder is 0.08 MB, looks
-like the obvious alternative. It does not work here, and the reason is in that
-package's own stated exclusions.
+like the obvious alternative. It cannot replace klauspost here, though the reason
+is no longer the one it used to be.
 
-Its bounded encoder emits **one LZ match per block** and stores every other byte
-as a raw literal, so its output is the input length minus the single longest
-match. That is a consequence of encoding the sequence tables in RLE mode, which
-fixes one literal-length, match-length and offset code for the whole block and
-therefore admits only one distinct sequence. Measured against klauspost on
-payloads a web server actually sends:
+The ratio objection is gone. That encoder used to emit one match per block, which
+left dynamic HTML and JSON at 99.9% of their input; it now emits many, fits its
+FSE tables to each block, and lands at 12.1% and 13.2% against deflate's 11.6%
+and 13.3%.
 
-| payload | klauspost | bounded encoder | gzip |
-|---|---|---|---|
-| HTML listing, 14 KB | 5.9% | **99.9%** | 11.7% |
-| JSON array, 11 KB | 10.1% | **99.9%** | 13.5% |
-| varied text, 5 KB | 27.8% | **100.0%** | 26.9% |
-| one repeated string | 1.4% | 1.4% | 2.5% |
+What remains is the API. `compress/zstd` **excludes decoding outright**, so
+`BodyUnzstd`, `AppendUnzstdBytes` and FS's pre-compressed `.zst` reading have
+nothing to call, and it offers neither `Reset` nor compression levels, which are
+what fasthttp's per-level encoder pools are built on. A fork that used it would
+be a server that can emit zstd and a client that cannot read it.
 
-The HTML row is the mechanism in miniature: 200 near-identical lines, whose
-longest single match is one line, so 14146 bytes become 14125. On dynamic HTML
-and JSON it achieves nothing, which would mean spending a zstd frame and the
-client's decode to transfer the same number of bytes — strictly worse than the
-gzip fasthttp would otherwise have negotiated.
-
-It also excludes decoding outright, so `BodyUnzstd`, `AppendUnzstdBytes` and
-FS's pre-compressed `.zst` reading have nothing to call, and it offers neither
-`Reset` nor compression levels, which are what fasthttp's per-level encoder
-pools are built on.
-
-Dropping zstd and letting negotiation fall through to brotli or gzip saves the
-same 2.4 MB and puts *fewer* bytes on the wire than substituting would.
+That is a coherent thing to want — a server does mostly encode — and at 0.08 MB
+against klauspost's 2.40 MB it would be a real saving over dropping zstd
+altogether. It is not what `-tags fasthttp_nozstd` does today.
