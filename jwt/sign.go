@@ -38,11 +38,13 @@ func (s *HMACSigner) Sign(signingInput []byte) ([]byte, error) {
 // signingAlgorithms is what Sign will emit. It is deliberately the same set
 // verifySignature accepts: a Signer reporting anything else would produce a
 // token this package could not check, which is a shape worth refusing even
-// though the signer, not this package, would be the one at fault.
+// though the signer, not this package, would be the one at fault. The list
+// therefore lives with the RS256 build tag split, in verify_rs256.go and
+// verify_rs256_disabled.go: a build without RSA verification must not emit
+// RS256 either.
 //
 // RS256 signing is this repository's divergence from upstream, which shipped
 // HS256 only. See README.md.
-var signingAlgorithms = [...]string{"HS256", "RS256"}
 
 func canSign(algorithm string) bool {
 	for _, supported := range signingAlgorithms {
