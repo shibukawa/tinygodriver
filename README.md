@@ -16,6 +16,7 @@ and tests between both compilers.
 | [`https`](./https) | `github.com/shibukawa/tinygodriver/https` | `net/http`-compatible HTTPS client using the OS TLS stack |
 | [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
+| [`fasthttp`](./fasthttp) | `github.com/shibukawa/tinygodriver/fasthttp` | Drop-in `valyala/fasthttp` fork that builds under TinyGo, plaintext only |
 | [`sqlite`](./database/sql/sqlite) | `github.com/shibukawa/tinygodriver/database/sql/sqlite` | SQLite `database/sql` driver, backend chosen at build time |
 | [`pgx`](./database/pgx) | `github.com/shibukawa/tinygodriver/database/pgx` | pgx-native PostgreSQL API: Batch, CopyFrom, LISTEN/NOTIFY; TLS included |
 | [`pgx/pgxpool`](./database/pgx/pgxpool) | `github.com/shibukawa/tinygodriver/database/pgx/pgxpool` | Concurrency-safe pool of native pgx connections |
@@ -96,6 +97,7 @@ func main() {
 | Example | Path | Description |
 |---------|------|-------------|
 | HTTP server and reverse proxy | [`examples/httpserver`](./examples/httpserver) | Method-aware routes, host netdev, and a configurable reverse proxy |
+| fasthttp server | [`examples/fasthttpserver`](./examples/fasthttpserver) | Routes, content negotiation, chunked streaming, and graceful shutdown on fasthttp |
 | HTTPS client | [`examples/httpsclient`](./examples/httpsclient) | `https.Get` over the OS TLS stack, with an optional custom CA |
 | HTTPS platform demo | [`examples/httpsdemo`](./examples/httpsdemo) | One source, every platform: verifies trust, refusal behavior, and deadlines |
 | S3 object storage | [`examples/s3demo`](./examples/s3demo) | Put, get, range-read, list, and delete against any S3-compatible endpoint |
@@ -110,6 +112,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
+- [`fasthttp`](./fasthttp/README.md): the `-tags noasm` requirement, why TLS and HTTP/2 cannot work, and what the binary costs
 - [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
 - [`nosql/dynamodb`](./nosql/dynamodb/README.md): attribute values, pagination, retries and what a retry can deliver twice
 - [`nosql/datastore`](./nosql/datastore/README.md): values, keys, queries, conditional writes and contention
@@ -125,6 +128,11 @@ See the package READMEs for detailed API behavior and limitations:
   Windows and `crypto/tls` on host-Go Linux, none of which needs a package
   manager. TinyGo on Linux returns `ErrProtocolNotSupported`. The `https`
   package needs none of this.
+- **`fasthttp` serves plaintext only** and needs `-tags noasm` under TinyGo.
+  TinyGo defines no `tls.Server`, so terminating TLS is impossible and the fork
+  refuses rather than serving cleartext on the TLS port; HTTP/2 cannot work
+  either, because ALPN is unobservable. Its client reaches HTTPS through a
+  custom `Dial`.
 
 ## Install
 
