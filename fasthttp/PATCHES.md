@@ -53,6 +53,8 @@ copy the mutex inside a real `tls.Config`.
 
 ## 2. `server.go`
 
+- Both `CompressHandlerLevel` and `CompressHandlerBrotliLevel` gate their zstd
+  case on `zstdAvailable`; see section 6.
 - `getNextProto` calls `negotiatedProtocol`, which is `""` on TinyGo.
   `ConnectionState` there has no `NegotiatedProtocol` field, so ALPN cannot be
   observed and the handlers registered through `Server.NextProto` — HTTP/2 among
@@ -116,3 +118,71 @@ patched, because both live in TinyGo's `net` rather than in fasthttp:
 `Dialer.DialContext` ignores its context, so `DialTimeout` does not bound the
 dial itself, and it ignores `Dialer.LocalAddr`, so `TCPDialer.LocalAddr` has no
 effect.
+
+## 6. Optional zstd
+
+`-tags fasthttp_nozstd` drops `klauspost/compress/zstd`. This is the only patch
+here that exists for binary size rather than for TinyGo compatibility, and the
+numbers are why — measured standalone under TinyGo on darwin/arm64:
+
+| dependency | added to the binary |
+|---|---|
+| klauspost flate + gzip + zlib | 0.07 MB |
+| brotli | 0.24 MB |
+| **zstd** | **2.40 MB** |
+
+zstd alone is most of what fasthttp costs over `net/http`, and roughly ten times
+brotli. So zstd is separable and the others are not worth the seam.
+
+- `zstd.go` gains `//go:build !fasthttp_nozstd`, a `zstdAvailable` constant and a
+  `zstdReader` alias for `zstd.Decoder`.
+- `zstd_disabled.go`, hand-written, replaces it under the tag. The exported API
+  stays whole so application code compiles either way.
+- `fs.go` drops the `zstd` import, names the decoder through `zstdReader`, and
+  derives `compressZstd` as `fs.CompressZstd && zstdAvailable`. Ignoring the
+  field rather than honouring it is deliberate: a handler that advertised an
+  encoding it cannot produce would break clients, and there is no error return
+  on that path to report it through.
+- `server.go` gates both `CompressHandler` switches, so a client offering only
+  zstd is served identity.
+
+Only the exported *compression* entry points panic — `AppendZstdBytes` and
+`AppendZstdBytesLevel`, whose signatures return `[]byte` with no error. Handing
+back `dst` unchanged there would produce an empty body for a caller to label
+`Content-Encoding: zstd`, and silence is the one thing worse than a panic.
+Everything with an `error` in its signature returns `ErrZstdUnsupported`, and
+nothing inside fasthttp reaches any of it.
+
+### Why not the repository's own `compress/zstd`
+
+Substituting `compress/zstd`, whose bounded TinyGo encoder is 0.08 MB, looks
+like the obvious alternative. It does not work here, and the reason is in that
+package's own stated exclusions.
+
+Its bounded encoder emits **one LZ match per block** and stores every other byte
+as a raw literal, so its output is the input length minus the single longest
+match. That is a consequence of encoding the sequence tables in RLE mode, which
+fixes one literal-length, match-length and offset code for the whole block and
+therefore admits only one distinct sequence. Measured against klauspost on
+payloads a web server actually sends:
+
+| payload | klauspost | bounded encoder | gzip |
+|---|---|---|---|
+| HTML listing, 14 KB | 5.9% | **99.9%** | 11.7% |
+| JSON array, 11 KB | 10.1% | **99.9%** | 13.5% |
+| varied text, 5 KB | 27.8% | **100.0%** | 26.9% |
+| one repeated string | 1.4% | 1.4% | 2.5% |
+
+The HTML row is the mechanism in miniature: 200 near-identical lines, whose
+longest single match is one line, so 14146 bytes become 14125. On dynamic HTML
+and JSON it achieves nothing, which would mean spending a zstd frame and the
+client's decode to transfer the same number of bytes — strictly worse than the
+gzip fasthttp would otherwise have negotiated.
+
+It also excludes decoding outright, so `BodyUnzstd`, `AppendUnzstdBytes` and
+FS's pre-compressed `.zst` reading have nothing to call, and it offers neither
+`Reset` nor compression levels, which are what fasthttp's per-level encoder
+pools are built on.
+
+Dropping zstd and letting negotiation fall through to brotli or gzip saves the
+same 2.4 MB and puts *fewer* bytes on the wire than substituting would.

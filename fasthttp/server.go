@@ -557,7 +557,8 @@ func CompressHandlerLevel(h RequestHandler, level int) RequestHandler {
 			ctx.Response.gzipBody(level)
 		case ctx.Request.Header.HasAcceptEncodingBytes(strDeflate):
 			ctx.Response.deflateBody(level)
-		case ctx.Request.Header.HasAcceptEncodingBytes(strZstd):
+		// PETITWEB: zstdAvailable is false under -tags fasthttp_nozstd.
+		case zstdAvailable && ctx.Request.Header.HasAcceptEncodingBytes(strZstd):
 			ctx.Response.zstdBody(level)
 		}
 	}
@@ -591,7 +592,8 @@ func CompressHandlerBrotliLevel(h RequestHandler, brotliLevel, otherLevel int) R
 			ctx.Response.gzipBody(otherLevel)
 		case ctx.Request.Header.HasAcceptEncodingBytes(strDeflate):
 			ctx.Response.deflateBody(otherLevel)
-		case ctx.Request.Header.HasAcceptEncodingBytes(strZstd):
+		// PETITWEB: zstdAvailable is false under -tags fasthttp_nozstd.
+		case zstdAvailable && ctx.Request.Header.HasAcceptEncodingBytes(strZstd):
 			ctx.Response.zstdBody(otherLevel)
 		}
 	}

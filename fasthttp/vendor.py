@@ -51,6 +51,7 @@ LOCAL_FILES = {
     "compat_test.go",
     "compat_std_test.go",
     "compat_tinygo_test.go",
+    "zstd_disabled.go",
 }
 
 
@@ -157,6 +158,14 @@ PATCHES = {
         ),
     ],
     "server.go": [
+        # Both CompressHandler switches offer zstd; a zstd-free build must not,
+        # so the case never matches and negotiation falls through to identity.
+        (
+            "\t\tcase ctx.Request.Header.HasAcceptEncodingBytes(strZstd):\n",
+            "\t\t// PETITWEB: zstdAvailable is false under -tags fasthttp_nozstd.\n"
+            "\t\tcase zstdAvailable && ctx.Request.Header.HasAcceptEncodingBytes(strZstd):\n",
+            2,
+        ),
         # ConnectionState carries no NegotiatedProtocol on TinyGo.
         (
             "\t\t\treturn tc.ConnectionState().NegotiatedProtocol, nil\n",
@@ -245,6 +254,60 @@ PATCHES = {
             "\tcc := c.tlsConnImpl\n"
             "\tc.tlsConnImpl = nil\n",
             1,
+        ),
+    ],
+    # zstd is the single largest thing fasthttp drags in: 2.40 MB of TinyGo
+    # binary against brotli's 0.24 MB. zstd_disabled.go replaces this file under
+    # -tags fasthttp_nozstd, and zstdAvailable keeps every fasthttp-internal
+    # zstd path out of that build.
+    "zstd.go": [
+        (
+            "package fasthttp\n",
+            "//go:build !fasthttp_nozstd\n"
+            "\n"
+            "// PETITWEB: this file is replaced by zstd_disabled.go under\n"
+            "// -tags fasthttp_nozstd. See PATCHES.md.\n"
+            "\n"
+            "package fasthttp\n",
+            1,
+        ),
+        (
+            "var (\n"
+            "\tzstdDecoderPool            sync.Pool\n",
+            "// PETITWEB: zstdAvailable gates fasthttp's own use of zstd, and\n"
+            "// zstdReader lets fs.go name the decoder without importing it.\n"
+            "const zstdAvailable = true\n"
+            "\n"
+            "type zstdReader = zstd.Decoder\n"
+            "\n"
+            "var (\n"
+            "\tzstdDecoderPool            sync.Pool\n",
+            1,
+        ),
+    ],
+    "fs.go": [
+        (
+            '\t"github.com/klauspost/compress/gzip"\n\t"github.com/klauspost/compress/zstd"\n',
+            '\t"github.com/klauspost/compress/gzip"\n',
+            1,
+        ),
+        (
+            "\t\tzsr *zstd.Decoder\n",
+            "\t\t// PETITWEB: an alias, so the zstd-free build compiles.\n"
+            "\t\tzsr *zstdReader\n",
+            1,
+        ),
+        (
+            "\t\tcompressZstd:           fs.CompressZstd,\n",
+            "\t\t// PETITWEB: a zstd-free build cannot honour CompressZstd, and\n"
+            "\t\t// advertising an encoding it cannot produce would break clients.\n"
+            "\t\tcompressZstd:           fs.CompressZstd && zstdAvailable,\n",
+            1,
+        ),
+        (
+            "\t\tCompressZstd:       true,\n",
+            "\t\tCompressZstd:       zstdAvailable, // PETITWEB: was true\n",
+            2,
         ),
     ],
     "tcpdialer.go": [

@@ -112,7 +112,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
-- [`fasthttp`](./fasthttp/README.md): the `-tags noasm` requirement, why TLS and HTTP/2 cannot work, and what the binary costs
+- [`fasthttp`](./fasthttp/README.md): build tags, why TLS and HTTP/2 cannot work, and how dropping zstd halves the binary
 - [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
 - [`nosql/dynamodb`](./nosql/dynamodb/README.md): attribute values, pagination, retries and what a retry can deliver twice
 - [`nosql/datastore`](./nosql/datastore/README.md): values, keys, queries, conditional writes and contention

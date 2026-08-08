@@ -3,9 +3,11 @@
 // fasthttp's behaviour in general -- plus enough of a round trip to prove the
 // patched sources still serve and consume HTTP.
 //
-// Everything here runs under both compilers. TinyGo's testing has no
-// runtime.Goexit, so t.Fatal does not stop the function: every failure path
-// reports with t.Error and returns explicitly.
+// Everything here runs under both compilers, which constrains how they report.
+// TinyGo's testing has no runtime.Goexit, so t.Fatal does not stop the function
+// that called it and t.Skip marks the test *failed* rather than skipped. Every
+// failure path therefore reports with t.Error and returns explicitly, and a test
+// that does not apply logs why and returns instead of skipping.
 
 package fasthttp
 
@@ -179,7 +181,11 @@ func TestCompressionRoundTrip(t *testing.T) {
 	c := testClient()
 	want := strings.Repeat("compressme", 200)
 
-	for _, enc := range []string{"gzip", "deflate", "br", "zstd"} {
+	encodings := []string{"gzip", "deflate", "br", "zstd"}
+	if !zstdAvailable {
+		encodings = encodings[:3]
+	}
+	for _, enc := range encodings {
 		req, resp := AcquireRequest(), AcquireResponse()
 		req.SetRequestURI("http://" + addr + "/compressme")
 		req.Header.Set(HeaderAcceptEncoding, enc)
@@ -215,6 +221,45 @@ func TestCompressionRoundTrip(t *testing.T) {
 		}
 		ReleaseRequest(req)
 		ReleaseResponse(resp)
+	}
+}
+
+// TestZstdExcluded pins the behaviour of -tags fasthttp_nozstd, the build that
+// drops klauspost/compress/zstd and 2.4 MB of TinyGo binary with it. A client
+// asking for nothing but zstd must be served identity rather than a body
+// labelled with an encoding this build cannot produce.
+func TestZstdExcluded(t *testing.T) {
+	if zstdAvailable {
+		t.Log("skipped: this build includes zstd")
+		return
+	}
+	addr, stop := serve(t, CompressHandlerBrotliLevel(testHandler, 4, 6))
+	if addr == "" {
+		return
+	}
+	defer stop()
+
+	req, resp := AcquireRequest(), AcquireResponse()
+	defer func() {
+		ReleaseRequest(req)
+		ReleaseResponse(resp)
+	}()
+	req.SetRequestURI("http://" + addr + "/compressme")
+	req.Header.Set(HeaderAcceptEncoding, "zstd")
+	if err := testClient().Do(req, resp); err != nil {
+		t.Errorf("zstd-only request: %v", err)
+		return
+	}
+	if got := string(resp.Header.Peek(HeaderContentEncoding)); got != "" {
+		t.Errorf("Content-Encoding = %q, want none: this build cannot produce zstd", got)
+	}
+	if want := strings.Repeat("compressme", 200); string(resp.Body()) != want {
+		t.Errorf("body is %d bytes, want the %d-byte identity body", len(resp.Body()), len(want))
+	}
+
+	// Decoding a zstd body must report the exclusion rather than return garbage.
+	if _, err := resp.BodyUnzstd(); err == nil {
+		t.Error("BodyUnzstd returned no error in a build without zstd")
 	}
 }
 
@@ -430,7 +475,8 @@ func TestCloneTLSConfig(t *testing.T) {
 // which is why Server.NextProto -- and so HTTP/2 -- can never fire.
 func TestNegotiatedProtocolAbsentOnTinyGo(t *testing.T) {
 	if Backend != "tinygo" {
-		t.Skip("standard Go reports the negotiated protocol")
+		t.Log("skipped: standard Go reports the negotiated protocol")
+		return
 	}
 	if got := negotiatedProtocol(nil); got != "" {
 		t.Errorf("negotiatedProtocol = %q, want the empty string", got)

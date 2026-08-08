@@ -48,14 +48,50 @@ func main() {
 }
 ```
 
-**`-tags noasm` is required under TinyGo.** fasthttp imports
-`klauspost/compress/zstd` unconditionally, and TinyGo cannot link its arm64
-assembly. Without the tag the build fails at link time, not compile time.
+**`-tags noasm` is required under TinyGo**, because fasthttp imports
+`klauspost/compress/zstd` and TinyGo cannot link its arm64 assembly. Without the
+tag the build fails at link time, not compile time.
 
 ```bash
 tinygo build -tags noasm -o server ./yourapp
 go build ./yourapp    # standard Go needs nothing
 ```
+
+Unless you drop zstd, which is usually the better trade — see below.
+
+## Dropping zstd
+
+`-tags fasthttp_nozstd` leaves `klauspost/compress/zstd` out. It halves the
+binary, and it also makes `noasm` unnecessary, because zstd was the only
+assembly in the tree:
+
+```bash
+tinygo build -tags fasthttp_nozstd -o server ./yourapp
+```
+
+| minimal two-route server, TinyGo | size |
+|---|---|
+| `net/http` | 1.21 MB |
+| this fork, `-tags fasthttp_nozstd` | 2.77 MB |
+| this fork, `-tags noasm` | 5.28 MB |
+
+zstd is 2.40 MB of that on its own — most of what fasthttp costs over
+`net/http`, and about ten times brotli's 0.24 MB. brotli, gzip and deflate are
+not separable for that reason: together they are 0.31 MB, and the seam would not
+pay for itself.
+
+In a zstd-free build a client that offers only `zstd` is served identity, and one
+that also offers `br` or `gzip` gets those, so content negotiation does the right
+thing without any change to your handlers. `BodyUnzstd` and friends report
+`ErrZstdUnsupported`; `AppendZstdBytes` and `AppendZstdBytesLevel` panic, because
+their signatures cannot return an error and quietly handing back an empty body
+would be worse. Nothing inside fasthttp calls any of them in this build.
+
+Substituting this repository's own [`compress/zstd`](../compress/zstd) instead
+does not work today: its bounded encoder emits one LZ match per block and stores
+the rest as raw literals, which leaves dynamic HTML and JSON at 99.9% of their
+original size where gzip reaches 12–14%. It also excludes decoding, compression
+levels and `Reset`. [PATCHES.md](./PATCHES.md) has the measurements.
 
 ## What works
 
@@ -133,17 +169,16 @@ reports `ErrProtocolNotSupported`, so use a `Dial` built on
 
 ## Binary size
 
-fasthttp costs about 4 MB more than `net/http` under TinyGo, where the same two
-programs are the same size under standard Go:
+Under standard Go the two are the same size; under TinyGo, whose whole-program
+optimisation rewards `net/http`'s smaller dependency graph, fasthttp costs more:
 
 | Program | TinyGo | standard Go |
 |---|---|---|
 | Two routes on `net/http` | 1.21 MB | 7.72 MB |
-| Two routes on this fork | 5.25 MB | 7.52 MB |
+| Two routes on this fork, `-tags fasthttp_nozstd` | 2.77 MB | 7.52 MB |
+| Two routes on this fork, `-tags noasm` | 5.28 MB | 7.52 MB |
 
-brotli, zstd and flate account for 2.77 MB of that on their own, and fasthttp
-imports all three unconditionally. If size matters more than compression, that
-is where to look first.
+Almost the whole gap between the last two rows is zstd; see above.
 
 ## Updating
 

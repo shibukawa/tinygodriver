@@ -21,7 +21,6 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
-	"github.com/klauspost/compress/zstd"
 	"github.com/valyala/bytebufferpool"
 )
 
@@ -157,7 +156,7 @@ var (
 		GenerateIndexPages: true,
 		Compress:           true,
 		CompressBrotli:     true,
-		CompressZstd:       true,
+		CompressZstd:       zstdAvailable, // PETITWEB: was true
 		AcceptByteRange:    true,
 	}
 	rootFSHandler RequestHandler
@@ -207,7 +206,7 @@ func serveFS(ctx *RequestCtx, filesystem fs.FS, path string, literal bool) {
 		GenerateIndexPages: true,
 		Compress:           true,
 		CompressBrotli:     true,
-		CompressZstd:       true,
+		CompressZstd:       zstdAvailable, // PETITWEB: was true
 		AcceptByteRange:    true,
 	}
 	handler := f.NewRequestHandler()
@@ -584,14 +583,16 @@ func (fs *FS) initRequestHandler() {
 	}
 
 	h := &fsHandler{
-		filesystem:             fs.FS,
-		root:                   root,
-		indexNames:             fs.IndexNames,
-		pathRewrite:            fs.PathRewrite,
-		generateIndexPages:     fs.GenerateIndexPages,
-		compress:               fs.Compress,
-		compressBrotli:         fs.CompressBrotli,
-		compressZstd:           fs.CompressZstd,
+		filesystem:         fs.FS,
+		root:               root,
+		indexNames:         fs.IndexNames,
+		pathRewrite:        fs.PathRewrite,
+		generateIndexPages: fs.GenerateIndexPages,
+		compress:           fs.Compress,
+		compressBrotli:     fs.CompressBrotli,
+		// PETITWEB: a zstd-free build cannot honour CompressZstd, and
+		// advertising an encoding it cannot produce would break clients.
+		compressZstd:           fs.CompressZstd && zstdAvailable,
 		compressRoot:           compressRoot,
 		pathNotFound:           fs.PathNotFound,
 		acceptByteRange:        fs.AcceptByteRange,
@@ -1956,9 +1957,10 @@ func (h *fsHandler) newFSFile(f fs.File, fileInfo fs.FileInfo, compressed bool, 
 func readFileHeader(f io.Reader, compressed bool, fileEncoding string) ([]byte, error) {
 	r := f
 	var (
-		br  *brotli.Reader
-		zr  *gzip.Reader
-		zsr *zstd.Decoder
+		br *brotli.Reader
+		zr *gzip.Reader
+		// PETITWEB: an alias, so the zstd-free build compiles.
+		zsr *zstdReader
 	)
 	if compressed {
 		var err error

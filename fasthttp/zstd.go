@@ -1,3 +1,8 @@
+//go:build !fasthttp_nozstd
+
+// PETITWEB: this file is replaced by zstd_disabled.go under
+// -tags fasthttp_nozstd. See PATCHES.md.
+
 package fasthttp
 
 import (
@@ -18,6 +23,12 @@ const (
 	CompressZstdSpeedBetter
 	CompressZstdBestCompression
 )
+
+// PETITWEB: zstdAvailable gates fasthttp's own use of zstd, and
+// zstdReader lets fs.go name the decoder without importing it.
+const zstdAvailable = true
+
+type zstdReader = zstd.Decoder
 
 var (
 	zstdDecoderPool            sync.Pool
