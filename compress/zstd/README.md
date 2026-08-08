@@ -68,6 +68,8 @@ backend has the following supported subset:
 - repeat offsets, for the common case of a match at the previous distance
 - a lazy step, which defers a match by one byte when the next position starts a
   longer one
+- Huffman-coded literals, in one stream or four, with the direct weight
+  representation; raw and RLE literal blocks are used where either is smaller
 - streaming output with at most one input block retained
 - `Flush` at block boundaries without ending the frame
 - SHA-256 and encoded size calculated over bytes successfully written
@@ -83,11 +85,15 @@ server would otherwise negotiate:
 
 | payload | this encoder | deflate |
 |---|---|---|
-| 14 KiB HTML listing | 10.2% | 11.6% |
-| 11 KiB JSON array | 12.8% | 13.3% |
-| 5 KiB varied text | 31.1% | 26.6% |
+| 14 KiB HTML listing | 8.2% | 11.6% |
+| 11 KiB JSON array | 11.0% | 13.3% |
+| 5 KiB varied text | 29.6% | 26.6% |
 | one repeated string | 1.4% | 1.6% |
 | incompressible | 100.1% | 100.1% |
+
+Varied prose is the one case that loses, and the breakdown says why: its cost is
+1247 bytes of sequences against 233 of literals, where deflate is finding
+word-level repeats this matcher does not.
 
 `TestRatioAgainstDeflate` holds these within a stated multiple of deflate, and
 every case in the suite decodes through the reference implementation, so no ratio
@@ -105,7 +111,9 @@ than 128 KiB compresses worse than a general-purpose encoder would manage.
 - compression-level or dictionary options
 - frame content checksums (the cache digest is separate)
 
-The TinyGo backend additionally omits Huffman literals, unsafe code, assembly,
-and CGo. Literals are stored raw, and once the lazy step lengthened the matches
-they became the largest part of the output -- 48% of the HTML case -- so a literal
-coder is the next thing worth adding.
+The TinyGo backend additionally omits unsafe code, assembly, and CGo, and writes
+Huffman weights only in the direct representation, never FSE-compressed. That
+representation encodes its weight count as 127 plus it, so the largest literal
+byte in a block must be 128 or below; a block whose literals reach higher stores
+them instead of coding them. Binary payloads therefore compress through their
+matches alone.

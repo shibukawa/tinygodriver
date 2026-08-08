@@ -88,9 +88,9 @@ their signatures cannot return an error and quietly handing back an empty body
 would be worse. Nothing inside fasthttp calls any of them in this build.
 
 Substituting this repository's own [`compress/zstd`](../compress/zstd), which is
-0.08 MB and now compresses within a few percent of deflate, would give a server
-that emits zstd and a client that cannot read it: that package excludes decoding,
-compression levels and `Reset`. See [PATCHES.md](./PATCHES.md).
+0.08 MB and now compresses past deflate, would give a server that emits zstd and a
+client that cannot read it: that package excludes decoding, compression levels and
+`Reset`. See [PATCHES.md](./PATCHES.md).
 
 ## What works
 

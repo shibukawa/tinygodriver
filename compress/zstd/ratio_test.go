@@ -95,9 +95,9 @@ func TestRatioAgainstDeflate(t *testing.T) {
 	// few repeats is where a literal coder would earn its keep, so it is allowed
 	// more room than the structured payloads.
 	limits := map[string]float64{
-		"html listing":    0.95,
-		"json array":      1.00,
-		"varied text":     1.22,
+		"html listing":    0.78,
+		"json array":      0.90,
+		"varied text":     1.15,
 		"repeated string": 1.00,
 		"incompressible":  1.05,
 	}
@@ -136,20 +136,35 @@ func TestSectionBreakdown(t *testing.T) {
 
 		consumed := z.findSequences(p.data)
 		seqs := len(z.seqs)
-		var matched, lits int
+		var matched, rawLits int
 		for _, s := range z.seqs {
 			matched += int(s.matchLen)
-			lits += int(s.litLen)
+			rawLits += int(s.litLen)
 		}
-		lits += consumed - matched - lits
+		rawLits += consumed - matched - rawLits
+
+		// Rebuild the two sections separately. Since the literals are coded, the
+		// only honest way to attribute bytes is to measure each section.
+		z.literals = z.literals[:0]
+		at := 0
+		for _, s := range z.seqs {
+			z.literals = append(z.literals, p.data[at:at+int(s.litLen)]...)
+			at += int(s.litLen) + int(s.matchLen)
+		}
+		z.literals = append(z.literals, p.data[at:consumed]...)
+		applyRepeatOffsets(z.seqs)
+		litBytes := len(z.appendLiterals(nil))
+		seqBytes := 0
+		if seqs > 0 {
+			seqBytes = len(z.appendSequences(nil))
+		}
 
 		encoded, _, err := EncodeAll(p.data, WithETag(false))
 		if err != nil {
 			t.Fatalf("%s: EncodeAll: %v", p.name, err)
 		}
-		seqBytes := len(encoded) - lits
-		t.Logf("%-16s raw %6d  encoded %6d  seqs %5d  matched %5.1f%%  literals %5d  sequences+headers ~%5d",
+		t.Logf("%-16s raw %6d  encoded %6d  seqs %5d  matched %5.1f%%  literals %5d raw -> %5d coded  sequences %5d",
 			p.name, len(p.data), len(encoded), seqs,
-			100*float64(matched)/float64(len(p.data)), lits, seqBytes)
+			100*float64(matched)/float64(len(p.data)), rawLits, litBytes, seqBytes)
 	}
 }

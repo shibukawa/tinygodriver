@@ -159,10 +159,10 @@ Substituting `compress/zstd`, whose bounded TinyGo encoder is 0.08 MB, looks
 like the obvious alternative. It cannot replace klauspost here, though the reason
 is no longer the one it used to be.
 
-The ratio objection is gone. That encoder used to emit one match per block, which
-left dynamic HTML and JSON at 99.9% of their input; it now emits many, fits its
-FSE tables to each block, and lands at 12.1% and 13.2% against deflate's 11.6%
-and 13.3%.
+The ratio objection is gone, and then some. That encoder used to emit one match
+per block, which left dynamic HTML and JSON at 99.9% of their input; it now emits
+many, fits its FSE tables to each block, codes its literals, and lands at 8.2% and
+11.0% against deflate's 11.6% and 13.3%.
 
 What remains is the API. `compress/zstd` **excludes decoding outright**, so
 `BodyUnzstd`, `AppendUnzstdBytes` and FS's pre-compressed `.zst` reading have

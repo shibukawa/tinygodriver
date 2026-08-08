@@ -36,6 +36,10 @@ type Writer struct {
 	ofNorm   [32]int16
 	mlNorm   [53]int16
 
+	// Literal histogram, and the coded literals section built from it.
+	litCounts [256]uint32
+	litBody   []byte
+
 	closed bool
 	err    error
 }
@@ -227,13 +231,6 @@ func rleBlockSize(p []byte) int {
 	return total
 }
 
-// appendLiterals writes the literals section. The literals are stored raw: see
-// PATCHES-style notes in the README for why Huffman is worth its code here.
-func (z *Writer) appendLiterals(dst []byte) []byte {
-	dst = append(dst, literalHeader(len(z.literals))...)
-	return append(dst, z.literals...)
-}
-
 func literalHeaderSize(size int) int {
 	switch {
 	case size <= 31:
@@ -245,15 +242,17 @@ func literalHeaderSize(size int) int {
 	}
 }
 
-func literalHeader(size int) []byte {
+// literalHeader states a literals section's regenerated size for the block types
+// that carry the bytes verbatim: raw, and RLE where one byte stands for the run.
+func literalHeader(size, blockType int) []byte {
 	switch literalHeaderSize(size) {
 	case 1:
-		return []byte{byte(size << 3)}
+		return []byte{byte(size<<3 | blockType)}
 	case 2:
-		v := uint32(size)<<4 | 4
+		v := uint32(size)<<4 | 1<<2 | uint32(blockType)
 		return []byte{byte(v), byte(v >> 8)}
 	default:
-		v := uint32(size)<<4 | 12
+		v := uint32(size)<<4 | 3<<2 | uint32(blockType)
 		return []byte{byte(v), byte(v >> 8), byte(v >> 16)}
 	}
 }
