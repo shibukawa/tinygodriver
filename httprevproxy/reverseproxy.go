@@ -14,7 +14,6 @@ import (
 	"errors"
 	"io"
 	"log"
-	"mime"
 	"net"
 	"net/http"
 	"net/textproto"
@@ -229,13 +228,24 @@ func (p *ReverseProxy) errorHandler() func(http.ResponseWriter, *http.Request, e
 }
 
 func (p *ReverseProxy) flushInterval(res *http.Response) time.Duration {
-	if mediaType, _, _ := mime.ParseMediaType(res.Header.Get("Content-Type")); mediaType == "text/event-stream" {
+	if isEventStream(res.Header.Get("Content-Type")) {
 		return -1
 	}
 	if res.ContentLength == -1 {
 		return -1
 	}
 	return p.FlushInterval
+}
+
+// isEventStream reports a text/event-stream media type. This is the one
+// question this package ever asks of a Content-Type, so it compares the media
+// type directly rather than linking the mime package's full parser.
+func isEventStream(contentType string) bool {
+	mediaType := contentType
+	if i := strings.IndexByte(mediaType, ';'); i >= 0 {
+		mediaType = mediaType[:i]
+	}
+	return strings.EqualFold(strings.TrimSpace(mediaType), "text/event-stream")
 }
 
 func (p *ReverseProxy) copyResponse(dst http.ResponseWriter, src io.Reader, interval time.Duration) error {
