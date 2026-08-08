@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
 	"strings"
 )
 
@@ -233,13 +232,84 @@ func redactPW(connString string) string {
 			return redactURL(u)
 		}
 	}
-	quotedKV := regexp.MustCompile(`password='[^']*'`)
-	connString = quotedKV.ReplaceAllLiteralString(connString, "password=xxxxx")
-	plainKV := regexp.MustCompile(`password=[^ ]*`)
-	connString = plainKV.ReplaceAllLiteralString(connString, "password=xxxxx")
-	brokenURL := regexp.MustCompile(`:[^:@]+?@`)
-	connString = brokenURL.ReplaceAllLiteralString(connString, ":xxxxxx@")
+	// Local patch: string scans instead of regexps; see PATCHES.md. Each
+	// helper reproduces the replacement of the pattern named in its comment.
+	connString = redactKVQuoted(connString)
+	connString = redactKVPlain(connString)
+	connString = redactColonPassword(connString)
 	return connString
+}
+
+// Local patch: string scans instead of regexps; see ../../PATCHES.md.
+
+// redactKVQuoted replaces every `password='[^']*'`.
+func redactKVQuoted(s string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, "password='")
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		rest := s[i+len("password='"):]
+		j := strings.IndexByte(rest, '\'')
+		if j < 0 {
+			// No closing quote anywhere ahead, so no further match is possible.
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		b.WriteString("password=xxxxx")
+		s = rest[j+1:]
+	}
+	return b.String()
+}
+
+// redactKVPlain replaces every `password=[^ ]*`.
+func redactKVPlain(s string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, "password=")
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		b.WriteString("password=xxxxx")
+		rest := s[i+len("password="):]
+		j := strings.IndexByte(rest, ' ')
+		if j < 0 {
+			break
+		}
+		s = rest[j:]
+	}
+	return b.String()
+}
+
+// redactColonPassword replaces every `:[^:@]+?@`, the password position of a
+// URL too mangled for url.Parse.
+func redactColonPassword(s string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] != ':' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && s[j] != ':' && s[j] != '@' {
+			j++
+		}
+		if j > i+1 && j < len(s) && s[j] == '@' {
+			b.WriteString(":xxxxxx@")
+			i = j + 1
+		} else {
+			b.WriteByte(':')
+			i++
+		}
+	}
+	return b.String()
 }
 
 func redactURL(u *url.URL) string {
