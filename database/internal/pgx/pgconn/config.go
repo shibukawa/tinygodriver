@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgpassfile"
 	"github.com/jackc/pgservicefile"
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgconn/ctxwatch"
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgproto3"
@@ -480,7 +479,7 @@ func ParseConfigWithOptions(connString string, options ParseConfigOptions) (*Con
 	config.Fallbacks = fallbacks[1:]
 	config.SSLNegotiation = settings["sslnegotiation"]
 
-	passfile, err := pgpassfile.ReadPassfile(settings["passfile"])
+	passfile, err := readPassfile(settings["passfile"])
 	if err == nil {
 		if config.Password == "" {
 			host := config.Host

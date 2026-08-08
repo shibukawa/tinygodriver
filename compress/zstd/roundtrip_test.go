@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRoundTripShapes(t *testing.T) {
@@ -181,4 +182,32 @@ func TestNormalizeCountsSumsToTableSize(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestNoQuadraticOnRepeatWithTail guards the shape that made the old
+// single-match scanner quadratic: a repeated block with a distinct tail, filling
+// one 128 KiB block. That scanner re-extended from every position inside the
+// repeat and took 828ms, which is why it grew a skip threshold. The sequence
+// matcher advances past each match it takes instead, so the extension work is
+// bounded by the block length rather than its square -- but only a clock proves
+// that, and only this shape shows it.
+func TestNoQuadraticOnRepeatWithTail(t *testing.T) {
+	block := bytes.Repeat([]byte("abcdefgh"), (128<<10)/8-1000)
+	tail := make([]byte, 8000)
+	for i := range tail {
+		tail[i] = byte(i * 7 % 251)
+	}
+	src := append(block, tail...)
+
+	start := time.Now()
+	encoded, _, err := EncodeAll(src, WithETag(false))
+	if err != nil {
+		t.Fatalf("EncodeAll: %v", err)
+	}
+	elapsed := time.Since(start)
+	t.Logf("%d bytes -> %d in %v", len(src), len(encoded), elapsed)
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("one block took %v; the quadratic shape this replaced took 828ms", elapsed)
+	}
+	assertReferenceDecode(t, encoded, src)
 }

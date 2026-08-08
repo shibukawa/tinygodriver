@@ -4,8 +4,8 @@ package netdev
 
 import (
 	"errors"
-	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/shibukawa/tinygodriver/internal/schannel"
@@ -108,16 +108,26 @@ func tlsErrorFromStatus(e *schannel.Error) error {
 	case schannel.ClassAlloc:
 		return errors.New("tls: failed to allocate client state")
 	case schannel.ClassSetup:
-		return fmt.Errorf("tls: session setup failed (status 0x%08x)", uint32(e.Status))
+		return errors.New("tls: session setup failed (status " + hexStatus(uint32(e.Status)) + ")")
 	case schannel.ClassCA:
 		return errors.New("tls: trust anchors rejected")
 	case schannel.ClassClientCert:
 		return errors.New("tls: client certificate rejected")
 	case schannel.ClassHandshake:
-		return fmt.Errorf("tls: handshake or certificate verification failed (status 0x%08x)", uint32(e.Status))
+		return errors.New("tls: handshake or certificate verification failed (status " + hexStatus(uint32(e.Status)) + ")")
 	case schannel.ClassClosed:
 		return errors.New("tls: session closed")
 	default:
-		return fmt.Errorf("tls: encrypted I/O failed (status 0x%08x)", uint32(e.Status))
+		return errors.New("tls: encrypted I/O failed (status " + hexStatus(uint32(e.Status)) + ")")
 	}
+}
+
+// hexStatus renders a SECURITY_STATUS the way Windows documentation spells
+// them: zero-padded 0x%08x.
+func hexStatus(v uint32) string {
+	s := strconv.FormatUint(uint64(v), 16)
+	for len(s) < 8 {
+		s = "0" + s
+	}
+	return "0x" + s
 }

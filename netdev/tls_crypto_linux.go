@@ -5,7 +5,6 @@ package netdev
 import (
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -244,6 +243,12 @@ func sysTLSClose(state uintptr) {
 	releaseHandle(state)
 }
 
+// Sentinel prefixes for the wrapped forms below.
+var (
+	errTLSHandshakeFailed = errors.New("tls: handshake or certificate verification failed")
+	errTLSIOFailed        = errors.New("tls: encrypted I/O failed")
+)
+
 // tlsHandshakeError names the failure and keeps the cause. The previous
 // OpenSSL implementation collapsed everything into four generic strings, which
 // made diagnosis guesswork.
@@ -251,12 +256,12 @@ func tlsHandshakeError(err error) error {
 	if errors.Is(err, ErrTimeout) {
 		return ErrTimeout
 	}
-	return fmt.Errorf("tls: handshake or certificate verification failed: %w", err)
+	return &wrappedError{sentinel: errTLSHandshakeFailed, cause: err}
 }
 
 func tlsIOError(err error) error {
 	if errors.Is(err, ErrTimeout) {
 		return ErrTimeout
 	}
-	return fmt.Errorf("tls: encrypted I/O failed: %w", err)
+	return &wrappedError{sentinel: errTLSIOFailed, cause: err}
 }

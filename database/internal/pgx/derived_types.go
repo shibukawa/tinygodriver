@@ -3,7 +3,6 @@ package pgx
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -247,7 +246,12 @@ func (c *Conn) LoadTypes(ctx context.Context, typeNames []string) ([]*pgtype.Typ
 // serverVersion returns the postgresql server version.
 func serverVersion(c *Conn) (int64, error) {
 	serverVersionStr := c.PgConn().ParameterStatus("server_version")
-	serverVersionStr = regexp.MustCompile(`^[0-9]+`).FindString(serverVersionStr)
+	// Local patch: a digit-prefix scan instead of a regexp; see PATCHES.md.
+	digits := 0
+	for digits < len(serverVersionStr) && serverVersionStr[digits] >= '0' && serverVersionStr[digits] <= '9' {
+		digits++
+	}
+	serverVersionStr = serverVersionStr[:digits]
 	// if not PostgreSQL do nothing
 	if serverVersionStr == "" {
 		return 0, fmt.Errorf("Cannot identify server version in %q", serverVersionStr)

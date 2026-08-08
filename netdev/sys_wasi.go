@@ -10,12 +10,15 @@ package netdev
 // and this file matches the wasip2 build tag instead.
 
 import (
-	"fmt"
+	"errors"
 	"net/netip"
 	"time"
 )
 
-var errNoNetwork = fmt.Errorf("%w: no socket backend on WASI (wasip1 has no outbound sockets; the wasip2 wasi-sockets backend is not implemented)", ErrNotSupported)
+var errNoNetwork = &wrappedError{
+	sentinel: ErrNotSupported,
+	cause:    errors.New("no socket backend on WASI (wasip1 has no outbound sockets; the wasip2 wasi-sockets backend is not implemented)"),
+}
 
 func sysSocket(domain, stype, proto int) (int, error) { return -1, errNoNetwork }
 

@@ -4,8 +4,8 @@ package netdev
 
 import (
 	"errors"
-	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/shibukawa/tinygodriver/internal/securetransport"
@@ -107,14 +107,14 @@ func tlsErrorFromStatus(e *securetransport.Error) error {
 	case securetransport.ClassAlloc:
 		return errors.New("tls: failed to allocate client state")
 	case securetransport.ClassSetup:
-		return fmt.Errorf("tls: session setup failed (OSStatus %d)", e.Status)
+		return errors.New("tls: session setup failed (OSStatus " + strconv.Itoa(int(e.Status)) + ")")
 	case securetransport.ClassCA:
 		return errors.New("tls: trust anchors rejected")
 	case securetransport.ClassHandshake:
-		return fmt.Errorf("tls: handshake or certificate verification failed (OSStatus %d)", e.Status)
+		return errors.New("tls: handshake or certificate verification failed (OSStatus " + strconv.Itoa(int(e.Status)) + ")")
 	case securetransport.ClassClosed:
 		return errors.New("tls: session closed")
 	default:
-		return fmt.Errorf("tls: encrypted I/O failed (OSStatus %d)", e.Status)
+		return errors.New("tls: encrypted I/O failed (OSStatus " + strconv.Itoa(int(e.Status)) + ")")
 	}
 }

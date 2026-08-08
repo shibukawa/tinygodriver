@@ -148,14 +148,7 @@ func (z *Writer) writeBlocks(p []byte, last bool) error {
 		n := z.findSequences(p)
 		chunk := p[:n]
 		isLast := last && n == len(p)
-
-		z.block = z.block[:0]
-		if block, ok := z.appendCompressedBlock(z.block, chunk, isLast); ok {
-			z.block = block
-			if err := z.writeEncoded(z.block); err != nil {
-				return err
-			}
-		} else if err := z.writeStoredBlocks(chunk, isLast); err != nil {
+		if err := z.writeOneBlock(chunk, isLast); err != nil {
 			return err
 		}
 		p = p[n:]
@@ -163,14 +156,40 @@ func (z *Writer) writeBlocks(p []byte, last bool) error {
 	return nil
 }
 
-// writeStoredBlocks emits p without sequences, as raw blocks split around any
-// run long enough to pay for an RLE block of its own. This is what a block falls
-// back to when matching found nothing, or found too little to beat storing.
-func (z *Writer) writeStoredBlocks(p []byte, last bool) error {
+// writeOneBlock emits chunk, whose sequences are already in z.seqs, as whichever
+// of a compressed block or the stored fallback comes out smaller.
+func (z *Writer) writeOneBlock(p []byte, last bool) error {
 	if len(p) < 2 || allSameByte(p) {
 		return z.writeBlock(p, last)
 	}
 
+	// One run scan serves both the profitability baseline a compressed block is
+	// measured against and the fallback emission below; it used to be computed
+	// twice.
+	spans, rleSize := splitRuns(p)
+
+	z.block = z.block[:0]
+	if block, ok := z.appendCompressedBlock(z.block, p, last, rleSize); ok {
+		z.block = block
+		return z.writeEncoded(z.block)
+	}
+	for _, s := range spans {
+		if err := z.writeBlock(p[s.start:s.end], last && s.end == len(p)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// span is one block of the run-split fallback: a qualifying run, or the raw
+// stretch between two.
+type span struct {
+	start, end int
+}
+
+// splitRuns cuts p at profitable RLE runs and estimates the encoded size of
+// emitting it that way.
+func splitRuns(p []byte) (spans []span, size int) {
 	rawStart := 0
 	for start := 0; start < len(p); {
 		end := start + 1
@@ -185,50 +204,20 @@ func (z *Writer) writeStoredBlocks(p []byte, last bool) error {
 		}
 		if end-start >= minRun {
 			if rawStart != start {
-				if err := z.writeBlock(p[rawStart:start], false); err != nil {
-					return err
-				}
+				spans = append(spans, span{rawStart, start})
+				size += 3 + start - rawStart
 			}
-			if err := z.writeBlock(p[start:end], last && end == len(p)); err != nil {
-				return err
-			}
+			spans = append(spans, span{start, end})
+			size += 4
 			rawStart = end
 		}
 		start = end
 	}
 	if rawStart != len(p) {
-		return z.writeBlock(p[rawStart:], last)
+		spans = append(spans, span{rawStart, len(p)})
+		size += 3 + len(p) - rawStart
 	}
-	return nil
-}
-
-// rleBlockSize is what writeStoredBlocks would emit for p, so that a compressed
-// block is only kept when it actually beats storing.
-func rleBlockSize(p []byte) int {
-	total := 0
-	rawStart := 0
-	for start := 0; start < len(p); {
-		end := start + 1
-		for end < len(p) && p[end] == p[start] {
-			end++
-		}
-		minRun := 8
-		if start == 0 || end == len(p) {
-			minRun = 5
-		}
-		if end-start >= minRun {
-			if rawStart != start {
-				total += 3 + start - rawStart
-			}
-			total += 4
-			rawStart = end
-		}
-		start = end
-	}
-	if rawStart != len(p) {
-		total += 3 + len(p) - rawStart
-	}
-	return total
+	return spans, size
 }
 
 func literalHeaderSize(size int) int {

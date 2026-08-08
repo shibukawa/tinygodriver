@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
@@ -87,25 +86,16 @@ func (e *Error) Error() string {
 // Unwrap returns the sentinel this failure maps onto, so errors.Is works.
 func (e *Error) Unwrap() error { return e.err }
 
-// errorDocument is the XML body S3 returns for a failed request.
-type errorDocument struct {
-	XMLName   xml.Name `xml:"Error"`
-	Code      string   `xml:"Code"`
-	Message   string   `xml:"Message"`
-	RequestID string   `xml:"RequestId"`
-}
-
 // newError builds an Error from a response body, falling back to the status
 // code when the body is empty or not an error document.
 func newError(op, bucket, key string, status int, body []byte, requestID string) *Error {
 	e := &Error{Op: op, Bucket: bucket, Key: key, StatusCode: status, RequestID: requestID}
 
-	var doc errorDocument
-	if len(body) > 0 && xml.Unmarshal(body, &doc) == nil {
-		e.Code = doc.Code
-		e.Message = doc.Message
-		if doc.RequestID != "" {
-			e.RequestID = doc.RequestID
+	if code, message, docRequestID, ok := parseErrorDocument(body); ok {
+		e.Code = code
+		e.Message = message
+		if docRequestID != "" {
+			e.RequestID = docRequestID
 		}
 	}
 	if sentinel, ok := codeToSentinel[e.Code]; ok {

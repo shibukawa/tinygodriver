@@ -305,6 +305,243 @@ def patch_auth_scram():
     write(path, body)
 
 
+REDACT_HELPERS = '''
+// Local patch: string scans instead of regexps; see ../../PATCHES.md.
+
+// redactKVQuoted replaces every `password='[^']*'`.
+func redactKVQuoted(s string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, "password='")
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		rest := s[i+len("password='"):]
+		j := strings.IndexByte(rest, '\\'')
+		if j < 0 {
+			// No closing quote anywhere ahead, so no further match is possible.
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		b.WriteString("password=xxxxx")
+		s = rest[j+1:]
+	}
+	return b.String()
+}
+
+// redactKVPlain replaces every `password=[^ ]*`.
+func redactKVPlain(s string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, "password=")
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		b.WriteString("password=xxxxx")
+		rest := s[i+len("password="):]
+		j := strings.IndexByte(rest, ' ')
+		if j < 0 {
+			break
+		}
+		s = rest[j:]
+	}
+	return b.String()
+}
+
+// redactColonPassword replaces every `:[^:@]+?@`, the password position of a
+// URL too mangled for url.Parse.
+func redactColonPassword(s string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] != ':' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && s[j] != ':' && s[j] != '@' {
+			j++
+		}
+		if j > i+1 && j < len(s) && s[j] == '@' {
+			b.WriteString(":xxxxxx@")
+			i = j + 1
+		} else {
+			b.WriteByte(':')
+			i++
+		}
+	}
+	return b.String()
+}
+'''
+
+
+PGPASS_LOCAL = '''package pgconn
+
+// Local patch: see ../../PATCHES.md.
+//
+// A package-local .pgpass reader replacing github.com/jackc/pgpassfile. That
+// module keeps an unused package-level regexp.MustCompile, which alone links
+// the whole regexp engine into every TinyGo binary; the parser itself is the
+// few lines below, behavior-identical to upstream.
+
+import (
+	"bufio"
+	"io"
+	"os"
+	"strings"
+)
+
+type pgPassfile struct {
+	entries []pgPassEntry
+}
+
+type pgPassEntry struct {
+	hostname string
+	port     string
+	database string
+	username string
+	password string
+}
+
+// readPassfile reads the file at path, matching pgpassfile.ReadPassfile.
+func readPassfile(path string) (*pgPassfile, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return parsePassfile(f)
+}
+
+func parsePassfile(r io.Reader) (*pgPassfile, error) {
+	pf := &pgPassfile{}
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		if entry, ok := parsePassfileLine(scanner.Text()); ok {
+			pf.entries = append(pf.entries, entry)
+		}
+	}
+	return pf, scanner.Err()
+}
+
+// parsePassfileLine parses one line. Comments and unparsable lines are
+// skipped, as upstream skips them.
+func parsePassfileLine(line string) (pgPassEntry, bool) {
+	const (
+		tmpBackslash = "\\r"
+		tmpColon     = "\\n"
+	)
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "#") {
+		return pgPassEntry{}, false
+	}
+	line = strings.ReplaceAll(line, `\\\\`, tmpBackslash)
+	line = strings.ReplaceAll(line, `\\:`, tmpColon)
+	parts := strings.Split(line, ":")
+	if len(parts) != 5 {
+		return pgPassEntry{}, false
+	}
+	for i := range parts {
+		parts[i] = strings.ReplaceAll(parts[i], tmpBackslash, `\\`)
+		parts[i] = strings.ReplaceAll(parts[i], tmpColon, `:`)
+	}
+	return pgPassEntry{
+		hostname: parts[0], port: parts[1], database: parts[2],
+		username: parts[3], password: parts[4],
+	}, true
+}
+
+// FindPassword matches pgpassfile's method of the same name, so the call in
+// config.go keeps its shape.
+func (pf *pgPassfile) FindPassword(hostname, port, database, username string) string {
+	for _, e := range pf.entries {
+		if (e.hostname == "*" || e.hostname == hostname) &&
+			(e.port == "*" || e.port == port) &&
+			(e.database == "*" || e.database == database) &&
+			(e.username == "*" || e.username == username) {
+			return e.password
+		}
+	}
+	return ""
+}
+'''
+
+
+def patch_pgpass():
+    """Replace the external pgpassfile dependency with a package-local parser,
+    dropping its (unused but linked) package-level regexp."""
+    write(os.path.join(PGCONN, "pgpass_local.go"), PGPASS_LOCAL)
+
+    path = os.path.join(PGCONN, "config.go")
+    body = read(path)
+    old = "\tpassfile, err := pgpassfile.ReadPassfile(settings[\"passfile\"])\n"
+    require(body, old, "config.go")
+    body = body.replace(old, "\tpassfile, err := readPassfile(settings[\"passfile\"])\n")
+    require(body, '\t"github.com/jackc/pgpassfile"\n', "config.go")
+    body = body.replace('\t"github.com/jackc/pgpassfile"\n', "")
+    write(path, body)
+
+
+def patch_errors():
+    """Drop regexp from pgconn/errors.go: redactPW's three patterns become
+    string scans, verified equivalent against the originals over fixed cases
+    and 200k random inputs."""
+    path = os.path.join(PGCONN, "errors.go")
+    body = read(path)
+
+    old = (
+        "\tquotedKV := regexp.MustCompile(`password='[^']*'`)\n"
+        '\tconnString = quotedKV.ReplaceAllLiteralString(connString, "password=xxxxx")\n'
+        "\tplainKV := regexp.MustCompile(`password=[^ ]*`)\n"
+        '\tconnString = plainKV.ReplaceAllLiteralString(connString, "password=xxxxx")\n'
+        "\tbrokenURL := regexp.MustCompile(`:[^:@]+?@`)\n"
+        '\tconnString = brokenURL.ReplaceAllLiteralString(connString, ":xxxxxx@")\n'
+        "\treturn connString\n"
+        "}\n"
+    )
+    require(body, old, "errors.go")
+    body = body.replace(
+        old,
+        "\t// Local patch: string scans instead of regexps; see PATCHES.md. Each\n"
+        "\t// helper reproduces the replacement of the pattern named in its comment.\n"
+        "\tconnString = redactKVQuoted(connString)\n"
+        "\tconnString = redactKVPlain(connString)\n"
+        "\tconnString = redactColonPassword(connString)\n"
+        "\treturn connString\n"
+        "}\n" + REDACT_HELPERS,
+    )
+    require(body, '\t"regexp"\n', "errors.go")
+    body = body.replace('\t"regexp"\n', "")
+    write(path, body)
+
+
+def patch_derived_types():
+    """Drop regexp from derived_types.go: the digit prefix of server_version
+    needs no compiled pattern, and upstream recompiled it per call."""
+    path = os.path.join(HERE, "pgx", "derived_types.go")
+    body = read(path)
+
+    old = "\tserverVersionStr = regexp.MustCompile(`^[0-9]+`).FindString(serverVersionStr)\n"
+    require(body, old, "derived_types.go")
+    body = body.replace(
+        old,
+        "\t// Local patch: a digit-prefix scan instead of a regexp; see PATCHES.md.\n"
+        "\tdigits := 0\n"
+        "\tfor digits < len(serverVersionStr) && serverVersionStr[digits] >= '0' && serverVersionStr[digits] <= '9' {\n"
+        "\t\tdigits++\n"
+        "\t}\n"
+        "\tserverVersionStr = serverVersionStr[:digits]\n",
+    )
+    require(body, '\t"regexp"\n', "derived_types.go")
+    body = body.replace('\t"regexp"\n', "")
+    write(path, body)
+
+
 def main():
     if not os.path.isdir(PGCONN):
         sys.exit("patch.py: run vendor.py first")
@@ -313,6 +550,9 @@ def main():
     patch_config()
     patch_pgconn()
     patch_auth_scram()
+    patch_errors()
+    patch_derived_types()
+    patch_pgpass()
 
     # Removing imports and swapping types leaves the files unformatted, and a
     # vendored tree that fails gofmt -l is noise in every future diff.

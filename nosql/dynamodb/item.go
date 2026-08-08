@@ -12,12 +12,20 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 )
 
 // itemTag is the struct tag, spelled as in aws-sdk-go-v2 so an example written
 // against the SDK ports over unchanged.
 const itemTag = "dynamodbav"
+
+// The two types the codec special-cases, resolved once. reflect.TypeOf per
+// value was measurable on items with many attributes.
+var (
+	timeType      = reflect.TypeOf(time.Time{})
+	attributeType = reflect.TypeOf(AttributeValue{})
+)
 
 // MarshalItem converts a struct, or a map[string]AttributeValue, into an item.
 //
@@ -64,6 +72,47 @@ func UnmarshalItem(item Item, out any) error {
 	return unmarshalValue(AttributeValue{M: item}, rv.Elem())
 }
 
+// fieldInfo is one marshalable struct field, with its tag already parsed.
+type fieldInfo struct {
+	index     int
+	name      string
+	omitEmpty bool
+}
+
+// fieldCache maps a struct type to its parsed fields. Tag parsing per field
+// per call dominated repeated marshaling of the same type, which is the
+// ordinary shape of a program that talks to one table. A plain map under an
+// RWMutex rather than sync.Map: the read path is one RLock, and sync.Map is
+// measurably more binary in a TinyGo build.
+var fieldCache struct {
+	sync.RWMutex
+	types map[reflect.Type][]fieldInfo
+}
+
+func cachedFields(t reflect.Type) []fieldInfo {
+	fieldCache.RLock()
+	fields, ok := fieldCache.types[t]
+	fieldCache.RUnlock()
+	if ok {
+		return fields
+	}
+	fields = make([]fieldInfo, 0, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		name, skip, omitEmpty := fieldName(t.Field(i))
+		if skip {
+			continue
+		}
+		fields = append(fields, fieldInfo{index: i, name: name, omitEmpty: omitEmpty})
+	}
+	fieldCache.Lock()
+	if fieldCache.types == nil {
+		fieldCache.types = map[reflect.Type][]fieldInfo{}
+	}
+	fieldCache.types[t] = fields
+	fieldCache.Unlock()
+	return fields
+}
+
 // fieldName returns the attribute name for a struct field, whether it is
 // skipped, and whether it is omitted when empty.
 func fieldName(f reflect.StructField) (name string, skip, omitEmpty bool) {
@@ -103,10 +152,10 @@ func marshalValue(rv reflect.Value) (AttributeValue, error) {
 		return Null(), nil
 	}
 	// time.Time is a struct, so it has to be recognized before the struct case.
-	if rv.Type() == reflect.TypeOf(time.Time{}) {
+	if rv.Type() == timeType {
 		return S(rv.Interface().(time.Time).UTC().Format(time.RFC3339Nano)), nil
 	}
-	if rv.Type() == reflect.TypeOf(AttributeValue{}) {
+	if rv.Type() == attributeType {
 		return rv.Interface().(AttributeValue), nil
 	}
 
@@ -165,22 +214,18 @@ func marshalValue(rv reflect.Value) (AttributeValue, error) {
 		return Map(m), nil
 
 	case reflect.Struct:
-		m := map[string]AttributeValue{}
-		rt := rv.Type()
-		for i := 0; i < rt.NumField(); i++ {
-			name, skip, omitEmpty := fieldName(rt.Field(i))
-			if skip {
-				continue
-			}
-			fv := rv.Field(i)
-			if omitEmpty && fv.IsZero() {
+		fields := cachedFields(rv.Type())
+		m := make(map[string]AttributeValue, len(fields))
+		for _, f := range fields {
+			fv := rv.Field(f.index)
+			if f.omitEmpty && fv.IsZero() {
 				continue
 			}
 			element, err := marshalValue(fv)
 			if err != nil {
 				return AttributeValue{}, err
 			}
-			m[name] = element
+			m[f.name] = element
 		}
 		return Map(m), nil
 	}
@@ -191,7 +236,7 @@ func unmarshalValue(av AttributeValue, rv reflect.Value) error {
 	if !rv.CanSet() {
 		return fmt.Errorf("dynamodb: cannot set %s", rv.Type())
 	}
-	if rv.Type() == reflect.TypeOf(AttributeValue{}) {
+	if rv.Type() == attributeType {
 		rv.Set(reflect.ValueOf(av))
 		return nil
 	}
@@ -199,7 +244,7 @@ func unmarshalValue(av AttributeValue, rv reflect.Value) error {
 		rv.Set(reflect.Zero(rv.Type()))
 		return nil
 	}
-	if rv.Type() == reflect.TypeOf(time.Time{}) {
+	if rv.Type() == timeType {
 		text, ok := av.AsString()
 		if !ok {
 			return typeError(av, rv)
@@ -329,18 +374,13 @@ func unmarshalValue(av AttributeValue, rv reflect.Value) error {
 		if !ok {
 			return typeError(av, rv)
 		}
-		rt := rv.Type()
-		for i := 0; i < rt.NumField(); i++ {
-			name, skip, _ := fieldName(rt.Field(i))
-			if skip {
-				continue
-			}
-			element, present := m[name]
+		for _, f := range cachedFields(rv.Type()) {
+			element, present := m[f.name]
 			if !present {
 				continue
 			}
-			if err := unmarshalValue(element, rv.Field(i)); err != nil {
-				return fmt.Errorf("%s: %w", name, err)
+			if err := unmarshalValue(element, rv.Field(f.index)); err != nil {
+				return fmt.Errorf("%s: %w", f.name, err)
 			}
 		}
 		return nil

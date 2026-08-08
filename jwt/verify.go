@@ -1,7 +1,6 @@
 package jwt
 
 import (
-	"crypto"
 	"crypto/hmac"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -91,14 +90,9 @@ func verifySignature(token *Token, key VerificationKey) error {
 		}
 		return nil
 	case "RS256":
-		if key.RSA == nil || key.RSA.N == nil || key.RSA.N.BitLen() < 2048 || key.RSA.E < 3 {
-			return ErrKeyNotFound
-		}
-		digest := sha256.Sum256([]byte(token.signingInput))
-		if err := rsa.VerifyPKCS1v15(key.RSA, crypto.SHA256, digest[:], token.Signature); err != nil {
-			return ErrInvalidSignature
-		}
-		return nil
+		// Behind a function so the jwt_no_rsa build tag can stub it out; see
+		// verify_rs256.go.
+		return verifyRS256(token.signingInput, key.RSA, token.Signature)
 	default:
 		return ErrUnsupportedAlgorithm
 	}

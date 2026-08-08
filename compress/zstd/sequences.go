@@ -273,8 +273,9 @@ func (z *Writer) appendSequences(dst []byte) []byte {
 
 // appendCompressedBlock builds a complete compressed block for p, whose
 // sequences are already in z.seqs, and reports whether it came out smaller than
-// the raw and RLE alternatives. The caller falls back when it did not.
-func (z *Writer) appendCompressedBlock(dst []byte, p []byte, last bool) ([]byte, bool) {
+// rleSize, what the stored fallback would take. The caller falls back when it
+// did not.
+func (z *Writer) appendCompressedBlock(dst []byte, p []byte, last bool, rleSize int) ([]byte, bool) {
 	if len(z.seqs) == 0 {
 		return dst, false
 	}
@@ -295,9 +296,10 @@ func (z *Writer) appendCompressedBlock(dst []byte, p []byte, last bool) ([]byte,
 	dst = z.appendSequences(dst)
 
 	size := len(dst) - start - 3
-	// rleBlockSize counts the block headers it would need, so this block's own
-	// three must be counted too or a compressed block wins comparisons it loses.
-	if size+3 >= rleBlockSize(p) || size >= 1<<21 {
+	// rleSize counts the block headers the stored fallback would need, so this
+	// block's own three must be counted too or a compressed block wins
+	// comparisons it loses.
+	if size+3 >= rleSize || size >= 1<<21 {
 		return dst[:start], false
 	}
 	header := uint32(size)<<3 | 2<<1 // Block_Type 2: compressed

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -72,7 +73,11 @@ type persistConn struct {
 
 	mu     sync.Mutex
 	broken bool
-	nread  int64 // response bytes read during the current request
+
+	// nread counts response bytes read during the current request. Atomic
+	// rather than under mu: it is bumped on every Read and only inspected
+	// between requests.
+	nread atomic.Int64
 }
 
 func newPersistConn(conn net.Conn, key string) *persistConn {
@@ -88,9 +93,7 @@ func newPersistConn(conn net.Conn, key string) *persistConn {
 func (pc *persistConn) Read(p []byte) (int, error) {
 	n, err := pc.conn.Read(p)
 	if n > 0 {
-		pc.mu.Lock()
-		pc.nread += int64(n)
-		pc.mu.Unlock()
+		pc.nread.Add(int64(n))
 	}
 	return n, err
 }
@@ -98,9 +101,7 @@ func (pc *persistConn) Read(p []byte) (int, error) {
 // begin resets the per-request state. A pooled connection carries none of the
 // previous request's accounting into the next one.
 func (pc *persistConn) begin() {
-	pc.mu.Lock()
-	pc.nread = 0
-	pc.mu.Unlock()
+	pc.nread.Store(0)
 }
 
 // untouched reports that no response byte arrived for the current request.
@@ -111,9 +112,7 @@ func (pc *persistConn) begin() {
 // does. Cancellation, the other reason a connection gets closed underneath a
 // request, is tested separately.
 func (pc *persistConn) untouched() bool {
-	pc.mu.Lock()
-	defer pc.mu.Unlock()
-	return pc.nread == 0
+	return pc.nread.Load() == 0
 }
 
 // close marks the connection unusable and closes it. It is safe to call from

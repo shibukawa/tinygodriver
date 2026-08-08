@@ -88,9 +88,29 @@ func N[T Number](v T) AttributeValue {
 		text = strconv.FormatFloat(float64(n), 'g', -1, 32)
 	case float64:
 		text = strconv.FormatFloat(n, 'g', -1, 64)
-	case uint, uint8, uint16, uint32, uint64:
-		text = fmt.Sprintf("%d", n)
+	case int:
+		text = strconv.FormatInt(int64(n), 10)
+	case int8:
+		text = strconv.FormatInt(int64(n), 10)
+	case int16:
+		text = strconv.FormatInt(int64(n), 10)
+	case int32:
+		text = strconv.FormatInt(int64(n), 10)
+	case int64:
+		text = strconv.FormatInt(n, 10)
+	case uint:
+		text = strconv.FormatUint(uint64(n), 10)
+	case uint8:
+		text = strconv.FormatUint(uint64(n), 10)
+	case uint16:
+		text = strconv.FormatUint(uint64(n), 10)
+	case uint32:
+		text = strconv.FormatUint(uint64(n), 10)
+	case uint64:
+		text = strconv.FormatUint(n, 10)
 	default:
+		// A named type (~int and friends) does not match its underlying type
+		// above; only this branch needs the formatting machinery.
 		text = fmt.Sprintf("%d", n)
 	}
 	return AttributeValue{N: &text}
@@ -255,6 +275,11 @@ func (a AttributeValue) set() int {
 }
 
 // MarshalJSON writes the single-member object DynamoDB expects.
+//
+// The member is assembled by hand rather than through a one-entry map: a map
+// per attribute made this the allocation hot spot of every Put-shaped call.
+// json.Marshal still renders the inner value, so escaping stays the standard
+// library's.
 func (a AttributeValue) MarshalJSON() ([]byte, error) {
 	switch n := a.set(); {
 	case n == 0:
@@ -265,27 +290,43 @@ func (a AttributeValue) MarshalJSON() ([]byte, error) {
 
 	switch a.Kind() {
 	case KindString:
-		return json.Marshal(map[string]string{"S": *a.S})
+		return appendMember(`{"S":`, *a.S)
 	case KindNumber:
-		return json.Marshal(map[string]string{"N": *a.N})
+		return appendMember(`{"N":`, *a.N)
 	case KindBinary:
-		return json.Marshal(map[string][]byte{"B": a.B})
+		return appendMember(`{"B":`, a.B)
 	case KindBool:
-		return json.Marshal(map[string]bool{"BOOL": *a.BOOL})
+		if *a.BOOL {
+			return []byte(`{"BOOL":true}`), nil
+		}
+		return []byte(`{"BOOL":false}`), nil
 	case KindNull:
-		return json.Marshal(map[string]bool{"NULL": true})
+		return []byte(`{"NULL":true}`), nil
 	case KindList:
-		return json.Marshal(map[string][]AttributeValue{"L": a.L})
+		return appendMember(`{"L":`, a.L)
 	case KindMap:
-		return json.Marshal(map[string]map[string]AttributeValue{"M": a.M})
+		return appendMember(`{"M":`, a.M)
 	case KindStringSet:
-		return json.Marshal(map[string][]string{"SS": a.SS})
+		return appendMember(`{"SS":`, a.SS)
 	case KindNumberSet:
-		return json.Marshal(map[string][]string{"NS": a.NS})
+		return appendMember(`{"NS":`, a.NS)
 	case KindBinarySet:
-		return json.Marshal(map[string][][]byte{"BS": a.BS})
+		return appendMember(`{"BS":`, a.BS)
 	}
 	return nil, ErrEmptyAttribute
+}
+
+// appendMember renders {<prefix><value>} with the value marshaled by
+// encoding/json.
+func appendMember(prefix string, value any) ([]byte, error) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(prefix)+len(body)+1)
+	out = append(out, prefix...)
+	out = append(out, body...)
+	return append(out, '}'), nil
 }
 
 // UnmarshalJSON reads the single-member object DynamoDB sends. An unknown

@@ -18,6 +18,7 @@ package netdev
 import (
 	"errors"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -80,6 +81,13 @@ func (e *timeoutError) Error() string   { return "i/o timeout" }
 func (e *timeoutError) Timeout() bool   { return true }
 func (e *timeoutError) Temporary() bool { return true }
 
+// syscallCodeError reports an unmapped native failure, keeping the raw code.
+// Collapsing every one into a bare "syscall error" would leave a user with
+// nothing to act on; errors.Is still matches ErrSyscall.
+func syscallCodeError(kind string, code int) error {
+	return &wrappedError{sentinel: ErrSyscall, cause: errors.New(kind + strconv.Itoa(code))}
+}
+
 // netdever matches TinyGo's net.netdev interface (and drivers/netdev.Netdever).
 type netdever interface {
 	GetHostByName(name string) (netip.Addr, error)
@@ -102,7 +110,15 @@ type Device struct {
 }
 
 type socket struct {
-	mu       sync.Mutex
+	// mu guards the metadata below. TLS I/O deliberately does not run under
+	// it: net.Conn promises full duplex, so a Recv blocked inside the TLS
+	// stack must not stall a concurrent Send. readMu serializes readers,
+	// writeMu serializes writers, and Close takes both so the TLS session is
+	// never torn down under an in-flight operation.
+	mu      sync.Mutex
+	readMu  sync.Mutex
+	writeMu sync.Mutex
+
 	fd       int
 	protocol int
 	isStream bool

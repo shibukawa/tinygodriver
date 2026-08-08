@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"hash/crc32"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/shibukawa/tinygodriver/cloud/aws"
@@ -367,7 +367,28 @@ func (c *Client) backoff(attempt int) time.Duration {
 	if d > retryCap || d <= 0 {
 		d = retryCap
 	}
-	return time.Duration(rand.Int63n(int64(d)) + int64(d)/2)
+	return time.Duration(jitter()%uint64(d)) + d/2
+}
+
+// jitterState carries a small xorshift generator. Backoff jitter needs spread,
+// not statistical quality, and math/rand would be this package's only reason
+// to link it.
+var jitterState atomic.Uint64
+
+func jitter() uint64 {
+	for {
+		old := jitterState.Load()
+		s := old
+		if s == 0 {
+			s = uint64(time.Now().UnixNano()) | 1
+		}
+		s ^= s << 13
+		s ^= s >> 7
+		s ^= s << 17
+		if jitterState.CompareAndSwap(old, s) {
+			return s
+		}
+	}
 }
 
 // sleep waits, or returns early when the context ends. A cancelled context ends

@@ -4,10 +4,10 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -76,24 +76,52 @@ func SHA256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// unreservedByte marks the bytes SigV4 leaves unescaped: ALPHA / DIGIT and
+// "-", "_", ".", "~". A table lookup keeps URIEncode off the per-byte scan and
+// the formatting machinery, since it runs over every key and query of every
+// signed request.
+var unreservedByte = func() (t [256]bool) {
+	for c := 'A'; c <= 'Z'; c++ {
+		t[c], t[c+'a'-'A'] = true, true
+	}
+	for c := '0'; c <= '9'; c++ {
+		t[c] = true
+	}
+	t['-'], t['_'], t['.'], t['~'] = true, true, true, true
+	return
+}()
+
+const upperhex = "0123456789ABCDEF"
+
 // URIEncode escapes s the way SigV4 requires: every byte outside the unreserved
 // set becomes %XX. Path segments keep their separators, query components do not.
 //
 // For S3 the encoded form is also what goes on the wire, so the signature covers
 // the request line byte for byte.
 func URIEncode(s string, encodeSlash bool) string {
-	const unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+	// The common case is a string that needs no escaping at all; return it
+	// without copying.
+	i := 0
+	for i < len(s) && (unreservedByte[s[i]] || (s[i] == '/' && !encodeSlash)) {
+		i++
+	}
+	if i == len(s) {
+		return s
+	}
 	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(s); i++ {
+	b.Grow(len(s) + 8)
+	b.WriteString(s[:i])
+	for ; i < len(s); i++ {
 		c := s[i]
 		switch {
-		case strings.IndexByte(unreserved, c) >= 0:
+		case unreservedByte[c]:
 			b.WriteByte(c)
 		case c == '/' && !encodeSlash:
 			b.WriteByte('/')
 		default:
-			fmt.Fprintf(&b, "%%%02X", c)
+			b.WriteByte('%')
+			b.WriteByte(upperhex[c>>4])
+			b.WriteByte(upperhex[c&0xF])
 		}
 	}
 	return b.String()
@@ -185,12 +213,49 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 		SHA256Hex([]byte(canonicalRequest)),
 	}, "\n")
 
-	key := hmacSHA256(hmacSHA256(hmacSHA256(hmacSHA256(
-		[]byte("AWS4"+creds.SecretAccessKey), dateStamp), sr.Region), sr.Service), "aws4_request")
+	key := signingKey(creds.SecretAccessKey, dateStamp, sr.Region, sr.Service)
 	signature := hex.EncodeToString(hmacSHA256(key, stringToSign))
 
-	req.Header.Set("Authorization", fmt.Sprintf("%s Credential=%s/%s, SignedHeaders=%s, Signature=%s",
-		algorithm, creds.AccessKeyID, scope, signedHeaders, signature))
+	req.Header.Set("Authorization", algorithm+" Credential="+creds.AccessKeyID+"/"+scope+
+		", SignedHeaders="+signedHeaders+", Signature="+signature)
+}
+
+// signingKeyCache holds derived signing keys. The derivation is four chained
+// HMACs whose inputs only change once a day (or when the region, service, or
+// secret does), so a client issuing many small requests re-derives the same
+// key on every one of them without this.
+var signingKeyCache struct {
+	sync.Mutex
+	entries map[string][]byte
+}
+
+// signingKey derives (or recalls) the SigV4 signing key for one scope.
+func signingKey(secret, dateStamp, region, service string) []byte {
+	cacheKey := dateStamp + "/" + region + "/" + service + "/" + secret
+
+	c := &signingKeyCache
+	c.Lock()
+	key, ok := c.entries[cacheKey]
+	c.Unlock()
+	if ok {
+		return key
+	}
+
+	key = hmacSHA256(hmacSHA256(hmacSHA256(hmacSHA256(
+		[]byte("AWS4"+secret), dateStamp), region), service), "aws4_request")
+
+	c.Lock()
+	// A stale-day entry is useless from midnight on; starting over also bounds
+	// the map when credentials rotate often.
+	if len(c.entries) >= 16 {
+		c.entries = nil
+	}
+	if c.entries == nil {
+		c.entries = make(map[string][]byte, 4)
+	}
+	c.entries[cacheKey] = key
+	c.Unlock()
+	return key
 }
 
 // host returns the host the request will send, which is Request.Host when the

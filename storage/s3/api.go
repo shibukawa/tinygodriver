@@ -3,7 +3,6 @@ package s3
 import (
 	"bytes"
 	"context"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -233,22 +232,6 @@ type ListResult struct {
 	NextToken string
 }
 
-// listBucketResult is the ListObjectsV2 response document.
-type listBucketResult struct {
-	XMLName               xml.Name `xml:"ListBucketResult"`
-	IsTruncated           bool     `xml:"IsTruncated"`
-	NextContinuationToken string   `xml:"NextContinuationToken"`
-	Contents              []struct {
-		Key          string    `xml:"Key"`
-		LastModified time.Time `xml:"LastModified"`
-		ETag         string    `xml:"ETag"`
-		Size         int64     `xml:"Size"`
-	} `xml:"Contents"`
-	CommonPrefixes []struct {
-		Prefix string `xml:"Prefix"`
-	} `xml:"CommonPrefixes"`
-}
-
 // maxListBody bounds a listing document.
 const maxListBody = 16 << 20
 
@@ -293,32 +276,12 @@ func (c *Client) List(ctx context.Context, bucket string, opts ...ListOption) (*
 		return nil, err
 	}
 
-	var doc listBucketResult
-	if err := xml.Unmarshal(body, &doc); err != nil {
+	result, err := parseListBucketResult(body)
+	if err != nil {
 		return nil, &Error{Op: "List", Bucket: bucket, StatusCode: resp.StatusCode,
 			Code: "MalformedXML", Message: err.Error(), err: err}
 	}
-
-	result := &ListResult{IsTruncated: doc.IsTruncated, NextToken: doc.NextContinuationToken}
-	for _, item := range doc.Contents {
-		result.Objects = append(result.Objects, ObjectInfo{
-			Key:          item.Key,
-			Size:         item.Size,
-			ETag:         item.ETag,
-			LastModified: item.LastModified,
-		})
-	}
-	for _, item := range doc.CommonPrefixes {
-		result.CommonPrefixes = append(result.CommonPrefixes, item.Prefix)
-	}
 	return result, nil
-}
-
-// createBucketConfiguration is the body a non us-east-1 bucket creation needs.
-type createBucketConfiguration struct {
-	XMLName            xml.Name `xml:"CreateBucketConfiguration"`
-	XMLNS              string   `xml:"xmlns,attr"`
-	LocationConstraint string   `xml:"LocationConstraint"`
 }
 
 // CreateBucket creates a bucket in the client's region. A bucket that already
@@ -331,13 +294,9 @@ func (c *Client) CreateBucket(ctx context.Context, bucket string) error {
 	// us-east-1 is the default location and must not be stated explicitly.
 	region := c.Region()
 	if region != "us-east-1" {
-		body, err := xml.Marshal(&createBucketConfiguration{
-			XMLNS:              "http://s3.amazonaws.com/doc/2006-03-01/",
-			LocationConstraint: region,
-		})
-		if err != nil {
-			return err
-		}
+		body := []byte(`<CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+			`<LocationConstraint>` + xmlEscapeText(region) + `</LocationConstraint>` +
+			`</CreateBucketConfiguration>`)
 		get, length, hash, err := c.bodyFromReader(bytes.NewReader(body), nil)
 		if err != nil {
 			return err

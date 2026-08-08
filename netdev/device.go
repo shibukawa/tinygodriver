@@ -211,9 +211,14 @@ func (d *Device) Send(sockfd int, buf []byte, flags int, deadline time.Time) (in
 		return -1, err
 	}
 	if s.protocol == IPPROTO_TLS {
+		// Writers serialize on writeMu only, so a Recv blocked in the TLS
+		// stack cannot stall this Send; see the lock comment on socket.
+		s.writeMu.Lock()
+		defer s.writeMu.Unlock()
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		return sysTLSSend(s.tls, buf)
+		tls := s.tls
+		s.mu.Unlock()
+		return sysTLSSend(tls, buf)
 	}
 	n, err := sysSend(s.fd, buf, flags)
 	if n < 0 {
@@ -234,9 +239,12 @@ func (d *Device) Recv(sockfd int, buf []byte, flags int, deadline time.Time) (in
 		return -1, err
 	}
 	if s.protocol == IPPROTO_TLS {
+		s.readMu.Lock()
+		defer s.readMu.Unlock()
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		n, err := sysTLSRecv(s.tls, buf)
+		tls := s.tls
+		s.mu.Unlock()
+		n, err := sysTLSRecv(tls, buf)
 		if n == 0 && err == nil {
 			return 0, io.EOF
 		}
@@ -262,12 +270,18 @@ func (d *Device) Close(sockfd int) error {
 	if !ok {
 		return ErrInvalidSocketFd
 	}
+	// Both I/O locks, in the readMu → writeMu order Send and Recv respect, so
+	// the TLS session is never freed under an operation still using it.
+	s.readMu.Lock()
+	s.writeMu.Lock()
 	s.mu.Lock()
 	if s.tls != 0 {
 		sysTLSClose(s.tls)
 		s.tls = 0
 	}
 	s.mu.Unlock()
+	s.writeMu.Unlock()
+	s.readMu.Unlock()
 	if err := sysClose(s.fd); err != nil {
 		return ErrClosingSocket
 	}
