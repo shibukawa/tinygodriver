@@ -140,13 +140,21 @@ func (d *Device) Connect(sockfd int, host string, ip netip.AddrPort) error {
 	return nil
 }
 
+// minListenBacklog is the accept-queue depth Listen will not go below.
+// It matches the SOMAXCONN that host kernels default to.
+const minListenBacklog = 128
+
 func (d *Device) Listen(sockfd int, backlog int) error {
 	s, err := d.get(sockfd)
 	if err != nil {
 		return err
 	}
-	if backlog <= 0 {
-		backlog = 5
+	// TinyGo's net hardcodes a backlog of 5, which is sized for a
+	// microcontroller serving one client at a time. On a host, a burst of
+	// concurrent connects overflows that queue and the kernel resets the
+	// overflow, so raise it to what a host listener would ask for.
+	if backlog < minListenBacklog {
+		backlog = minListenBacklog
 	}
 	_ = sysSetReuseAddr(s.fd)
 	return sysListen(s.fd, backlog)
@@ -164,6 +172,12 @@ func (d *Device) Accept(sockfd int) (int, netip.AddrPort, error) {
 	// Blocking accept (http.Server manages concurrency via goroutines).
 	nfd, raddr, err := sysAccept(s.fd)
 	if err != nil {
+		// Close() during a blocked accept surfaces as a raw errno, which a
+		// server cannot tell apart from a real failure. If the listener is gone
+		// from the table, the close is what ended the accept.
+		if _, gone := d.get(sockfd); gone != nil {
+			return -1, netip.AddrPort{}, ErrClosed
+		}
 		return -1, netip.AddrPort{}, err
 	}
 

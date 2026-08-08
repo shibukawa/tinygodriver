@@ -121,6 +121,7 @@ const (
 	osSO_REUSEADDR  = 4
 	osSO_KEEPALIVE  = 8
 	osSO_LINGER     = 0x80
+	osSO_NOSIGPIPE  = 0x1022
 	osSOL_TCP       = 6
 	osTCP_KEEPINTVL = 0x101
 	osEINTR         = 4
@@ -235,7 +236,17 @@ func sysSocket(domain, stype, proto int) (int, error) {
 	if fd < 0 {
 		return -1, lastSysErrno()
 	}
+	sysSetNoSigPipe(fd)
 	return fd, nil
+}
+
+// sysSetNoSigPipe turns a write to a peer that is gone into EPIPE instead of a
+// signal. Host Go installs a SIGPIPE handler that does this for every socket;
+// TinyGo does not, so the default disposition kills the process. Failure is not
+// worth reporting: the socket is still usable, it just stays signal-prone.
+func sysSetNoSigPipe(fd int) {
+	one := C.int(1)
+	C.h_setsockopt(C.int(fd), osSOL_SOCKET, osSO_NOSIGPIPE, unsafe.Pointer(&one), 4)
 }
 
 func sysBind(fd int, ip netip.AddrPort) error {
@@ -262,6 +273,7 @@ func sysAccept(fd int) (int, netip.AddrPort, error) {
 		n := C.uint(16)
 		nfd := int(C.h_accept(C.int(fd), unsafe.Pointer(&sa), &n))
 		if nfd >= 0 {
+			sysSetNoSigPipe(nfd)
 			return nfd, fromSockaddr(sa), nil
 		}
 		// accept blocks for the life of a server, so a signal must not end the

@@ -66,6 +66,12 @@ var (
 	ErrConnTimedOut     = errors.New("connection timed out")
 	ErrWouldBlock       = errors.New("resource temporarily unavailable")
 	ErrSyscall          = errors.New("syscall error")
+
+	// ErrClosed is what Accept reports once the listener has been closed. The
+	// wording is standard Go's, because servers recognise a graceful shutdown by
+	// matching that text: net/http compares against net.ErrClosed, and fasthttp
+	// looks for the substring. Anything else reads as a crash.
+	ErrClosed = errors.New("use of closed network connection")
 )
 
 type timeoutError struct{}
