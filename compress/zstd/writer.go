@@ -122,10 +122,29 @@ func (z *Writer) writeBlocks(p []byte, last bool) error {
 	if len(p) < 2 || allSameByte(p) {
 		return z.writeBlock(p, last)
 	}
-	if match, ok := z.findMatch(p); ok {
+	// One run scan serves both the profitability baseline in findMatch and
+	// the fallback emission below; it used to be computed twice.
+	spans, rleSize := splitRuns(p)
+	if match, ok := z.findMatch(p, rleSize); ok {
 		return z.writeCompressedBlock(p, match, last)
 	}
+	for _, s := range spans {
+		if err := z.writeBlock(p[s.start:s.end], last && s.end == len(p)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
+// span is one block of the run-split fallback: a qualifying run, or the raw
+// stretch between two.
+type span struct {
+	start, end int
+}
+
+// splitRuns cuts p at profitable RLE runs and estimates the encoded size of
+// emitting it that way.
+func splitRuns(p []byte) (spans []span, size int) {
 	rawStart := 0
 	for start := 0; start < len(p); {
 		end := start + 1
@@ -140,21 +159,20 @@ func (z *Writer) writeBlocks(p []byte, last bool) error {
 		}
 		if end-start >= minRun {
 			if rawStart != start {
-				if err := z.writeBlock(p[rawStart:start], false); err != nil {
-					return err
-				}
+				spans = append(spans, span{rawStart, start})
+				size += 3 + start - rawStart
 			}
-			if err := z.writeBlock(p[start:end], last && end == len(p)); err != nil {
-				return err
-			}
+			spans = append(spans, span{start, end})
+			size += 4
 			rawStart = end
 		}
 		start = end
 	}
 	if rawStart != len(p) {
-		return z.writeBlock(p[rawStart:], last)
+		spans = append(spans, span{rawStart, len(p)})
+		size += 3 + len(p) - rawStart
 	}
-	return nil
+	return spans, size
 }
 
 type blockMatch struct {
@@ -163,7 +181,15 @@ type blockMatch struct {
 	length int
 }
 
-func (z *Writer) findMatch(p []byte) (blockMatch, bool) {
+// matchSkipThreshold is the extension length past which findMatch skips the
+// matched span instead of re-extending from every position inside it. Without
+// the skip, input shaped like a long repeat that stops short of the block end
+// made the scan quadratic: each position inside the repeat re-compared to the
+// end of it. Skipping bounds total extension work at the cost of not seeing a
+// match that starts inside a span already matched this long.
+const matchSkipThreshold = 64
+
+func (z *Writer) findMatch(p []byte, rleSize int) (blockMatch, bool) {
 	for i := range z.match {
 		z.match[i] = 0
 	}
@@ -190,6 +216,9 @@ func (z *Writer) findMatch(p []byte) (blockMatch, bool) {
 				break
 			}
 		}
+		if length >= matchSkipThreshold {
+			current += length - 1
+		}
 	}
 	if best.length < 4 {
 		return blockMatch{}, false
@@ -202,37 +231,10 @@ func (z *Writer) findMatch(p []byte) (blockMatch, bool) {
 	ofCode := bitLength(uint32(offsetValue)) - 1
 	bitstreamSize := int(llBits+mlBits+ofCode+1+7) / 8
 	compressedSize := literalHeaderSize(literalCount) + literalCount + 5 + bitstreamSize
-	if compressedSize+3 >= rleBlockSize(p) || llCode > 35 || mlCode > 52 || ofCode > 31 {
+	if compressedSize+3 >= rleSize || llCode > 35 || mlCode > 52 || ofCode > 31 {
 		return blockMatch{}, false
 	}
 	return best, true
-}
-
-func rleBlockSize(p []byte) int {
-	total := 0
-	rawStart := 0
-	for start := 0; start < len(p); {
-		end := start + 1
-		for end < len(p) && p[end] == p[start] {
-			end++
-		}
-		minRun := 8
-		if start == 0 || end == len(p) {
-			minRun = 5
-		}
-		if end-start >= minRun {
-			if rawStart != start {
-				total += 3 + start - rawStart
-			}
-			total += 4
-			rawStart = end
-		}
-		start = end
-	}
-	if rawStart != len(p) {
-		total += 3 + len(p) - rawStart
-	}
-	return total
 }
 
 func (z *Writer) writeCompressedBlock(p []byte, match blockMatch, last bool) error {
