@@ -148,10 +148,11 @@ func (mux *ServeMux) matchOrRedirect(host, method, requestPath string, u *url.UR
 	mux.mu.RLock()
 	defer mux.mu.RUnlock()
 
-	matched, values := bestMatch(mux.routes, host, method, requestPath)
+	split := splitPath(requestPath)
+	matched, values := bestMatch(mux.routes, host, method, split)
 	if !exactMatch(matched, requestPath) && u != nil && requestPath != "" && !strings.HasSuffix(requestPath, "/") {
 		withSlash := requestPath + "/"
-		redirectMatch, _ := bestMatch(mux.routes, host, method, withSlash)
+		redirectMatch, _ := bestMatch(mux.routes, host, method, splitPath(withSlash))
 		if exactMatch(redirectMatch, withSlash) {
 			return redirectMatch, nil, &url.URL{Path: cleanPath(u.Path) + "/", RawQuery: u.RawQuery}
 		}
@@ -159,7 +160,31 @@ func (mux *ServeMux) matchOrRedirect(host, method, requestPath string, u *url.UR
 	return matched, values, nil
 }
 
-func bestMatch(routes []route, host, method, requestPath string) (*route, []pathValue) {
+// splitRequestPath is a request path cut into the segments matchPath consumes.
+// Splitting and unescaping once per request replaces doing both once per
+// candidate route.
+type splitRequestPath struct {
+	// segs holds the unescaped segment values in firstSegment order, with a
+	// final "/" entry for a path that ends in one.
+	segs []string
+	// rawTails[i] is the still-escaped remainder of the path from segment i
+	// on, which is what a {name...} wildcard captures.
+	rawTails []string
+}
+
+func splitPath(requestPath string) splitRequestPath {
+	var split splitRequestPath
+	rest := requestPath
+	for rest != "" {
+		split.rawTails = append(split.rawTails, rest)
+		value, remaining := firstSegment(rest)
+		split.segs = append(split.segs, value)
+		rest = remaining
+	}
+	return split
+}
+
+func bestMatch(routes []route, host, method string, split splitRequestPath) (*route, []pathValue) {
 	var best *route
 	var bestValues []pathValue
 	for i := range routes {
@@ -170,7 +195,7 @@ func bestMatch(routes []route, host, method, requestPath string) (*route, []path
 		if !matchesMethod(candidate.pattern.method, method) {
 			continue
 		}
-		values, ok := matchPath(candidate.pattern, requestPath)
+		values, ok := matchPath(candidate.pattern, split)
 		if !ok {
 			continue
 		}
@@ -193,20 +218,20 @@ func matchesMethod(patternMethod, requestMethod string) bool {
 	return patternMethod == "" || patternMethod == requestMethod || (patternMethod == "GET" && requestMethod == "HEAD")
 }
 
-func matchPath(p *pattern, requestPath string) ([]pathValue, bool) {
+func matchPath(p *pattern, split splitRequestPath) ([]pathValue, bool) {
 	var values []pathValue
-	rest := requestPath
+	i := 0
 	for _, seg := range p.segments {
-		if rest == "" {
+		if i >= len(split.segs) {
 			return nil, false
 		}
 		if seg.multi {
 			if seg.s != "" {
-				values = append(values, pathValue{name: seg.s, value: pathUnescape(rest[1:])})
+				values = append(values, pathValue{name: seg.s, value: pathUnescape(split.rawTails[i][1:])})
 			}
 			return values, true
 		}
-		value, remaining := firstSegment(rest)
+		value := split.segs[i]
 		if seg.wild {
 			if value == "/" {
 				return nil, false
@@ -215,9 +240,9 @@ func matchPath(p *pattern, requestPath string) ([]pathValue, bool) {
 		} else if value != seg.s {
 			return nil, false
 		}
-		rest = remaining
+		i++
 	}
-	return values, rest == ""
+	return values, i == len(split.segs)
 }
 
 func firstSegment(requestPath string) (string, string) {
@@ -250,9 +275,9 @@ func (mux *ServeMux) matchingMethods(host, requestPath string) []string {
 	defer mux.mu.RUnlock()
 
 	set := map[string]bool{}
-	collectMethods(mux.routes, host, requestPath, set)
+	collectMethods(mux.routes, host, splitPath(requestPath), set)
 	if !strings.HasSuffix(requestPath, "/") {
-		collectMethods(mux.routes, host, requestPath+"/", set)
+		collectMethods(mux.routes, host, splitPath(requestPath+"/"), set)
 	}
 	if set["GET"] {
 		set["HEAD"] = true
@@ -265,13 +290,13 @@ func (mux *ServeMux) matchingMethods(host, requestPath string) []string {
 	return methods
 }
 
-func collectMethods(routes []route, host, requestPath string, set map[string]bool) {
+func collectMethods(routes []route, host string, split splitRequestPath, set map[string]bool) {
 	for i := range routes {
 		p := routes[i].pattern
 		if p.method == "" || (p.host != "" && p.host != host) {
 			continue
 		}
-		if _, ok := matchPath(p, requestPath); ok {
+		if _, ok := matchPath(p, split); ok {
 			set[p.method] = true
 		}
 	}
