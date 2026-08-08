@@ -18,7 +18,12 @@ import (
 func TestSystemLookupHostLocalhost(t *testing.T) {
 	ip, ok := systemLookupHost("localhost")
 	if !ok {
-		t.Skip("this build has no system resolver; see dns_system_none.go")
+		// A TinyGo build links dns_system_none.go, which has no resolver to ask.
+		// t.Skip cannot end this function there -- SkipNow needs runtime.Goexit,
+		// which TinyGo has not implemented, and the test would otherwise carry on
+		// into the assertions below and fail on the zero address.
+		t.Log("skipped: this build has no system resolver; see dns_system_none.go")
+		return
 	}
 	if !ip.Is4() {
 		t.Fatalf("got %v, want an IPv4 address", ip)

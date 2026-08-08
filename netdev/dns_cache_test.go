@@ -73,6 +73,19 @@ func TestDNSCacheExpiryAndReplacement(t *testing.T) {
 
 func TestLookupHostsInRevalidatesOnChange(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hosts")
+
+	// Revalidation can only be observed through distinct mtimes, and not every
+	// platform can set them -- TinyGo's os has no Chtimes. Establish that up
+	// front, because without it there is nothing here that tests netdev, and
+	// because a t.Fatal inside the closure below would not stop a TinyGo run.
+	if err := os.WriteFile(path, []byte("# probe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, time.Now(), time.Now()); err != nil {
+		t.Log("skipped: this platform cannot set file times:", err)
+		return
+	}
+
 	write := func(content string, when time.Time) {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)

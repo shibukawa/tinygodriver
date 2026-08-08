@@ -1,4 +1,4 @@
-//go:build darwin || (windows && cgo) || (linux && !tinygo)
+//go:build !tinygo && (darwin || (windows && cgo) || linux)
 
 // IPPROTO_TLS is backed by Secure Transport on darwin, Schannel on windows and
 // OpenSSL on host-Go Linux, so this exercises all three.
@@ -7,6 +7,15 @@
 // windows means the extra-anchor path: the system certificate store is tried
 // first and fails, then the chain is rebuilt against an exclusive engine over
 // the supplied anchor.
+//
+// The constraint is host Go on every platform, `force_tinygo_logic` included,
+// because the test supplies the *server* side of the handshake out of the
+// standard library. TinyGo ships crypto/tls as a stub with neither
+// tls.X509KeyPair nor a working tls.Listen, on any platform, so under TinyGo
+// there is nothing for the netdev client to connect to. The backend under test
+// does not change: tls_securetransport_darwin.go and tls_windows.go are
+// constrained on the OS alone, so a host-Go run exercises the same code a TinyGo
+// one would.
 
 package netdev
 
