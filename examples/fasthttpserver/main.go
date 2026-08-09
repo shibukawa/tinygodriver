@@ -1,7 +1,8 @@
 // Command fasthttpserver is a fasthttp server that works with both TinyGo and
-// standard Go. Under TinyGo, the blank import registers the host Netdever so the
-// net package can use the OS TCP stack, and -tags noasm is required because
-// TinyGo cannot link klauspost/compress's zstd assembly.
+// standard Go, routing through the fasthttprouter fork. Under TinyGo, the
+// blank import registers the host Netdever so the net package can use the OS
+// TCP stack, and -tags noasm is required because TinyGo cannot link
+// klauspost/compress's zstd assembly.
 //
 //	tinygo build -tags noasm -o server ./examples/fasthttpserver && ./server
 //	go run ./examples/fasthttpserver
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/shibukawa/tinygodriver/fasthttp"
+	router "github.com/shibukawa/tinygodriver/fasthttprouter"
 
 	// Registers the host Netdever for TinyGo's net package.
 	_ "github.com/shibukawa/tinygodriver/netdev"
@@ -45,7 +47,7 @@ func main() {
 		// CompressHandlerBrotliLevel negotiates br, gzip, deflate and zstd. All
 		// four work under TinyGo; all four are also why the binary is 4 MB
 		// larger than the net/http equivalent.
-		Handler:      fasthttp.CompressHandlerBrotliLevel(router(static), 4, 6),
+		Handler:      fasthttp.CompressHandlerBrotliLevel(newRouter(static).Handler, 4, 6),
 		Name:         "tinygodriver",
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -53,10 +55,11 @@ func main() {
 
 	fmt.Printf("tinygodriver fasthttpserver listening on %s (runtime=%s compiler=%s backend=%s)\n",
 		addr, runtime.GOOS+"/"+runtime.GOARCH, runtime.Compiler, fasthttp.Backend)
-	fmt.Println("  GET  /          hello + request info")
-	fmt.Println("  GET  /healthz   liveness probe")
-	fmt.Println("  POST /echo      body echo (text/plain)")
-	fmt.Println("  GET  /stream    chunked response, one line at a time")
+	fmt.Println("  GET  /            hello + request info")
+	fmt.Println("  GET  /hello/{name} greeting with a path parameter")
+	fmt.Println("  GET  /healthz     liveness probe")
+	fmt.Println("  POST /echo        body echo (text/plain)")
+	fmt.Println("  GET  /stream      chunked response, one line at a time")
 	if static != nil {
 		fmt.Printf("  GET  /static/*  files from %s\n", os.Getenv("STATIC"))
 	}
@@ -80,25 +83,31 @@ func main() {
 	}
 }
 
-func router(static fasthttp.RequestHandler) fasthttp.RequestHandler {
-	return func(ctx *fasthttp.RequestCtx) {
-		path := string(ctx.Path())
-		switch {
-		case path == "/":
-			home(ctx)
-		case path == "/healthz":
-			ctx.SetContentType("text/plain; charset=utf-8")
-			ctx.SetBodyString("ok\n")
-		case path == "/echo":
-			echo(ctx)
-		case path == "/stream":
-			stream(ctx)
-		case static != nil && len(path) >= 8 && path[:8] == "/static/":
-			static(ctx)
-		default:
-			ctx.Error("not found\n", fasthttp.StatusNotFound)
-		}
+// newRouter wires the routes through the fasthttprouter fork, which replaced
+// the hand-rolled path switch this example used to carry. The router also
+// answers 405 with an Allow header and OPTIONS on its own, which the switch
+// never did.
+func newRouter(static fasthttp.RequestHandler) *router.Router {
+	r := router.New()
+	r.GET("/", home)
+	r.GET("/hello/{name}", hello)
+	r.GET("/healthz", func(ctx *fasthttp.RequestCtx) {
+		ctx.SetContentType("text/plain; charset=utf-8")
+		ctx.SetBodyString("ok\n")
+	})
+	r.POST("/echo", echo)
+	r.GET("/stream", stream)
+	if static != nil {
+		// FSHandler was built to strip one path segment, so it can take the
+		// whole request path; the wildcard only decides what reaches it.
+		r.GET("/static/{filepath:*}", static)
 	}
+	return r
+}
+
+func hello(ctx *fasthttp.RequestCtx) {
+	ctx.SetContentType("text/plain; charset=utf-8")
+	fmt.Fprintf(ctx, "hello, %s!\n", ctx.UserValue("name"))
 }
 
 func home(ctx *fasthttp.RequestCtx) {
@@ -115,10 +124,8 @@ func home(ctx *fasthttp.RequestCtx) {
 }
 
 func echo(ctx *fasthttp.RequestCtx) {
-	if !ctx.IsPost() {
-		ctx.Error("POST only\n", fasthttp.StatusMethodNotAllowed)
-		return
-	}
+	// No method check: the router registered this for POST alone and answers
+	// anything else with 405 and an Allow header itself.
 	ctx.SetContentType("text/plain; charset=utf-8")
 	ctx.SetBody(ctx.PostBody())
 }
