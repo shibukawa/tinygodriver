@@ -86,6 +86,26 @@ func TestKlauspostWriterFlushEmitsDecodableBlocks(t *testing.T) {
 	}
 }
 
+// Both backends owe a caller the same guarantee: building an encoder does not
+// put anything on the wire, so a server that wraps its ResponseWriter before
+// rendering has not yet committed a status.
+func TestKlauspostNewWriterWritesNothing(t *testing.T) {
+	var dst bytes.Buffer
+	z, err := NewWriter(&dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dst.Len() != 0 {
+		t.Fatalf("NewWriter wrote %x, want an untouched destination", dst.Bytes())
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if dst.Len() == 0 {
+		t.Fatal("Close wrote nothing, want the empty frame")
+	}
+}
+
 func TestKlauspostWriterLifecycle(t *testing.T) {
 	var dst bytes.Buffer
 	z, err := NewWriter(&dst)

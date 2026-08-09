@@ -25,6 +25,13 @@ encoded, result, err := zstd.EncodeAll(body, zstd.WithETag(false))
 `NewWriter` provides the bounded streaming form. Call `Close`, then `Result`;
 closing the encoder does not close its destination.
 
+Constructing an encoder writes nothing to the destination. As in
+`compress/gzip`, the frame header goes out with the first `Write`, `Flush`, or
+`Close`. A handler can therefore wrap its `http.ResponseWriter` before
+rendering and still answer a rendering failure with an uncompressed error
+response: nothing has reached the wire, so the status is not committed and
+`Content-Encoding` can still be dropped.
+
 `Flush` emits the buffered input as complete blocks so a reader can decode
 everything written so far, which is what streaming responses and server-sent
 events need between chunks. It neither ends the frame nor flushes the

@@ -173,3 +173,54 @@ func TestNewWriterRejectsNil(t *testing.T) {
 		t.Fatal("NewWriter(nil) succeeded")
 	}
 }
+
+// A server wraps its ResponseWriter before it knows the response renders. The
+// frame header must wait for the first Write, or that decision alone commits a
+// 200 and Content-Encoding, and a rendering failure can no longer be reported.
+func TestNewWriterDefersFrameHeader(t *testing.T) {
+	var dst bytes.Buffer
+	z, err := NewWriter(&dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dst.Len() != 0 {
+		t.Fatalf("NewWriter wrote %x, want an untouched destination", dst.Bytes())
+	}
+	if _, err := z.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	header := []byte{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x38}
+	if !bytes.Equal(dst.Bytes(), header) {
+		t.Fatalf("after the first Write = %x, want the frame header %x", dst.Bytes(), header)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertReferenceDecode(t, dst.Bytes(), []byte("hello"))
+}
+
+type errorWriter struct{ err error }
+
+func (w errorWriter) Write(p []byte) (int, error) { return 0, w.err }
+
+// The header write moved out of NewWriter, so a dead destination is reported by
+// the first Write instead, and stays reported.
+func TestWriterReportsDeferredHeaderFailure(t *testing.T) {
+	want := errors.New("destination is gone")
+	z, err := NewWriter(errorWriter{err: want})
+	if err != nil {
+		t.Fatalf("NewWriter reached the destination: %v", err)
+	}
+	if _, err := z.Write([]byte("hello")); !errors.Is(err, want) {
+		t.Fatalf("Write error = %v, want %v", err, want)
+	}
+	if err := z.Flush(); !errors.Is(err, want) {
+		t.Fatalf("Flush error = %v, want %v", err, want)
+	}
+	if err := z.Close(); !errors.Is(err, want) {
+		t.Fatalf("Close error = %v, want %v", err, want)
+	}
+	if _, err := z.Result(); !errors.Is(err, ErrResultUnavailable) {
+		t.Fatalf("Result error = %v, want %v", err, ErrResultUnavailable)
+	}
+}

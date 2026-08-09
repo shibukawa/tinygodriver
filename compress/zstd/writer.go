@@ -40,27 +40,39 @@ type Writer struct {
 	litCounts [256]uint32
 	litBody   []byte
 
-	closed bool
-	err    error
+	wroteHeader bool
+	closed      bool
+	err         error
 }
 
-// NewWriter starts a streaming frame. The frame has a 128 KiB maximum window
-// and does not include an RFC 8878 content checksum; Result provides the
-// representation digest used for caching.
+// NewWriter starts a streaming frame. Constructing a Writer writes nothing to
+// the destination: as in compress/gzip, the frame header goes out with the
+// first Write, Flush, or Close, so an encoder built and then abandoned leaves
+// the destination untouched. The frame has a 128 KiB maximum window and does
+// not include an RFC 8878 content checksum; Result provides the representation
+// digest used for caching.
 func NewWriter(w io.Writer, options ...Option) (*Writer, error) {
 	if w == nil {
 		return nil, errors.New("zstd: nil writer")
 	}
 	resolved := resolveOptions(options)
-	z := &Writer{
+	return &Writer{
 		out: newOutputWriter(w, resolved.etag),
 		buf: make([]byte, 0, maxBlockSize),
+	}, nil
+}
+
+// writeFrameHeader emits the frame header the first time the caller asks for
+// output. A server that builds an encoder before rendering can then still
+// answer with an uncompressed error response, because nothing has reached the
+// ResponseWriter and the status is not yet committed.
+func (z *Writer) writeFrameHeader() error {
+	if z.wroteHeader {
+		return nil
 	}
+	z.wroteHeader = true
 	// Magic number, frame header descriptor, and a 128 KiB window descriptor.
-	if err := z.writeEncoded([]byte{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x38}); err != nil {
-		return nil, err
-	}
-	return z, nil
+	return z.writeEncoded([]byte{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x38})
 }
 
 // Write adds uncompressed input to the frame. At most one block (128 KiB) is
@@ -71,6 +83,10 @@ func (z *Writer) Write(p []byte) (int, error) {
 	}
 	if z.err != nil {
 		return 0, z.err
+	}
+	if err := z.writeFrameHeader(); err != nil {
+		z.err = err
+		return 0, err
 	}
 	written := 0
 	for len(p) != 0 {
@@ -95,14 +111,18 @@ func (z *Writer) Write(p []byte) (int, error) {
 // Flush emits the buffered input as complete blocks so that everything written
 // so far can be decoded, and returns once those bytes reach the destination.
 // It does not end the frame and it does not flush the destination itself.
-// Flushing before a block fills reduces the compression ratio; Flush is a
-// no-op when no input is buffered.
+// Flushing before a block fills reduces the compression ratio; Flush writes
+// nothing beyond a still pending frame header when no input is buffered.
 func (z *Writer) Flush() error {
 	if z.closed {
 		return ErrClosed
 	}
 	if z.err != nil {
 		return z.err
+	}
+	if err := z.writeFrameHeader(); err != nil {
+		z.err = err
+		return err
 	}
 	if len(z.buf) == 0 {
 		return nil
@@ -123,6 +143,10 @@ func (z *Writer) Close() error {
 	z.closed = true
 	if z.err != nil {
 		return z.err
+	}
+	if err := z.writeFrameHeader(); err != nil {
+		z.err = err
+		return err
 	}
 	if err := z.writeBlocks(z.buf, true); err != nil {
 		z.err = err

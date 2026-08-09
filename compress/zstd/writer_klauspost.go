@@ -19,8 +19,10 @@ type Writer struct {
 	err     error
 }
 
-// NewWriter starts a host-Go Zstandard stream. TinyGo and builds using the
-// force_tinygo_logic tag select the bounded TinyGo encoder instead.
+// NewWriter starts a host-Go Zstandard stream. Constructing a Writer writes
+// nothing to the destination, so an encoder built and then abandoned leaves the
+// destination untouched. TinyGo and builds using the force_tinygo_logic tag
+// select the bounded TinyGo encoder instead.
 func NewWriter(w io.Writer, options ...Option) (*Writer, error) {
 	if w == nil {
 		return nil, errors.New("zstd: nil writer")
