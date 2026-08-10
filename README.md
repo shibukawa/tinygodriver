@@ -17,6 +17,8 @@ and tests between both compilers.
 | [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
 | [`fasthttp`](./fasthttp) | `github.com/shibukawa/tinygodriver/fasthttp` | Drop-in `valyala/fasthttp` fork that builds under TinyGo, plaintext only |
+| [`fasthttprouter`](./fasthttprouter) | `github.com/shibukawa/tinygodriver/fasthttprouter` | Drop-in `fasthttp/router` fork that routes for the fasthttp fork |
+| [`fasthttpwebsocket`](./fasthttpwebsocket) | `github.com/shibukawa/tinygodriver/fasthttpwebsocket` | Drop-in `fasthttp/websocket` fork; the only protocol upgrade that works on TinyGo |
 | [`sqlite`](./database/sql/sqlite) | `github.com/shibukawa/tinygodriver/database/sql/sqlite` | SQLite `database/sql` driver, backend chosen at build time |
 | [`pgx`](./database/pgx) | `github.com/shibukawa/tinygodriver/database/pgx` | pgx-native PostgreSQL API: Batch, CopyFrom, LISTEN/NOTIFY; TLS included |
 | [`pgx/pgxpool`](./database/pgx/pgxpool) | `github.com/shibukawa/tinygodriver/database/pgx/pgxpool` | Concurrency-safe pool of native pgx connections |
@@ -97,7 +99,7 @@ func main() {
 | Example | Path | Description |
 |---------|------|-------------|
 | HTTP server and reverse proxy | [`examples/httpserver`](./examples/httpserver) | Method-aware routes, host netdev, and a configurable reverse proxy |
-| fasthttp server | [`examples/fasthttpserver`](./examples/fasthttpserver) | Routes, content negotiation, chunked streaming, and graceful shutdown on fasthttp |
+| fasthttp server | [`examples/fasthttpserver`](./examples/fasthttpserver) | Routes, content negotiation, chunked streaming, a WebSocket echo, and graceful shutdown on fasthttp |
 | HTTPS client | [`examples/httpsclient`](./examples/httpsclient) | `https.Get` over the OS TLS stack, with an optional custom CA |
 | HTTPS platform demo | [`examples/httpsdemo`](./examples/httpsdemo) | One source, every platform: verifies trust, refusal behavior, and deadlines |
 | S3 object storage | [`examples/s3demo`](./examples/s3demo) | Put, get, range-read, list, and delete against any S3-compatible endpoint |
@@ -113,6 +115,8 @@ See the package READMEs for detailed API behavior and limitations:
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 - [`fasthttp`](./fasthttp/README.md): build tags, why TLS and HTTP/2 cannot work, and how dropping zstd halves the binary
+- [`fasthttprouter`](./fasthttprouter/README.md): why the router needs a fork of its own, and what it costs
+- [`fasthttpwebsocket`](./fasthttpwebsocket/README.md): why `FastHTTPUpgrader` works on TinyGo where `net/http`'s `Hijack` deadlocks
 - [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
 - [`nosql/dynamodb`](./nosql/dynamodb/README.md): attribute values, pagination, retries and what a retry can deliver twice
 - [`nosql/datastore`](./nosql/datastore/README.md): values, keys, queries, conditional writes and contention
@@ -133,6 +137,10 @@ See the package READMEs for detailed API behavior and limitations:
   refuses rather than serving cleartext on the TLS port; HTTP/2 cannot work
   either, because ALPN is unobservable. Its client reaches HTTPS through a
   custom `Dial`.
+- **WebSocket needs `fasthttpwebsocket`, not `net/http`.** `net/http`'s
+  `Hijack` deadlocks under netdev, so no protocol upgrade on TinyGo's HTTP
+  server can complete. `fasthttp`'s `RequestCtx.Hijack` is a synchronous
+  handoff and works.
 
 ## Install
 

@@ -25,6 +25,7 @@ import (
 
 	"github.com/shibukawa/tinygodriver/fasthttp"
 	router "github.com/shibukawa/tinygodriver/fasthttprouter"
+	websocket "github.com/shibukawa/tinygodriver/fasthttpwebsocket"
 
 	// Registers the host Netdever for TinyGo's net package.
 	_ "github.com/shibukawa/tinygodriver/netdev"
@@ -43,11 +44,24 @@ func main() {
 		static = fasthttp.FSHandler(dir, 1)
 	}
 
+	r := newRouter(static)
+	// CompressHandlerBrotliLevel negotiates br, gzip, deflate and zstd. All
+	// four work under TinyGo; all four are also why the binary is 4 MB larger
+	// than the net/http equivalent.
+	compressed := fasthttp.CompressHandlerBrotliLevel(r.Handler, 4, 6)
+
 	srv := &fasthttp.Server{
-		// CompressHandlerBrotliLevel negotiates br, gzip, deflate and zstd. All
-		// four work under TinyGo; all four are also why the binary is 4 MB
-		// larger than the net/http equivalent.
-		Handler:      fasthttp.CompressHandlerBrotliLevel(newRouter(static).Handler, 4, 6),
+		Handler: func(ctx *fasthttp.RequestCtx) {
+			// An upgrade skips compression. A 101 carries no body for
+			// CompressHandler to touch, so wrapping it happens to be harmless
+			// today, but a browser does send Accept-Encoding on the handshake
+			// and an example should not rest on that.
+			if websocket.FastHTTPIsWebSocketUpgrade(ctx) {
+				r.Handler(ctx)
+				return
+			}
+			compressed(ctx)
+		},
 		Name:         "tinygodriver",
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -60,6 +74,7 @@ func main() {
 	fmt.Println("  GET  /healthz     liveness probe")
 	fmt.Println("  POST /echo        body echo (text/plain)")
 	fmt.Println("  GET  /stream      chunked response, one line at a time")
+	fmt.Println("  GET  /ws          WebSocket echo (fasthttp hijack)")
 	if static != nil {
 		fmt.Printf("  GET  /static/*  files from %s\n", os.Getenv("STATIC"))
 	}
@@ -97,6 +112,7 @@ func newRouter(static fasthttp.RequestHandler) *router.Router {
 	})
 	r.POST("/echo", echo)
 	r.GET("/stream", stream)
+	r.GET("/ws", wsEcho)
 	if static != nil {
 		// FSHandler was built to strip one path segment, so it can take the
 		// whole request path; the wildcard only decides what reaches it.
@@ -128,6 +144,43 @@ func echo(ctx *fasthttp.RequestCtx) {
 	// anything else with 405 and an Allow header itself.
 	ctx.SetContentType("text/plain; charset=utf-8")
 	ctx.SetBody(ctx.PostBody())
+}
+
+// wsUpgrader is shared by every /ws request. CheckOrigin is left at its default,
+// which refuses an Origin that does not match the Host -- a browser page served
+// from somewhere else cannot open this socket.
+var wsUpgrader = websocket.FastHTTPUpgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	// EnableCompression would negotiate permessage-deflate, and in this program
+	// it would be free: fasthttp's own content negotiation has already linked
+	// compress/flate. It stays off because an echo endpoint has nothing worth
+	// compressing.
+}
+
+// wsEcho upgrades and mirrors whatever arrives. Upgrade returns as soon as the
+// 101 is queued: fasthttp runs the handler after it has written the response and
+// handed over the connection, and closes the connection when the handler
+// returns. That handoff is synchronous, which is why it works under TinyGo where
+// net/http's Hijack deadlocks -- see the fasthttpwebsocket README.
+func wsEcho(ctx *fasthttp.RequestCtx) {
+	err := wsUpgrader.Upgrade(ctx, func(conn *websocket.Conn) {
+		for {
+			mt, msg, err := conn.ReadMessage()
+			if err != nil {
+				// A clean close from the peer arrives here as a *CloseError.
+				return
+			}
+			if err := conn.WriteMessage(mt, msg); err != nil {
+				return
+			}
+		}
+	})
+	if err != nil {
+		// Upgrade has already written the HTTP error response by now; this is
+		// only for the log.
+		fmt.Fprintln(os.Stderr, "websocket upgrade:", err)
+	}
 }
 
 func stream(ctx *fasthttp.RequestCtx) {
