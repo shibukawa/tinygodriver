@@ -63,12 +63,21 @@ func upgradeConn(ctx context.Context, conn net.Conn, cfg *TLSConfig) (net.Conn, 
 	if cfg == nil {
 		return nil, ErrTLSUnsupported
 	}
-	return https.Upgrade(ctx, conn, cfg.Host, &https.Config{
+	return https.Upgrade(ctx, conn, cfg.Host, toHTTPSConfig(cfg))
+}
+
+// toHTTPSConfig is the single adapter between the vendored pgx configuration
+// shape and the repository's backend-neutral TLS configuration.
+func toHTTPSConfig(cfg *TLSConfig) *https.Config {
+	if cfg == nil {
+		return nil
+	}
+	return &https.Config{
 		RootCAs:            cfg.RootCAsPEM,
 		RootCAsOnly:        cfg.RootCAsOnly,
 		InsecureSkipVerify: cfg.InsecureSkipVerify,
 		ServerName:         cfg.ServerName,
-	})
+	}
 }
 
 // hostResolver defers name resolution to the dialer. TinyGo has no

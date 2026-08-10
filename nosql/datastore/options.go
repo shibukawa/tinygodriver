@@ -1,6 +1,7 @@
 package datastore
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -20,6 +21,7 @@ type config struct {
 	httpClient  *http.Client
 	ownsClient  bool
 	maxIdle     int
+	maxIdleSet  bool
 	attempts    int
 	backoffBase time.Duration
 }
@@ -55,8 +57,8 @@ func WithTokenSource(ts google.TokenSource) Option {
 	return func(c *config) { c.tokenSource = ts }
 }
 
-// WithTimeout bounds one request including reading the response body. The
-// default is 10s, matching the DynamoDB client: these are small round trips.
+// WithTimeout bounds one logical operation, including retries, backoff, token
+// refresh, and reading the response body. The default is 10s.
 func WithTimeout(d time.Duration) Option {
 	return func(c *config) { c.timeout = d }
 }
@@ -72,7 +74,10 @@ func WithHTTPClient(client *http.Client) Option {
 // Every request goes to one host, so the per-host cap is the whole pool for
 // this client. Set it to the concurrency the application runs.
 func WithMaxIdleConns(n int) Option {
-	return func(c *config) { c.maxIdle = n }
+	return func(c *config) {
+		c.maxIdle = n
+		c.maxIdleSet = true
+	}
 }
 
 // WithRetry configures the retry budget. Zero attempts disables retrying.
@@ -96,18 +101,60 @@ type ReadOption interface{ applyRead(*readConfig) }
 type WriteOption interface{ applyWrite(*writeConfig) }
 
 type readConfig struct {
-	eventual bool
+	mode     readMode
 	readTime string
+	err      error
 }
 
 type writeConfig struct {
 	baseVersion *int64
 	updateTime  string
+	mode        writeMode
+	err         error
+}
+
+type readMode uint8
+
+const (
+	readModeDefault readMode = iota
+	readModeEventual
+	readModeTime
+)
+
+type writeMode uint8
+
+const (
+	writeModeNone writeMode = iota
+	writeModeBaseVersion
+	writeModeUpdateTime
+)
+
+var (
+	ErrConflictingReadOptions  = errors.New("datastore: conflicting read consistency options")
+	ErrConflictingWriteOptions = errors.New("datastore: conflicting write precondition options")
+)
+
+func (c *readConfig) selectMode(mode readMode) bool {
+	if c.mode != readModeDefault {
+		c.err = ErrConflictingReadOptions
+		return false
+	}
+	c.mode = mode
+	return true
+}
+
+func (c *writeConfig) selectMode(mode writeMode) bool {
+	if c.mode != writeModeNone {
+		c.err = ErrConflictingWriteOptions
+		return false
+	}
+	c.mode = mode
+	return true
 }
 
 type eventualOption struct{}
 
-func (eventualOption) applyRead(c *readConfig) { c.eventual = true }
+func (eventualOption) applyRead(c *readConfig) { c.selectMode(readModeEventual) }
 
 // WithEventualConsistency asks for a possibly stale read.
 //
@@ -119,7 +166,9 @@ func WithEventualConsistency() ReadOption { return eventualOption{} }
 type readTimeOption struct{ at time.Time }
 
 func (o readTimeOption) applyRead(c *readConfig) {
-	c.readTime = o.at.UTC().Format(time.RFC3339Nano)
+	if c.selectMode(readModeTime) {
+		c.readTime = o.at.UTC().Format(time.RFC3339Nano)
+	}
 }
 
 // WithReadTime reads the database as of a past instant.
@@ -150,7 +199,11 @@ func WithReadTime(at time.Time) ReadOption { return readTimeOption{at: at} }
 
 type baseVersionOption struct{ version int64 }
 
-func (o baseVersionOption) applyWrite(c *writeConfig) { c.baseVersion = &o.version }
+func (o baseVersionOption) applyWrite(c *writeConfig) {
+	if c.selectMode(writeModeBaseVersion) {
+		c.baseVersion = &o.version
+	}
+}
 
 // WithBaseVersion applies the write only if the stored entity is still at this
 // version, which comes from a previous read.
@@ -162,7 +215,11 @@ func WithBaseVersion(version int64) WriteOption { return baseVersionOption{versi
 
 type updateTimeOption struct{ at string }
 
-func (o updateTimeOption) applyWrite(c *writeConfig) { c.updateTime = o.at }
+func (o updateTimeOption) applyWrite(c *writeConfig) {
+	if c.selectMode(writeModeUpdateTime) {
+		c.updateTime = o.at
+	}
+}
 
 // WithUpdateTime is WithBaseVersion keyed on a timestamp instead, taken from
 // Entity.UpdateTime.

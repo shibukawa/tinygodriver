@@ -3,11 +3,15 @@
 package https
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"sync"
+	"time"
 )
 
 const backendName = "crypto/tls"
@@ -43,18 +47,13 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 		}
 		base := http.DefaultTransport.(*http.Transport).Clone()
 		base.TLSClientConfig = tlsCfg
+		base.DialContext = (&net.Dialer{
+			Timeout:   t.dialTimeout(),
+			KeepAlive: 30 * time.Second,
+		}).DialContext
 		base.TLSHandshakeTimeout = t.dialTimeout()
-		base.ResponseHeaderTimeout = t.ResponseTimeout
-		// The pooling knobs mean the same thing on both paths, so a program
-		// that sets them does not change behavior with the build tag. Zero
-		// keeps net/http's own defaults, which differ from the native path's
-		// only because net/http can check a connection before reusing it.
-		if t.MaxIdleConnsPerHost > 0 {
-			base.MaxIdleConnsPerHost = t.MaxIdleConnsPerHost
-		}
-		if t.IdleConnTimeout > 0 {
-			base.IdleConnTimeout = t.IdleConnTimeout
-		}
+		base.MaxIdleConnsPerHost = t.maxIdleConnsPerHost()
+		base.IdleConnTimeout = t.idleConnTimeout()
 		base.DisableKeepAlives = t.DisableKeepAlives
 		t.std.rt = base
 	})
@@ -64,15 +63,41 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 		}
 		return nil, t.std.err
 	}
-	resp, err := t.std.rt.RoundTrip(req)
+	out, cancel := requestWithResponseTimeout(req, t.ResponseTimeout)
+	resp, err := t.std.rt.RoundTrip(out)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		host := ""
 		if req.URL != nil {
 			host = req.URL.Host
 		}
 		return nil, classifyStdError("dial", host, err)
 	}
+	if cancel != nil {
+		resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel}
+	}
 	return resp, nil
+}
+
+func requestWithResponseTimeout(req *http.Request, timeout time.Duration) (*http.Request, context.CancelFunc) {
+	if timeout <= 0 {
+		return req, nil
+	}
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	return req.Clone(ctx), cancel
+}
+
+type cancelBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
 }
 
 // tlsConfig converts the backend-neutral Config into a crypto/tls.Config.

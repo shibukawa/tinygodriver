@@ -85,7 +85,7 @@ for {
 | `WithCredentialsFromEnv` | read credentials from the environment |
 | `WithPathStyle` | `endpoint/bucket/key` instead of `bucket.endpoint/key` |
 | `WithUnsignedPayload` | sign headers only, so large streams are not buffered |
-| `WithTimeout` | per-request timeout, default 60s |
+| `WithTimeout` | logical-operation timeout including redirects and response body, default 60s |
 | `WithHTTPClient` | supply the `http.Client` |
 
 Addressing defaults to virtual-host style for `amazonaws.com` endpoints and

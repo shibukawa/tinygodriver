@@ -88,6 +88,12 @@ the same goroutine. There is no background read to abort. That is the finding
 this fork rests on, and `compat_test.go` is what proves it — the whole battery
 runs over real sockets, so on TinyGo it runs over netdev.
 
+An application already on `net/http` does not need to move to fasthttp for
+this. [`websocket`](../websocket/) with [`httpserver`](../httpserver/) reaches
+the same place by routing upgrades around `http.Server` and keeping a real one
+for everything else, on the same port. The two are siblings; pick by which HTTP
+server the application already uses. What this fork saves is that layer.
+
 ## Verification
 
 | | TinyGo 0.41.1 | host Go 1.26.5 |
@@ -117,9 +123,10 @@ for them.
 
 Adding `/ws` to `examples/fasthttpserver` (`-tags fasthttp_nozstd`,
 darwin/arm64) grew the TinyGo binary from 3.33 MB to 3.44 MB. **105 KB** — much
-less than the 305 KB gorilla costs, because `compress/flate` is already linked
-by fasthttp's own compression rather than being dragged in by the WebSocket
-library.
+less than the 305 KB the [`websocket`](../websocket/) fork costs on the
+`net/http` side, because `compress/flate` is already linked by fasthttp's own
+compression rather than being dragged in by the WebSocket library. The 81 KB
+that fork weighed against a `nodeflate` tag is already paid for here.
 
 A program that **dials** pays another 95 KB for `x/net/http/httpproxy`, which
 is how `Dialer.Proxy` reads `HTTP_PROXY` on TinyGo (see PATCHES.md §1). A

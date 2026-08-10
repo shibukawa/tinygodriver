@@ -89,6 +89,14 @@ func newTestServer(t *testing.T, hostname string, notAfter time.Time) *testServe
 	mux.HandleFunc("/stall", func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second)
 	})
+	mux.HandleFunc("/slow-body", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(250 * time.Millisecond)
+		fmt.Fprint(w, "late")
+	})
 
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -136,6 +144,25 @@ func TestGetWithCustomCA(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestResponseTimeoutIncludesBody(t *testing.T) {
+	srv := newTestServer(t, "localhost", time.Now().Add(time.Hour))
+	defer srv.Close()
+
+	tr := https.NewTransport(https.WithRootCAPEM(srv.CAPEM))
+	tr.ResponseTimeout = 50 * time.Millisecond
+	client := &http.Client{Transport: tr}
+
+	resp, err := client.Get(srv.URL + "/slow-body")
+	if err != nil {
+		// A backend may observe the timeout while still reading the headers.
+		return
+	}
+	defer resp.Body.Close()
+	if _, err := io.ReadAll(resp.Body); err == nil {
+		t.Fatal("expected ResponseTimeout while reading the response body")
 	}
 }
 

@@ -13,7 +13,7 @@ packages:
   root: one flat package; _examples dropped
 surface:
   fasthttp_side: server_fasthttp.go -- FastHTTPUpgrader, FastHTTPHandler, FastHTTPIsWebSocketUpgrade
-  nethttp_side: server.go -- gorilla's Upgrader, unusable on TinyGo per rule:tinygo-nethttp-hijack-deadlock
+  nethttp_side: server.go -- gorilla's Upgrader, unusable on TinyGo per rule:nethttp-hijack-deadlock
   shared: conn.go framing, mask.go, compression.go, prepared.go, client.go Dialer
 deps:
   valyala/fasthttp: declared v1.58.0; fork tracks v1.73.0, compile surface is RequestCtx plus status helpers

@@ -35,6 +35,10 @@ roundtripper_contract:
   - errors returned unwrapped by http.Client, so they must satisfy requirement:error-classification
 config_precedence: "Transport.Config, else DefaultConfig"
 pooling: >
-  the three idle-connection fields mean the same thing on both paths and are
-  forwarded to net/http.Transport in std go builds
+  shared resolution maps zero to two idle connections per host and a 20s idle
+  timeout before either backend is selected.
+timeout_semantics: >
+  DialTimeout covers TCP setup and TLS handshake. ResponseTimeout covers headers
+  and body, with an earlier request-context deadline winning on both build paths.
+  See requirement:configuration-semantics-parity.
 detail: flow:https-roundtrip

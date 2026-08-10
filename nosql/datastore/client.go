@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/shibukawa/tinygodriver/cloud/google"
+	"github.com/shibukawa/tinygodriver/internal/cloudhttp"
 )
 
 // Defaults. The timeout matches the DynamoDB client because the workload is the
@@ -32,8 +33,9 @@ const (
 
 // Configuration errors.
 var (
-	ErrNoProject     = errors.New("datastore: no project configured")
-	ErrNoCredentials = errors.New("datastore: no credentials configured")
+	ErrNoProject           = errors.New("datastore: no project configured")
+	ErrNoCredentials       = errors.New("datastore: no credentials configured")
+	ErrHTTPClientOwnership = errors.New("datastore: WithHTTPClient cannot be combined with WithMaxIdleConns")
 )
 
 // Client talks to one Datastore endpoint.
@@ -52,6 +54,7 @@ type Client struct {
 	signer     io.Closer
 	httpClient *http.Client
 	ownsClient bool
+	timeout    time.Duration
 
 	attempts    int
 	backoffBase time.Duration
@@ -101,14 +104,18 @@ func New(projectID string, opts ...Option) (*Client, error) {
 		endpoint:    endpoint,
 		attempts:    cfg.attempts,
 		backoffBase: cfg.backoffBase,
+		timeout:     cfg.timeout,
 		randFloat:   rand.Float64,
 	}
 
 	if cfg.httpClient != nil {
+		if cfg.maxIdleSet {
+			return nil, ErrHTTPClientOwnership
+		}
 		c.httpClient = cfg.httpClient
 	} else {
 		c.httpClient = google.NewHTTPClient(google.ClientOptions{
-			Timeout:             cfg.timeout,
+			Timeout:             0,
 			MaxIdleConnsPerHost: cfg.maxIdle,
 		})
 		c.ownsClient = true
@@ -233,6 +240,9 @@ func (c *Client) encodeEntity(e Entity) (json.RawMessage, error) {
 // The operation is in the URL path rather than a header, which is the main
 // shape difference from the DynamoDB client.
 func (c *Client) call(ctx context.Context, op, kind string, request, response any) error {
+	ctx, cancel := cloudhttp.OperationContext(ctx, c.timeout)
+	defer cancel()
+
 	body, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("datastore: encoding %s: %w", op, err)

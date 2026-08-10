@@ -49,6 +49,7 @@ update_duty:
     - run the test matrix on both compilers against a real postgres
   note: >
     the patch surface is deliberately small so this stays cheap; keep it that way
+tls_config_boundary: decision:pgx-tls-config-boundary
 license:
   pgx: MIT
   attribution: keep the upstream LICENSE file inside the vendored directory

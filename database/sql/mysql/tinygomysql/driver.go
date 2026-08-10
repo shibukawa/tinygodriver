@@ -99,13 +99,11 @@ func init() {
 
 // NewConnector returns new driver.Connector.
 func NewConnector(cfg *Config) (driver.Connector, error) {
-	cfg = cfg.Clone()
-	// normalize the contents of cfg so calls to NewConnector have the same
-	// behavior as MySQLDriver.OpenConnector
-	if err := cfg.normalize(); err != nil {
+	resolved, err := cfg.resolve()
+	if err != nil {
 		return nil, err
 	}
-	return newConnector(cfg), nil
+	return newConnector(resolved), nil
 }
 
 // OpenConnector implements driver.DriverContext.

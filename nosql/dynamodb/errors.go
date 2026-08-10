@@ -26,6 +26,7 @@ var (
 	ErrBadCredentials      = errors.New("dynamodb: credentials rejected")
 	ErrChecksumMismatch    = errors.New("dynamodb: response checksum mismatch")
 	ErrServerFailure       = errors.New("dynamodb: server failure")
+	ErrHTTPClientOwnership = errors.New("dynamodb: WithHTTPClient cannot be combined with WithMaxIdleConns")
 
 	// ErrNoCredentials and ErrNoRegion are the shared configuration errors, so
 	// errors.Is matches whether the caller compares against this package or

@@ -3,7 +3,9 @@ id: requirement:fasthttp-websocket-fork
 type: requirement
 title: fasthttp/websocket Fork for TinyGo
 ---
-Provide a fork of system:fasthttp-websocket that upgrades connections from decision:fasthttp-fork, so TinyGo applications get WebSocket at all. Upstream imports `github.com/valyala/fasthttp` and therefore cannot see the fork; separately, rule:tinygo-nethttp-hijack-deadlock makes `FastHTTPUpgrader` the only upgrade path that can work on TinyGo, which is what makes this library the right one to fork rather than gorilla.
+Provide a fork of system:fasthttp-websocket that upgrades connections from decision:fasthttp-fork, so a fasthttp application on TinyGo gets WebSocket from an ordinary route. Upstream imports `github.com/valyala/fasthttp` and therefore cannot see the fork; separately, rule:nethttp-hijack-deadlock is why `FastHTTPUpgrader` rather than gorilla's `Upgrader` is the entry point, and why this library is the right one to fork.
+
+Sibling of requirement:websocket-fork + requirement:httpserver-package, which reach the same place for `net/http` applications by routing upgrades around `http.Server`. Both shipped 2026-08-10; neither supersedes the other, and an application picks by which HTTP server it already uses.
 
 ```yaml
 priority: must
@@ -45,7 +47,7 @@ risk:
     found, unlike the router, whose tests needed Host headers
   upgrader_confusion: >
     the net/http Upgrader compiles on TinyGo and then deadlocks
-    (rule:tinygo-nethttp-hijack-deadlock). Nothing can make it fail at compile
+    (rule:nethttp-hijack-deadlock). Nothing can make it fail at compile
     time without diverging from upstream's API, so the README and PATCHES.md
     carry the warning instead
   binary_size: >

@@ -145,13 +145,17 @@ func (t *Transport) exchange(req *http.Request, body io.ReadCloser, pc *persistC
 // it clears whatever the previous request left on a pooled connection, which
 // would otherwise fire as a spurious timeout on this one.
 func (t *Transport) deadlineFor(req *http.Request) time.Time {
-	if deadline, ok := req.Context().Deadline(); ok {
-		return deadline
+	var deadline time.Time
+	if contextDeadline, ok := req.Context().Deadline(); ok {
+		deadline = contextDeadline
 	}
 	if t.ResponseTimeout > 0 {
-		return time.Now().Add(t.ResponseTimeout)
+		responseDeadline := time.Now().Add(t.ResponseTimeout)
+		if deadline.IsZero() || responseDeadline.Before(deadline) {
+			deadline = responseDeadline
+		}
 	}
-	return time.Time{}
+	return deadline
 }
 
 // attemptBody returns the body to send on this attempt, or nil to send the one
