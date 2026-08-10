@@ -64,7 +64,10 @@ still_open:
   deadline_not_interruptible: >
     waitFD snapshots the deadline on entry and blocks in select(), so a
     SetDeadline from another goroutine cannot abort a read already in flight.
-    Drives rule:postgres-query-cancellation
+    A zero deadline is worse: waitFD returns at once and sysRecv blocks in a
+    plain recv(). Drives rule:postgres-query-cancellation and
+    rule:nethttp-hijack-deadlock, the latter costing net/http every protocol
+    upgrade
   missing_std_api: net.Resolver, net.DefaultResolver, net.LookupIP, TCPConn.SetNoDelay
   scheduler: blocking cgo calls require -scheduler=threads, see rule:tinygo-threads-scheduler
   measured_by: requirement:postgres-driver-validation, re-verified after the 2026-07-28 rebase

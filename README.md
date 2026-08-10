@@ -16,6 +16,7 @@ and tests between both compilers.
 | [`https`](./https) | `github.com/shibukawa/tinygodriver/https` | `net/http`-compatible HTTPS client using the OS TLS stack |
 | [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
+| [`httpserver`](./httpserver) | `github.com/shibukawa/tinygodriver/httpserver` | Serves `net/http` handlers that hijack, which TinyGo's own server cannot |
 | [`fasthttp`](./fasthttp) | `github.com/shibukawa/tinygodriver/fasthttp` | Drop-in `valyala/fasthttp` fork that builds under TinyGo, plaintext only |
 | [`sqlite`](./database/sql/sqlite) | `github.com/shibukawa/tinygodriver/database/sql/sqlite` | SQLite `database/sql` driver, backend chosen at build time |
 | [`pgx`](./database/pgx) | `github.com/shibukawa/tinygodriver/database/pgx` | pgx-native PostgreSQL API: Batch, CopyFrom, LISTEN/NOTIFY; TLS included |
@@ -111,6 +112,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`netdev`](./netdev/README.md): TLS, DNS, and platform notes
 - [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
+- [`httpserver`](./httpserver/README.md): why `Hijack` deadlocks, what the demultiplexer does, and when the package stops being needed
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 - [`fasthttp`](./fasthttp/README.md): build tags, why TLS and HTTP/2 cannot work, and how dropping zstd halves the binary
 - [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
@@ -128,6 +130,12 @@ See the package READMEs for detailed API behavior and limitations:
   Windows and `crypto/tls` on host-Go Linux, none of which needs a package
   manager. TinyGo on Linux returns `ErrProtocolNotSupported`. The `https`
   package needs none of this.
+- **A TinyGo `net/http` server cannot hijack a connection.** It starts a
+  background read before every handler and cancels it by moving the read
+  deadline into the past, which netdev cannot do to a `recv()` already in
+  flight, so `Hijack` never returns and a protocol upgrade hangs silently.
+  Serve through [`httpserver`](./httpserver), which routes upgrades around
+  `net/http` and keeps a real `http.Server` for everything else, on one port.
 - **`fasthttp` serves plaintext only** and needs `-tags noasm` under TinyGo.
   TinyGo defines no `tls.Server`, so terminating TLS is impossible and the fork
   refuses rather than serving cleartext on the TLS port; HTTP/2 cannot work
