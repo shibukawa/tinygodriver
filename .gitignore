@@ -7,6 +7,8 @@
 /examples/httpserver/httpserver
 /examples/httpclient/httpclient
 /server
+/websocketserver
+/examples/websocketserver/websocketserver
 *.test
 *.out
 

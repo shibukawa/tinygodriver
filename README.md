@@ -17,6 +17,7 @@ and tests between both compilers.
 | [`httpmux`](./httpmux) | `github.com/shibukawa/tinygodriver/httpmux` | Go 1.22-style `ServeMux` patterns for TinyGo |
 | [`httprevproxy`](./httprevproxy) | `github.com/shibukawa/tinygodriver/httprevproxy` | TinyGo-compatible subset of `net/http/httputil.ReverseProxy` |
 | [`httpserver`](./httpserver) | `github.com/shibukawa/tinygodriver/httpserver` | Serves `net/http` handlers that hijack, which TinyGo's own server cannot |
+| [`websocket`](./websocket) | `github.com/shibukawa/tinygodriver/websocket` | Drop-in `gorilla/websocket` fork that builds under TinyGo |
 | [`fasthttp`](./fasthttp) | `github.com/shibukawa/tinygodriver/fasthttp` | Drop-in `valyala/fasthttp` fork that builds under TinyGo, plaintext only |
 | [`sqlite`](./database/sql/sqlite) | `github.com/shibukawa/tinygodriver/database/sql/sqlite` | SQLite `database/sql` driver, backend chosen at build time |
 | [`pgx`](./database/pgx) | `github.com/shibukawa/tinygodriver/database/pgx` | pgx-native PostgreSQL API: Batch, CopyFrom, LISTEN/NOTIFY; TLS included |
@@ -98,6 +99,7 @@ func main() {
 | Example | Path | Description |
 |---------|------|-------------|
 | HTTP server and reverse proxy | [`examples/httpserver`](./examples/httpserver) | Method-aware routes, host netdev, and a configurable reverse proxy |
+| WebSocket server | [`examples/websocketserver`](./examples/websocketserver) | Echo and server-push endpoints beside ordinary HTTP routes, on one port |
 | fasthttp server | [`examples/fasthttpserver`](./examples/fasthttpserver) | Routes, content negotiation, chunked streaming, and graceful shutdown on fasthttp |
 | HTTPS client | [`examples/httpsclient`](./examples/httpsclient) | `https.Get` over the OS TLS stack, with an optional custom CA |
 | HTTPS platform demo | [`examples/httpsdemo`](./examples/httpsdemo) | One source, every platform: verifies trust, refusal behavior, and deadlines |
@@ -113,6 +115,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httpserver`](./httpserver/README.md): why `Hijack` deadlocks, what the demultiplexer does, and when the package stops being needed
+- [`websocket`](./websocket/README.md): the four patch sites, reaching `wss://`, and what is verified
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 - [`fasthttp`](./fasthttp/README.md): build tags, why TLS and HTTP/2 cannot work, and how dropping zstd halves the binary
 - [`storage/s3`](./storage/s3/README.md): supported operations, configuration, and limitations
@@ -136,6 +139,9 @@ See the package READMEs for detailed API behavior and limitations:
   flight, so `Hijack` never returns and a protocol upgrade hangs silently.
   Serve through [`httpserver`](./httpserver), which routes upgrades around
   `net/http` and keeps a real `http.Server` for everything else, on one port.
+- **`websocket` serves plaintext only.** Its client reaches `wss://` through
+  `Dialer.NetDialTLSContext`; a server cannot terminate TLS, for the same
+  reason `fasthttp` cannot.
 - **`fasthttp` serves plaintext only** and needs `-tags noasm` under TinyGo.
   TinyGo defines no `tls.Server`, so terminating TLS is impossible and the fork
   refuses rather than serving cleartext on the TLS port; HTTP/2 cannot work
