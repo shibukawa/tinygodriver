@@ -56,8 +56,8 @@ signer_lives_elsewhere: >
   otherwise has none.
 what_is_not_shared_with_cloud_aws:
   - >
-    nothing. The two packages have the same job and no common code: a signature
-    and a bearer token have no shared abstraction worth writing.
+    authentication. A signature and a bearer token have no shared abstraction
+    worth writing.
   - >
     an interface over both was considered and refused. It would exist to serve a
     caller who wants to swap clouds, which is not a caller this repository has.
@@ -65,4 +65,8 @@ reuses_from_cloud_aws:
   - the ClientOptions and NewHTTPClient shape, so pool tuning is one field on both
   - requirement:connection-reuse, unchanged
   - rule:build-tag-selection for the std and native transport split
+transport_followup: >
+  the reused shape became identical copied implementation in both packages and
+  moved to internal/cloudhttp on 2026-08-10; see
+  decision:shared-cloud-http-transport.
 precedent: decision:aws-shared-package, decision:package-layout

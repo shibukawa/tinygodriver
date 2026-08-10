@@ -93,8 +93,9 @@ func TestDSNParser(t *testing.T) {
 				return
 			}
 
-			// pointer not static
+			// Derived pointers are intentionally not stable across resolutions.
 			cfg.TLS = nil
+			cfg.tlsResolved = nil
 
 			if !reflect.DeepEqual(cfg, tst.out) {
 				t.Errorf("%d. ParseDSN(%q) mismatch:\ngot  %+v\nwant %+v", i, tst.in, cfg, tst.out)
@@ -135,6 +136,7 @@ func TestDSNReformat(t *testing.T) {
 				return
 			}
 			cfg1.TLS = nil // pointer not static
+			cfg1.tlsResolved = nil
 			res1 := fmt.Sprintf("%+v", cfg1)
 
 			dsn2 := cfg1.FormatDSN()
@@ -149,6 +151,7 @@ func TestDSNReformat(t *testing.T) {
 				return
 			}
 			cfg2.TLS = nil // pointer not static
+			cfg2.tlsResolved = nil
 			res2 := fmt.Sprintf("%+v", cfg2)
 
 			if res1 != res2 {
@@ -427,6 +430,60 @@ func TestNormalizeTLSConfig(t *testing.T) {
 					tc.want.InsecureSkipVerify, cfg.TLS.InsecureSkipVerify)
 			}
 		})
+	}
+}
+
+func TestResolveReplacesPreviouslyDerivedTLSConfig(t *testing.T) {
+	RegisterTLSConfig("first", &https.Config{ServerName: "first.example"})
+	RegisterTLSConfig("second", &https.Config{ServerName: "second.example"})
+	defer DeregisterTLSConfig("first")
+	defer DeregisterTLSConfig("second")
+
+	cfg, err := ParseDSN("tcp(db.example:3306)/?tls=first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.TLSConfig = "second"
+	resolved, err := cfg.resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved.TLS.ServerName; got != "second.example" {
+		t.Fatalf("resolved TLS ServerName = %q, want second.example", got)
+	}
+}
+
+func TestResolveClearsPreviouslyDerivedServerKey(t *testing.T) {
+	RegisterServerPubKey("testKey", testPubKeyRSA)
+	defer DeregisterServerPubKey("testKey")
+
+	cfg, err := ParseDSN("tcp(db.example:3306)/?serverPubKey=testKey")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ServerPubKey = ""
+	resolved, err := cfg.resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.pubKey != nil || resolved.pubKeySource != "" {
+		t.Fatal("clearing ServerPubKey retained a previously resolved key")
+	}
+}
+
+func TestNewConnectorDoesNotWriteDerivedStateIntoInput(t *testing.T) {
+	cfg := NewConfig()
+	cfg.Addr = "db.example:3306"
+	cfg.TLSConfig = "preferred"
+
+	if _, err := NewConnector(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS != nil {
+		t.Fatal("NewConnector wrote resolved TLS into caller Config")
+	}
+	if cfg.AllowFallbackToPlaintext {
+		t.Fatal("NewConnector wrote derived fallback policy into caller Config")
 	}
 }
 

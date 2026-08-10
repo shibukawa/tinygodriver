@@ -34,20 +34,9 @@ import (
 //     recovered by retrying the request once instead.
 
 const (
-	// defaultMaxIdleConnsPerHost is deliberately small. The workload this exists
-	// for is sequential request-response, which needs exactly one connection;
-	// the second slot only absorbs modest concurrency.
-	defaultMaxIdleConnsPerHost = 2
-
 	// maxIdleConnsTotal bounds the whole pool, so a program talking to many
 	// hosts cannot accumulate native TLS handles without limit.
 	maxIdleConnsTotal = 32
-
-	// defaultIdleConnTimeout is far below net/http's 90 seconds because a stale
-	// entry here costs a failed request and a retry rather than a cheap liveness
-	// check. It sits under the 60 second idle timeout common to AWS service
-	// endpoints and load balancers.
-	defaultIdleConnTimeout = 20 * time.Second
 
 	// A response body the caller closed without reading can still be drained,
 	// which keeps the connection reusable. The caps stop that from turning into
@@ -245,20 +234,6 @@ func (p *connPool) closeAll() {
 // still in flight.
 func (t *Transport) CloseIdleConnections() {
 	t.pool.closeAll()
-}
-
-func (t *Transport) maxIdleConnsPerHost() int {
-	if t.MaxIdleConnsPerHost <= 0 {
-		return defaultMaxIdleConnsPerHost
-	}
-	return t.MaxIdleConnsPerHost
-}
-
-func (t *Transport) idleConnTimeout() time.Duration {
-	if t.IdleConnTimeout <= 0 {
-		return defaultIdleConnTimeout
-	}
-	return t.IdleConnTimeout
 }
 
 // lease takes a pooled connection for key, or reports nil when the request must

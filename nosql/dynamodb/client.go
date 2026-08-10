@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/shibukawa/tinygodriver/cloud/aws"
+	"github.com/shibukawa/tinygodriver/internal/cloudhttp"
 )
 
 // Defaults for a client built without the matching option.
 const (
-	// DefaultTimeout bounds one request, including reading the reply. It is
-	// short because these are small round trips: a call that has not finished
-	// in ten seconds is not going to.
+	// DefaultTimeout bounds one logical operation, including retries, backoff,
+	// and reading the reply. It is short because these are small round trips: a
+	// call that has not finished in ten seconds is not going to.
 	DefaultTimeout = 10 * time.Second
 
 	// DefaultMaxIdleConns is how many connections stay pooled. Every request
@@ -55,6 +56,7 @@ type Client struct {
 	creds    aws.Credentials
 	http     *http.Client
 	ownsHTTP bool
+	timeout  time.Duration
 	attempts int
 	base     time.Duration
 	now      func() time.Time // overridden in tests
@@ -68,6 +70,7 @@ type config struct {
 	credsSet     bool
 	timeout      time.Duration
 	maxIdleConns int
+	maxIdleSet   bool
 	attempts     int
 	retryBase    time.Duration
 	httpClient   *http.Client
@@ -106,8 +109,8 @@ func WithCredentialsFromEnv() Option {
 	}
 }
 
-// WithTimeout bounds each request, including reading the reply and any retry
-// backoff. Zero means DefaultTimeout.
+// WithTimeout bounds one logical operation, including retries, backoff, and
+// reading the reply. Zero means DefaultTimeout.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *config) { c.timeout = timeout }
 }
@@ -119,7 +122,10 @@ func WithTimeout(timeout time.Duration) Option {
 // pooled connection pays a TLS handshake, which is roughly ten times the cost
 // of the request itself.
 func WithMaxIdleConns(n int) Option {
-	return func(c *config) { c.maxIdleConns = n }
+	return func(c *config) {
+		c.maxIdleConns = n
+		c.maxIdleSet = true
+	}
 }
 
 // WithRetry sets how many times a retryable failure is sent, the first try
@@ -186,13 +192,16 @@ func New(opts ...Option) (*Client, error) {
 
 	client := cfg.httpClient
 	ownsHTTP := client == nil
+	if !ownsHTTP && cfg.maxIdleSet {
+		return nil, ErrHTTPClientOwnership
+	}
+	timeout := cfg.timeout
+	if timeout == 0 {
+		timeout = DefaultTimeout
+	}
 	if ownsHTTP {
-		timeout := cfg.timeout
-		if timeout == 0 {
-			timeout = DefaultTimeout
-		}
 		client = aws.NewHTTPClient(aws.ClientOptions{
-			Timeout:             timeout,
+			Timeout:             0,
 			MaxIdleConnsPerHost: cfg.maxIdleConns,
 		})
 	}
@@ -207,6 +216,7 @@ func New(opts ...Option) (*Client, error) {
 		creds:    cfg.creds,
 		http:     client,
 		ownsHTTP: ownsHTTP,
+		timeout:  timeout,
 		attempts: cfg.attempts,
 		base:     base,
 		now:      time.Now,
@@ -248,6 +258,9 @@ func hasScheme(endpoint string) bool {
 // same policy, and the request is rebuilt per attempt because signing is
 // time-bound.
 func (c *Client) do(ctx context.Context, op, table string, in, out any) error {
+	ctx, cancel := cloudhttp.OperationContext(ctx, c.timeout)
+	defer cancel()
+
 	payload, err := json.Marshal(in)
 	if err != nil {
 		return err

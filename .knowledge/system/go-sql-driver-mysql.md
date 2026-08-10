@@ -38,4 +38,5 @@ tinygo_gap:
   runtime:
     conn_check: connCheck needs syscall.Conn, which tinygo errors on, so pooling dies
     tls: tls.Client panics; the STARTTLS-style upgrade needs api:tls-upgrade
+config_resolution: decision:mysql-config-resolution
 ```

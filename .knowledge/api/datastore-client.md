@@ -161,6 +161,10 @@ options:
     ReadOption, WriteOption and TxOption are separate interfaces, so a
     consistency option on a write is a compile error. Same discipline as
     api:dynamodb-client.
+  exclusivity: >
+    consistency modes and mutation preconditions are exclusive variants.
+    Conflicting options return a local error before any HTTP request; see
+    decision:datastore-option-exclusivity.
 defaults:
   credentials: api:google-auth resolution from the environment when no option is given
   project: the constructor argument, then GOOGLE_CLOUD_PROJECT
@@ -186,6 +190,7 @@ lifecycle: >
   which is the whole reason this repository exists.
 scope: requirement:datastore-client-scope
 flow: flow:datastore-request
+client_policy: decision:http-client-policy-ownership
 auth: api:google-auth
 wire_reference: system:google-datastore
 counterpart: api:dynamodb-client

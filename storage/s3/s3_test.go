@@ -120,6 +120,32 @@ func TestPutSignsAndSendsBody(t *testing.T) {
 	}
 }
 
+func TestOperationTimeoutIncludesBodyWithCustomHTTPClient(t *testing.T) {
+	srv, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(200 * time.Millisecond)
+		fmt.Fprint(w, "late")
+	})
+	client := newClient(t, srv.URL,
+		s3.WithHTTPClient(srv.Client()),
+		s3.WithTimeout(20*time.Millisecond))
+
+	obj, err := client.Get(context.Background(), "bucket", "key")
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		t.Fatal(err)
+	}
+	defer obj.Body.Close()
+	if _, err := io.ReadAll(obj.Body); err == nil {
+		t.Fatal("expected operation timeout while reading body")
+	}
+}
+
 // TestPutStreamHashesUnseekableBody covers the buffering path: an io.Reader
 // that cannot rewind still gets a body hash rather than UNSIGNED-PAYLOAD.
 func TestPutStreamHashesUnseekableBody(t *testing.T) {

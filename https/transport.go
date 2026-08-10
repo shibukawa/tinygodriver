@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+const (
+	defaultDialTimeout         = 30 * time.Second
+	defaultMaxIdleConnsPerHost = 2
+	defaultIdleConnTimeout     = 20 * time.Second
+)
+
 // Transport is an http.RoundTripper that speaks HTTPS through the host OS TLS
 // stack. In standard Go builds it delegates to net/http.
 //
@@ -68,7 +74,21 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func (t *Transport) dialTimeout() time.Duration {
 	if t.DialTimeout <= 0 {
-		return 30 * time.Second
+		return defaultDialTimeout
 	}
 	return t.DialTimeout
+}
+
+func (t *Transport) maxIdleConnsPerHost() int {
+	if t.MaxIdleConnsPerHost <= 0 {
+		return defaultMaxIdleConnsPerHost
+	}
+	return t.MaxIdleConnsPerHost
+}
+
+func (t *Transport) idleConnTimeout() time.Duration {
+	if t.IdleConnTimeout <= 0 {
+		return defaultIdleConnTimeout
+	}
+	return t.IdleConnTimeout
 }

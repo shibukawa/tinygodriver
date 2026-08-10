@@ -33,7 +33,10 @@ classification:
 policy:
   request: 3 attempts, exponential backoff with full jitter, 25ms base, 1s cap
   transaction: 3 closure re-runs on ABORTED, with the same backoff, budgeted separately
-  bound: total elapsed never exceeds the client timeout
+  bound: >
+    total elapsed never exceeds one operation timeout. One context is derived
+    before the first attempt, so token refresh, retries, backoff, and body reads
+    all consume the same budget, including with a supplied HTTP client.
   option: WithRetry(attempts int, base time.Duration); zero disables it
   context: a cancelled or expired context stops retrying and returns the context error
 idempotency:

@@ -81,6 +81,10 @@ type Config struct {
 
 	beforeConnect func(context.Context, *Config) error // Invoked before a connection is established
 	pubKey        *rsa.PublicKey                       // Server public key
+	pubKeySource  string                               // ServerPubKey used to resolve pubKey
+	tlsResolved   *https.Config                        // TLS derived from TLSConfig, if any
+	fallbackBase  bool                                 // explicit fallback value before tls=preferred
+	fallbackSet   bool                                 // AllowFallbackToPlaintext was derived from preferred
 	timeTruncate  time.Duration                        // Truncate time.Time values to the specified duration
 	charsets      []string                             // Connection charset. When set, this will be set in SET NAMES <charset> query
 }
@@ -156,6 +160,11 @@ func (cfg *Config) Clone() *Config {
 	cp := *cfg
 	if cp.TLS != nil {
 		cp.TLS = cloneTLSConfig(cfg.TLS)
+		if cfg.TLS == cfg.tlsResolved {
+			cp.tlsResolved = cp.TLS
+		} else {
+			cp.tlsResolved = nil
+		}
 	}
 	if len(cp.Params) > 0 {
 		cp.Params = make(map[string]string, len(cfg.Params))
@@ -170,7 +179,28 @@ func (cfg *Config) Clone() *Config {
 	return &cp
 }
 
+// resolve returns an immutable connection-ready clone. Raw names and explicit
+// overrides on cfg are never replaced with derived runtime objects.
+func (cfg *Config) resolve() (*Config, error) {
+	resolved := cfg.Clone()
+	if err := resolved.normalizeInPlace(); err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
+// normalize remains for internal compatibility tests. Production constructors
+// use resolve so they never write derived state back into caller configuration.
 func (cfg *Config) normalize() error {
+	resolved, err := cfg.resolve()
+	if err != nil {
+		return err
+	}
+	*cfg = *resolved
+	return nil
+}
+
+func (cfg *Config) normalizeInPlace() error {
 	if cfg.InterpolateParams && cfg.Collation != "" && unsafeCollations[cfg.Collation] {
 		return errInvalidDSNUnsafeCollation
 	}
@@ -194,6 +224,17 @@ func (cfg *Config) normalize() error {
 		cfg.Addr = ensureHavePort(cfg.Addr)
 	}
 
+	// Discard only TLS that this package derived earlier. An explicit TLS
+	// pointer remains authoritative over TLSConfig for compatibility.
+	if cfg.TLS != nil && cfg.TLS == cfg.tlsResolved {
+		cfg.TLS = nil
+		cfg.tlsResolved = nil
+	}
+	if cfg.fallbackSet {
+		cfg.AllowFallbackToPlaintext = cfg.fallbackBase
+		cfg.fallbackSet = false
+	}
+
 	if cfg.TLS == nil {
 		switch cfg.TLSConfig {
 		case "false", "":
@@ -204,6 +245,8 @@ func (cfg *Config) normalize() error {
 			cfg.TLS = &https.Config{InsecureSkipVerify: true}
 		case "preferred":
 			cfg.TLS = &https.Config{InsecureSkipVerify: true}
+			cfg.fallbackBase = cfg.AllowFallbackToPlaintext
+			cfg.fallbackSet = true
 			cfg.AllowFallbackToPlaintext = true
 		default:
 			cfg.TLS = getTLSConfigClone(cfg.TLSConfig)
@@ -211,6 +254,7 @@ func (cfg *Config) normalize() error {
 				return errors.New("invalid value / unknown config name: " + cfg.TLSConfig)
 			}
 		}
+		cfg.tlsResolved = cfg.TLS
 	}
 
 	if cfg.TLS != nil && cfg.TLS.ServerName == "" && !cfg.TLS.InsecureSkipVerify {
@@ -220,11 +264,16 @@ func (cfg *Config) normalize() error {
 		}
 	}
 
+	// pubKey is always derived from the current name. Clearing or changing the
+	// name cannot retain a key resolved by an earlier normalization.
+	cfg.pubKey = nil
+	cfg.pubKeySource = ""
 	if cfg.ServerPubKey != "" {
 		cfg.pubKey = getServerPubKey(cfg.ServerPubKey)
 		if cfg.pubKey == nil {
 			return errors.New("invalid value / unknown server pub key name: " + cfg.ServerPubKey)
 		}
+		cfg.pubKeySource = cfg.ServerPubKey
 	}
 
 	if cfg.Logger == nil {
@@ -468,10 +517,7 @@ func ParseDSN(dsn string) (cfg *Config, err error) {
 		return nil, errInvalidDSNNoSlash
 	}
 
-	if err = cfg.normalize(); err != nil {
-		return nil, err
-	}
-	return
+	return cfg.resolve()
 }
 
 // parseDSNParams parses the DSN "query string"

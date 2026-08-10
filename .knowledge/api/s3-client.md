@@ -45,3 +45,4 @@ listing: >
   pagination stays explicit rather than hiding a request loop inside the call.
 scope: requirement:s3-client-scope
 encoding: rule:sigv4-wire-agreement
+client_policy: decision:http-client-policy-ownership

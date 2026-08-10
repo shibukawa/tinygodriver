@@ -64,6 +64,7 @@ type Mutation struct {
 	key         Key
 	baseVersion *int64
 	updateTime  string
+	configErr   error
 }
 
 // InsertOp fails if the key already exists. This is put-if-absent, and it is
@@ -89,6 +90,7 @@ func (m Mutation) With(opts ...WriteOption) Mutation {
 	}
 	m.baseVersion = cfg.baseVersion
 	m.updateTime = cfg.updateTime
+	m.configErr = cfg.err
 	return m
 }
 
@@ -103,6 +105,9 @@ type wireMutation struct {
 
 func (c *Client) encodeMutation(m Mutation) (wireMutation, error) {
 	var out wireMutation
+	if m.configErr != nil {
+		return out, m.configErr
+	}
 	if m.baseVersion != nil {
 		out.BaseVersion = fmt.Sprintf("%d", *m.baseVersion)
 	}
@@ -376,17 +381,23 @@ type wireReadOptions struct {
 // A transaction that has not started yet asks the read to start it, which is
 // what removes the separate beginTransaction round trip; the reply carries the
 // handle. See requirement:datastore-single-use-transaction.
-func buildReadOptions(tx *Tx, opts []ReadOption) *wireReadOptions {
+func buildReadOptions(tx *Tx, opts []ReadOption) (*wireReadOptions, error) {
 	var cfg readConfig
 	for _, o := range opts {
 		o.applyRead(&cfg)
+	}
+	if cfg.err != nil {
+		return nil, cfg.err
+	}
+	if tx != nil && cfg.mode != readModeDefault {
+		return nil, ErrConflictingReadOptions
 	}
 	out := &wireReadOptions{ReadTime: cfg.readTime}
 	switch {
 	case tx == nil:
 		// A transaction already fixes consistency, so naming one alongside it
 		// is a request the server rejects. Outside one it is the caller's.
-		if cfg.eventual {
+		if cfg.mode == readModeEventual {
 			out.ReadConsistency = "EVENTUAL"
 		}
 	case tx.handle != "":
@@ -395,9 +406,9 @@ func buildReadOptions(tx *Tx, opts []ReadOption) *wireReadOptions {
 		out.NewTransaction = tx.options()
 	}
 	if out.ReadConsistency == "" && out.Transaction == "" && out.NewTransaction == nil && out.ReadTime == "" {
-		return nil
+		return nil, nil
 	}
-	return out
+	return out, nil
 }
 
 type wireLookupRequest struct {
@@ -442,9 +453,13 @@ func (c *Client) lookup(ctx context.Context, keys []Key, tx *Tx, opts []ReadOpti
 	if len(keys) > MaxLookupKeys {
 		return nil, fmt.Errorf("%w: got %d", ErrTooManyKeys, len(keys))
 	}
+	readOptions, err := buildReadOptions(tx, opts)
+	if err != nil {
+		return nil, err
+	}
 	req := wireLookupRequest{
 		DatabaseID:  c.database,
-		ReadOptions: buildReadOptions(tx, opts),
+		ReadOptions: readOptions,
 		Keys:        make([]wireKey, 0, len(keys)),
 	}
 	for _, k := range keys {
@@ -503,10 +518,14 @@ func (c *Client) runQuery(ctx context.Context, q *Query, tx *Tx, opts []ReadOpti
 	if err != nil {
 		return nil, err
 	}
+	readOptions, err := buildReadOptions(tx, opts)
+	if err != nil {
+		return nil, err
+	}
 	req := wireRunQueryRequest{
 		DatabaseID:  c.database,
 		PartitionID: partition,
-		ReadOptions: buildReadOptions(tx, opts),
+		ReadOptions: readOptions,
 		Query:       wq,
 	}
 	var resp wireRunQueryResponse
@@ -628,10 +647,14 @@ func (c *Client) aggregate(ctx context.Context, q *Query, tx *Tx, alias string,
 	if err != nil {
 		return Value{}, err
 	}
+	readOptions, err := buildReadOptions(tx, opts)
+	if err != nil {
+		return Value{}, err
+	}
 	req := wireRunAggregationRequest{
 		DatabaseID:  c.database,
 		PartitionID: partition,
-		ReadOptions: buildReadOptions(tx, opts),
+		ReadOptions: readOptions,
 		AggregationQuery: &wireAggregationQuery{
 			NestedQuery:  wq,
 			Aggregations: []wireAggregation{aggregation},

@@ -26,7 +26,8 @@ chosen:
   level_2: >
     expose baseVersion and updateTime as write options, sourced from the version
     and updateTime a Lookup already returns. This is optimistic concurrency, and
-    it is the honest name for it.
+    it is the honest name for it. They are alternative preconditions, never two
+    fields on one mutation; see decision:datastore-option-exclusivity.
   level_3: >
     a read-write transaction for anything predicate-shaped. Read inside the
     transaction, decide in Go, commit. The predicate runs in the client, which

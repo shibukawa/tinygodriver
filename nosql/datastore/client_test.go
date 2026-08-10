@@ -154,6 +154,63 @@ func TestGetSendsLookupAndDecodes(t *testing.T) {
 	}
 }
 
+func TestOperationTimeoutIncludesRetryBackoffWithCustomHTTPClient(t *testing.T) {
+	s := newStub(stubReply{http.StatusServiceUnavailable, errorBody("UNAVAILABLE", "retry")})
+	client, _ := newTestClient(t, s,
+		WithTimeout(20*time.Millisecond),
+		WithRetry(3, 100*time.Millisecond))
+	client.randFloat = func() float64 { return 1 }
+
+	started := time.Now()
+	_, err := client.Get(context.Background(), NameKey("User", "alice"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Get error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("operation took %v, timeout did not bound retry backoff", elapsed)
+	}
+}
+
+func TestCustomHTTPClientRejectsPoolOptions(t *testing.T) {
+	_, err := New("test-project",
+		WithEndpoint("http://127.0.0.1:1"),
+		WithHTTPClient(&http.Client{}),
+		WithMaxIdleConns(8),
+		WithTokenSource(google.StaticTokenSource(google.Token{Value: "token"})),
+	)
+	if !errors.Is(err, ErrHTTPClientOwnership) {
+		t.Fatalf("New error = %v, want ErrHTTPClientOwnership", err)
+	}
+}
+
+func TestConflictingReadOptionsFailBeforeRequest(t *testing.T) {
+	s := newStub()
+	client, _ := newTestClient(t, s)
+
+	_, err := client.Get(context.Background(), NameKey("User", "alice"),
+		WithEventualConsistency(), WithReadTime(time.Now()))
+	if !errors.Is(err, ErrConflictingReadOptions) {
+		t.Fatalf("Get error = %v, want ErrConflictingReadOptions", err)
+	}
+	if calls := s.calls(); len(calls) != 0 {
+		t.Fatalf("server received %d requests, want none", len(calls))
+	}
+}
+
+func TestConflictingWriteOptionsFailBeforeRequest(t *testing.T) {
+	s := newStub()
+	client, _ := newTestClient(t, s)
+
+	err := client.Update(context.Background(), NewEntity(NameKey("User", "alice")),
+		WithBaseVersion(1), WithUpdateTime("2026-08-10T00:00:00Z"))
+	if !errors.Is(err, ErrConflictingWriteOptions) {
+		t.Fatalf("Update error = %v, want ErrConflictingWriteOptions", err)
+	}
+	if calls := s.calls(); len(calls) != 0 {
+		t.Fatalf("server received %d requests, want none", len(calls))
+	}
+}
+
 func TestGetMissingIsErrNoSuchEntity(t *testing.T) {
 	s := newStub(stubReply{200, `{"missing":[{"entity":{"key":{"path":[{"kind":"User","name":"bob"}]}}}]}`})
 	client, _ := newTestClient(t, s)

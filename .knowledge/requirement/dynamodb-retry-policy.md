@@ -26,7 +26,10 @@ not_retryable:
   - any 4xx not named above, including signature and credential failures
 policy:
   default: 3 attempts, exponential backoff with jitter, 25ms base, 1s cap
-  bound: total elapsed time never exceeds the client timeout
+  bound: >
+    total elapsed never exceeds one operation timeout. One context is derived
+    before the first attempt, so retries, backoff, checksum handling, and body
+    reads all consume the same budget, including with a supplied HTTP client.
   option: WithRetry(attempts int, base time.Duration); zero attempts disables it
   idempotency: >
     only whole requests are retried, and only for the errors above. A retried

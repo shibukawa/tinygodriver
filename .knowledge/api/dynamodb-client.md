@@ -89,3 +89,4 @@ signing: api:aws-signer
 scope: requirement:dynamodb-client-scope
 integrity: requirement:dynamodb-retry-policy
 flow: flow:dynamodb-request
+client_policy: decision:http-client-policy-ownership

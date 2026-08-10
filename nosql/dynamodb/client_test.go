@@ -169,6 +169,38 @@ func TestGetItemRequestShape(t *testing.T) {
 	}
 }
 
+func TestOperationTimeoutIncludesRetryBackoffWithCustomHTTPClient(t *testing.T) {
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		exception(w, http.StatusBadRequest, "ThrottlingException", "slow down")
+	})
+	client := newClient(t, srv.URL,
+		dynamodb.WithHTTPClient(srv.Client()),
+		dynamodb.WithTimeout(20*time.Millisecond),
+		dynamodb.WithRetry(3, 100*time.Millisecond))
+
+	started := time.Now()
+	_, err := client.GetItem(context.Background(), "users", dynamodb.Key{"pk": dynamodb.S("1")})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("GetItem error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("operation took %v, timeout did not bound retry backoff", elapsed)
+	}
+}
+
+func TestCustomHTTPClientRejectsPoolOptions(t *testing.T) {
+	_, err := dynamodb.New(
+		dynamodb.WithEndpoint("http://127.0.0.1:1"),
+		dynamodb.WithRegion("us-east-1"),
+		dynamodb.WithCredentials(aws.Credentials{AccessKeyID: "id", SecretAccessKey: "secret"}),
+		dynamodb.WithHTTPClient(&http.Client{}),
+		dynamodb.WithMaxIdleConns(8),
+	)
+	if !errors.Is(err, dynamodb.ErrHTTPClientOwnership) {
+		t.Fatalf("New error = %v, want ErrHTTPClientOwnership", err)
+	}
+}
+
 // TestGetItemMissing covers the 200-with-no-Item reply, which is how DynamoDB
 // reports a miss.
 func TestGetItemMissing(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shibukawa/tinygodriver/cloud/aws"
+	"github.com/shibukawa/tinygodriver/internal/cloudhttp"
 )
 
 // Internal failures that are not S3 error documents.
@@ -23,7 +24,7 @@ var (
 	errStreamNotReplayable   = errors.New("s3: redirected request cannot replay a streamed body")
 )
 
-// DefaultTimeout bounds a single request when no timeout is configured.
+// DefaultTimeout bounds one logical operation when no timeout is configured.
 const DefaultTimeout = 60 * time.Second
 
 // maxRedirects bounds redirect following. S3 needs one hop to correct a region
@@ -37,6 +38,7 @@ type Client struct {
 	pathStyle bool
 	unsigned  bool
 	http      *http.Client
+	timeout   time.Duration
 	now       func() time.Time // overridden in tests
 
 	// mu guards region, which a redirect updates when the bucket turns out to
@@ -107,8 +109,8 @@ func WithUnsignedPayload(unsigned bool) Option {
 	return func(c *config) { c.unsigned = unsigned }
 }
 
-// WithTimeout bounds each request, including reading the response body. Zero
-// means DefaultTimeout.
+// WithTimeout bounds one logical operation, including redirects and reading
+// the response body. Zero means DefaultTimeout.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *config) { c.timeout = timeout }
 }
@@ -160,12 +162,12 @@ func New(opts ...Option) (*Client, error) {
 		pathStyle = *cfg.pathStyle
 	}
 	httpClient := cfg.httpClient
+	timeout := cfg.timeout
+	if timeout == 0 {
+		timeout = DefaultTimeout
+	}
 	if httpClient == nil {
-		timeout := cfg.timeout
-		if timeout == 0 {
-			timeout = DefaultTimeout
-		}
-		httpClient = newHTTPClient(timeout)
+		httpClient = newHTTPClient(0)
 	}
 
 	return &Client{
@@ -175,6 +177,7 @@ func New(opts ...Option) (*Client, error) {
 		pathStyle: pathStyle,
 		unsigned:  cfg.unsigned,
 		http:      httpClient,
+		timeout:   timeout,
 		now:       time.Now,
 	}, nil
 }
@@ -254,6 +257,7 @@ func (c *Client) buildURL(r *request) *url.URL {
 //
 // The returned response has an unread body on success; the caller closes it.
 func (c *Client) do(ctx context.Context, r *request) (*http.Response, error) {
+	ctx, cancel := cloudhttp.OperationContext(ctx, c.timeout)
 	target := c.buildURL(r)
 	region := c.Region()
 
@@ -262,12 +266,14 @@ func (c *Client) do(ctx context.Context, r *request) (*http.Response, error) {
 		if r.body != nil {
 			var err error
 			if body, err = r.body(); err != nil {
+				cancel()
 				return nil, err
 			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, r.method, target.String(), body)
 		if err != nil {
+			cancel()
 			return nil, err
 		}
 		// NewRequestWithContext re-parses the URL, which drops the AWS-style
@@ -282,19 +288,23 @@ func (c *Client) do(ctx context.Context, r *request) (*http.Response, error) {
 
 		resp, err := c.http.Do(req)
 		if err != nil {
+			cancel()
 			return nil, err
 		}
 		if !isRedirect(resp.StatusCode) {
+			resp.Body = &operationBody{ReadCloser: resp.Body, cancel: cancel}
 			return resp, nil
 		}
 
 		next, newRegion, err := redirectTarget(resp, target)
 		drain(resp)
 		if err != nil {
+			cancel()
 			return nil, &Error{Op: r.op, Bucket: r.bucket, Key: r.key,
 				StatusCode: resp.StatusCode, Code: "Redirect", Message: err.Error(), err: err}
 		}
 		if redirects >= maxRedirects {
+			cancel()
 			return nil, &Error{Op: r.op, Bucket: r.bucket, Key: r.key,
 				StatusCode: resp.StatusCode, Code: "Redirect", err: ErrTooManyRedirect}
 		}
@@ -304,6 +314,17 @@ func (c *Client) do(ctx context.Context, r *request) (*http.Response, error) {
 		}
 		target = next
 	}
+}
+
+type operationBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *operationBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
 }
 
 func isRedirect(status int) bool {
