@@ -53,15 +53,20 @@ next '/' or the path end:
 	 /blog/go/request-routers/comments   no match
 
 Catch-all parameters match anything until the path end, including the
-directory index (the '/' before the catch-all). Since they match anything
-until the end, catch-all parameters must always be the final path element.
+directory index. Since they match anything until the end, catch-all
+parameters must always be the final path element.
+
+The matched value carries no leading slash, and the directory index yields
+the empty string. Upstream httprouter documents a leading slash here; this
+router does not produce one, and neither does net/http's ServeMux for the
+equivalent {filepath...} pattern.
 
 	Path: /files/{filepath:*}
 
 	Requests:
-	 /files/                             match: filepath="/"
-	 /files/LICENSE                      match: filepath="/LICENSE"
-	 /files/templates/article.html       match: filepath="/templates/article.html"
+	 /files/                             match: filepath=""
+	 /files/LICENSE                      match: filepath="LICENSE"
+	 /files/templates/article.html       match: filepath="templates/article.html"
 	 /files                              no match, but the router would redirect
 
 The value of parameters is saved in ctx.UserValue(<key>), consisting
