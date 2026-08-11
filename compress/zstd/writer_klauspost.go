@@ -3,7 +3,6 @@
 package zstd
 
 import (
-	"errors"
 	"io"
 
 	kzstd "github.com/klauspost/compress/zstd"
@@ -25,7 +24,7 @@ type Writer struct {
 // select the bounded TinyGo encoder instead.
 func NewWriter(w io.Writer, options ...Option) (*Writer, error) {
 	if w == nil {
-		return nil, errors.New("zstd: nil writer")
+		return nil, errNilWriter
 	}
 	resolved := resolveOptions(options)
 	out := newOutputWriter(w, resolved.etag)
@@ -92,4 +91,20 @@ func (z *Writer) Result() (Result, error) {
 		return Result{}, ErrResultUnavailable
 	}
 	return z.out.result(), nil
+}
+
+// Reset starts a new frame writing to w, keeping the encoder and its window so
+// that a pooled Writer does not rebuild them. The ETag setting chosen at
+// NewWriter is retained, nothing reaches w until the caller writes, flushes, or
+// closes, and a nil w leaves the Writer in the error state NewWriter would have
+// reported.
+func (z *Writer) Reset(w io.Writer) {
+	z.closed = false
+	if w == nil {
+		z.err = errNilWriter
+		return
+	}
+	z.err = nil
+	z.out.reset(w)
+	z.encoder.Reset(z.out)
 }

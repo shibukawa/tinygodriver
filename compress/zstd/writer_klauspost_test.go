@@ -135,3 +135,7 @@ func TestKlauspostWriterLifecycle(t *testing.T) {
 		t.Fatalf("result does not identify streamed output")
 	}
 }
+
+// blockBufferCap reports zero: this backend keeps its buffers inside the
+// klauspost encoder, out of reach. See TestResetKeepsBlockBuffer.
+func blockBufferCap(z *Writer) int { return 0 }

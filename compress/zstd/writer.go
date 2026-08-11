@@ -3,7 +3,6 @@
 package zstd
 
 import (
-	"errors"
 	"io"
 )
 
@@ -53,7 +52,7 @@ type Writer struct {
 // digest used for caching.
 func NewWriter(w io.Writer, options ...Option) (*Writer, error) {
 	if w == nil {
-		return nil, errors.New("zstd: nil writer")
+		return nil, errNilWriter
 	}
 	resolved := resolveOptions(options)
 	return &Writer{
@@ -152,7 +151,11 @@ func (z *Writer) Close() error {
 		z.err = err
 		return err
 	}
-	z.buf = nil
+	// Truncated rather than released: a Writer that is dropped after Close is
+	// collected whole anyway, and one that is kept is being pooled, where
+	// handing the block buffer back to the allocator is the opposite of the
+	// point. Reset reclaims it.
+	z.buf = z.buf[:0]
 	return nil
 }
 
@@ -162,6 +165,29 @@ func (z *Writer) Result() (Result, error) {
 		return Result{}, ErrResultUnavailable
 	}
 	return z.out.result(), nil
+}
+
+// Reset starts a new frame writing to w, discarding any input the previous
+// frame had buffered but keeping the block buffer and the match table. That is
+// what makes an encoder worth pooling: those are the whole of its footprint,
+// and every other piece of encoder state is rebuilt per block anyway.
+//
+// The ETag setting chosen at NewWriter is retained. As with NewWriter, nothing
+// reaches w until the caller writes, flushes, or closes. Passing a nil w leaves
+// the Writer in the error state that NewWriter would have reported.
+func (z *Writer) Reset(w io.Writer) {
+	if cap(z.buf) == 0 {
+		z.buf = make([]byte, 0, maxBlockSize)
+	}
+	z.buf = z.buf[:0]
+	z.wroteHeader = false
+	z.closed = false
+	if w == nil {
+		z.err = errNilWriter
+		return
+	}
+	z.err = nil
+	z.out.reset(w)
 }
 
 func (z *Writer) writeBlocks(p []byte, last bool) error {

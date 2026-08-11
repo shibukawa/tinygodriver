@@ -14,6 +14,10 @@ const ContentEncoding = "zstd"
 var (
 	ErrClosed            = errors.New("zstd: writer is closed")
 	ErrResultUnavailable = errors.New("zstd: result is unavailable before a successful close")
+
+	// errNilWriter is reported by NewWriter and held by Reset, whose signature
+	// has nowhere to return it.
+	errNilWriter = errors.New("zstd: nil writer")
 )
 
 // Result describes an encoded representation. SHA256 covers exactly Size
@@ -94,6 +98,7 @@ type outputWriter struct {
 type hashState interface {
 	Write([]byte) (int, error)
 	Sum([]byte) []byte
+	Reset()
 }
 
 func newOutputWriter(dst io.Writer, etag bool) *outputWriter {
@@ -127,6 +132,17 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// reset points the writer at a new destination and starts its size and digest
+// over. The hasher is kept rather than replaced, so a reused encoder does not
+// allocate one per representation.
+func (w *outputWriter) reset(dst io.Writer) {
+	w.dst = dst
+	w.size = 0
+	if w.hash != nil {
+		w.hash.Reset()
+	}
 }
 
 func (w *outputWriter) result() Result {

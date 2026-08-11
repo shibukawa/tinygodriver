@@ -6,4 +6,7 @@
 // force_tinygo_logic build tag. Both implementations expose the same API,
 // calculate Result's SHA-256 digest over bytes successfully written, and write
 // nothing to the destination until the caller writes, flushes, or closes.
+//
+// Writer is poolable through Reset, which is how the fasthttp fork in this
+// repository compresses responses under TinyGo.
 package zstd

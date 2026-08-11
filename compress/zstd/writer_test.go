@@ -224,3 +224,7 @@ func TestWriterReportsDeferredHeaderFailure(t *testing.T) {
 		t.Fatalf("Result error = %v, want %v", err, ErrResultUnavailable)
 	}
 }
+
+// blockBufferCap reports the capacity of the block buffer this backend keeps,
+// for TestResetKeepsBlockBuffer.
+func blockBufferCap(z *Writer) int { return cap(z.buf) }

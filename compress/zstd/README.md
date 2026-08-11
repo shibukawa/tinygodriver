@@ -50,6 +50,23 @@ w.(http.Flusher).Flush()
 Flushing before a block fills reduces the compression ratio, so flush per
 chunk rather than per `Write`.
 
+`Reset` starts a new frame on a new destination, so a server can pool encoders
+across responses instead of building one per response. It keeps what the
+encoder is made of — under TinyGo a 128 KiB block buffer and a 16 KiB match
+table, which is nearly all of its footprint — and keeps the `WithETag` setting
+chosen at `NewWriter`. As with `NewWriter`, nothing reaches the new destination
+until the caller writes, flushes, or closes.
+
+```go
+z := pool.Get().(*zstd.Writer)
+z.Reset(w)
+defer func() { z.Close(); pool.Put(z) }()
+```
+
+[`fasthttp`](../../fasthttp) does exactly this: it is the encoder TinyGo builds
+of that fork compress with, because klauspost's decoder is assembly TinyGo
+cannot link.
+
 ## Implementation selection
 
 - normal host Go builds use `github.com/klauspost/compress/zstd`
@@ -58,7 +75,7 @@ chunk rather than per `Write`.
   on host Go
 
 Both implementations expose the same `Writer`, `Result`, `Option`, and
-`EncodeAll` API.
+`EncodeAll` API, `Reset` included.
 Encoded bytes and therefore ETags may differ between implementations.
 
 The host backend uses the klauspost default compression level with one encoder,
