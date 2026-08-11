@@ -9,7 +9,7 @@ Upstream WebSocket library forked by requirement:websocket-fork. RFC 6455 client
 version: v1.5.3
 upstream: github.com/gorilla/websocket
 dependencies: none; SOCKS5 proxy support is vendored as x_net_proxy.go
-assembly: none, so unlike decision:fasthttp-fork no noasm tag is needed
+assembly: none, so no noasm tag is needed; decision:fasthttp-zstd-backend removed the last need for one anywhere
 uses_from_stdlib: >
   bufio, compress/flate, crypto/rand, crypto/sha1, encoding/base64, net/http,
   net/http/httptrace, net/url, unicode/utf8, unsafe

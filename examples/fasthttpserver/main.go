@@ -1,10 +1,9 @@
 // Command fasthttpserver is a fasthttp server that works with both TinyGo and
 // standard Go, routing through the fasthttprouter fork. Under TinyGo, the
 // blank import registers the host Netdever so the net package can use the OS
-// TCP stack, and -tags noasm is required because TinyGo cannot link
-// klauspost/compress's zstd assembly.
+// TCP stack. No build tags are needed on either compiler.
 //
-//	tinygo build -tags noasm -o server ./examples/fasthttpserver && ./server
+//	tinygo build -o server ./examples/fasthttpserver && ./server
 //	go run ./examples/fasthttpserver
 //
 // Optional environment variables:
@@ -46,8 +45,9 @@ func main() {
 
 	r := newRouter(static)
 	// CompressHandlerBrotliLevel negotiates br, gzip, deflate and zstd. All
-	// four work under TinyGo; all four are also why the binary is 4 MB larger
-	// than the net/http equivalent.
+	// four encode under TinyGo, zstd through the repository's own
+	// compress/zstd; they are also most of why the binary is larger than the
+	// net/http equivalent.
 	compressed := fasthttp.CompressHandlerBrotliLevel(r.Handler, 4, 6)
 
 	srv := &fasthttp.Server{

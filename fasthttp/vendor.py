@@ -51,7 +51,9 @@ LOCAL_FILES = {
     "compat_test.go",
     "compat_std_test.go",
     "compat_tinygo_test.go",
+    "zstd_tinygo.go",
     "zstd_disabled.go",
+    "zstd_wire_test.go",
 }
 
 
@@ -256,29 +258,48 @@ PATCHES = {
             1,
         ),
     ],
-    # zstd is the single largest thing fasthttp drags in: 2.40 MB of TinyGo
-    # binary against brotli's 0.24 MB. zstd_disabled.go replaces this file under
-    # -tags fasthttp_nozstd, and zstdAvailable keeps every fasthttp-internal
-    # zstd path out of that build.
+    # klauspost/compress/zstd decodes in assembly TinyGo cannot link, so this
+    # file becomes the standard-Go half alone: zstd_tinygo.go encodes through
+    # the repository's own compress/zstd, and zstd_disabled.go drops zstd
+    # altogether under -tags fasthttp_nozstd. zstdAvailable and
+    # zstdDecodeAvailable keep every fasthttp-internal zstd path inside what its
+    # build can actually do.
     "zstd.go": [
         (
             "package fasthttp\n",
-            "//go:build !fasthttp_nozstd\n"
+            "//go:build !fasthttp_nozstd && !tinygo && !force_tinygo_logic\n"
             "\n"
-            "// PETITWEB: this file is replaced by zstd_disabled.go under\n"
-            "// -tags fasthttp_nozstd. See PATCHES.md.\n"
+            "// PETITWEB: the standard-Go half of zstd, and upstream's own. TinyGo takes\n"
+            "// zstd_tinygo.go instead, because klauspost's decoder is written in assembly\n"
+            "// that TinyGo cannot link; -tags fasthttp_nozstd takes zstd_disabled.go. See\n"
+            "// PATCHES.md.\n"
             "\n"
             "package fasthttp\n",
             1,
         ),
         (
+            '\t"bytes"\n\t"fmt"\n',
+            '\t"bytes"\n\t"errors"\n\t"fmt"\n',
+            1,
+        ),
+        (
             "var (\n"
             "\tzstdDecoderPool            sync.Pool\n",
-            "// PETITWEB: zstdAvailable gates fasthttp's own use of zstd, and\n"
-            "// zstdReader lets fs.go name the decoder without importing it.\n"
-            "const zstdAvailable = true\n"
+            "// PETITWEB: zstdAvailable gates fasthttp's own use of zstd and\n"
+            "// zstdDecodeAvailable the half of it that reads; zstdReader lets fs.go name the\n"
+            "// decoder without importing it. This build has both halves.\n"
+            "const (\n"
+            "\tzstdAvailable       = true\n"
+            "\tzstdDecodeAvailable = true\n"
+            ")\n"
             "\n"
             "type zstdReader = zstd.Decoder\n"
+            "\n"
+            "// PETITWEB: ErrZstdUnsupported is declared in every build so that\n"
+            "// errors.Is against it compiles everywhere. Nothing returns it here; the\n"
+            "// builds that do are zstd_tinygo.go, which cannot decode, and\n"
+            "// zstd_disabled.go, which does neither.\n"
+            'var ErrZstdUnsupported = errors.New("fasthttp: zstd is unsupported in this build")\n'
             "\n"
             "var (\n"
             "\tzstdDecoderPool            sync.Pool\n",
@@ -299,14 +320,16 @@ PATCHES = {
         ),
         (
             "\t\tcompressZstd:           fs.CompressZstd,\n",
-            "\t\t// PETITWEB: a zstd-free build cannot honour CompressZstd, and\n"
-            "\t\t// advertising an encoding it cannot produce would break clients.\n"
-            "\t\tcompressZstd:           fs.CompressZstd && zstdAvailable,\n",
+            "\t\t// PETITWEB: gated on the decoder, not the encoder. FS reads its own\n"
+            "\t\t// .zst cache back to sniff a content type, so a build that can only\n"
+            "\t\t// encode would answer with one Content-Type for the zstd\n"
+            "\t\t// representation and another for the identity one.\n"
+            "\t\tcompressZstd:           fs.CompressZstd && zstdDecodeAvailable,\n",
             1,
         ),
         (
             "\t\tCompressZstd:       true,\n",
-            "\t\tCompressZstd:       zstdAvailable, // PETITWEB: was true\n",
+            "\t\tCompressZstd:       zstdDecodeAvailable, // PETITWEB: was true\n",
             2,
         ),
     ],

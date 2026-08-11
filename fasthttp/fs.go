@@ -156,7 +156,7 @@ var (
 		GenerateIndexPages: true,
 		Compress:           true,
 		CompressBrotli:     true,
-		CompressZstd:       zstdAvailable, // PETITWEB: was true
+		CompressZstd:       zstdDecodeAvailable, // PETITWEB: was true
 		AcceptByteRange:    true,
 	}
 	rootFSHandler RequestHandler
@@ -206,7 +206,7 @@ func serveFS(ctx *RequestCtx, filesystem fs.FS, path string, literal bool) {
 		GenerateIndexPages: true,
 		Compress:           true,
 		CompressBrotli:     true,
-		CompressZstd:       zstdAvailable, // PETITWEB: was true
+		CompressZstd:       zstdDecodeAvailable, // PETITWEB: was true
 		AcceptByteRange:    true,
 	}
 	handler := f.NewRequestHandler()
@@ -590,9 +590,11 @@ func (fs *FS) initRequestHandler() {
 		generateIndexPages: fs.GenerateIndexPages,
 		compress:           fs.Compress,
 		compressBrotli:     fs.CompressBrotli,
-		// PETITWEB: a zstd-free build cannot honour CompressZstd, and
-		// advertising an encoding it cannot produce would break clients.
-		compressZstd:           fs.CompressZstd && zstdAvailable,
+		// PETITWEB: gated on the decoder, not the encoder. FS reads its own
+		// .zst cache back to sniff a content type, so a build that can only
+		// encode would answer with one Content-Type for the zstd
+		// representation and another for the identity one.
+		compressZstd:           fs.CompressZstd && zstdDecodeAvailable,
 		compressRoot:           compressRoot,
 		pathNotFound:           fs.PathNotFound,
 		acceptByteRange:        fs.AcceptByteRange,

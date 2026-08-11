@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -169,9 +170,10 @@ func TestChunkedStream(t *testing.T) {
 	}
 }
 
-// TestCompressionRoundTrip checks all four codecs. zstd needs -tags noasm under
-// TinyGo, which cannot link klauspost/compress's arm64 assembly, so a failure
-// here is the first sign that tag was forgotten.
+// TestCompressionRoundTrip checks every codec this build can both produce and
+// consume. That is all four on standard Go; under TinyGo, zstd encodes through
+// compress/zstd and has no decoder, so it is checked by TestZstdEncodeOnly
+// instead.
 func TestCompressionRoundTrip(t *testing.T) {
 	addr, stop := serve(t, CompressHandlerBrotliLevel(testHandler, 4, 6))
 	if addr == "" {
@@ -182,7 +184,7 @@ func TestCompressionRoundTrip(t *testing.T) {
 	want := strings.Repeat("compressme", 200)
 
 	encodings := []string{"gzip", "deflate", "br", "zstd"}
-	if !zstdAvailable {
+	if !zstdDecodeAvailable {
 		encodings = encodings[:3]
 	}
 	for _, enc := range encodings {
@@ -224,10 +226,51 @@ func TestCompressionRoundTrip(t *testing.T) {
 	}
 }
 
+// TestZstdEncodeOnly pins the TinyGo build, which compresses through
+// compress/zstd and has no decoder at all. A client asking for zstd must still
+// get zstd -- that is the whole point of the swap -- and asking this build to
+// read one back must report ErrZstdUnsupported rather than return garbage.
+//
+// What is on the wire is checked on standard Go by TestZstdWireFormat, which
+// can decode it.
+func TestZstdEncodeOnly(t *testing.T) {
+	if !zstdAvailable || zstdDecodeAvailable {
+		t.Log("skipped: this build has either no zstd or a zstd decoder")
+		return
+	}
+	addr, stop := serve(t, CompressHandlerBrotliLevel(testHandler, 4, 6))
+	if addr == "" {
+		return
+	}
+	defer stop()
+
+	req, resp := AcquireRequest(), AcquireResponse()
+	defer func() {
+		ReleaseRequest(req)
+		ReleaseResponse(resp)
+	}()
+	req.SetRequestURI("http://" + addr + "/compressme")
+	req.Header.Set(HeaderAcceptEncoding, "zstd")
+	if err := testClient().Do(req, resp); err != nil {
+		t.Errorf("zstd-only request: %v", err)
+		return
+	}
+	if got := string(resp.Header.Peek(HeaderContentEncoding)); got != "zstd" {
+		t.Errorf("Content-Encoding = %q, want %q", got, "zstd")
+	}
+	if want := strings.Repeat("compressme", 200); len(resp.Body()) >= len(want) {
+		t.Errorf("%d bytes on the wire, no smaller than the %d-byte body",
+			len(resp.Body()), len(want))
+	}
+	if _, err := resp.BodyUnzstd(); !errors.Is(err, ErrZstdUnsupported) {
+		t.Errorf("BodyUnzstd error = %v, want ErrZstdUnsupported", err)
+	}
+}
+
 // TestZstdExcluded pins the behaviour of -tags fasthttp_nozstd, the build that
-// drops klauspost/compress/zstd and 2.4 MB of TinyGo binary with it. A client
-// asking for nothing but zstd must be served identity rather than a body
-// labelled with an encoding this build cannot produce.
+// drops zstd altogether. A client asking for nothing but zstd must be served
+// identity rather than a body labelled with an encoding this build cannot
+// produce.
 func TestZstdExcluded(t *testing.T) {
 	if zstdAvailable {
 		t.Log("skipped: this build includes zstd")
@@ -258,8 +301,8 @@ func TestZstdExcluded(t *testing.T) {
 	}
 
 	// Decoding a zstd body must report the exclusion rather than return garbage.
-	if _, err := resp.BodyUnzstd(); err == nil {
-		t.Error("BodyUnzstd returned no error in a build without zstd")
+	if _, err := resp.BodyUnzstd(); !errors.Is(err, ErrZstdUnsupported) {
+		t.Errorf("BodyUnzstd error = %v, want ErrZstdUnsupported", err)
 	}
 }
 

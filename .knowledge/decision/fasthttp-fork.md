@@ -15,6 +15,6 @@ mechanism: >
   not in LOCAL_FILES, directories included.
 divergence: TinyGo-only, gated on `tinygo` build tag; host Go is upstream behaviour for behaviour
 license: directory is MIT (upstream's), repo is Apache-2.0
-size_tags: fasthttp_nozstd drops klauspost zstd (halves binary, removes noasm need)
+build_tags: none needed on either compiler since decision:fasthttp-zstd-backend; fasthttp_nozstd still drops zstd, noasm is now inert
 verified: 53-check battery byte-identical on both compilers, darwin arm64
 ```

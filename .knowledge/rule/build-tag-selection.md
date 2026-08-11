@@ -35,6 +35,7 @@ rules:
 precedent:
   - httpmux/mux_std.go
   - compress/zstd/writer_klauspost.go
+  - fasthttp/zstd_tinygo.go, per decision:fasthttp-zstd-backend; the one place a third tag (fasthttp_nozstd) cuts across the pair
   - cloud/aws/transport_std.go, moved there by decision:aws-shared-package
 redirect_policy_files: >
   the no-redirect helper splits on "!tinygo" rather than the std_path tag, because

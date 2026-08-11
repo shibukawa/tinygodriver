@@ -48,49 +48,77 @@ func main() {
 }
 ```
 
-**`-tags noasm` is required under TinyGo**, because fasthttp imports
-`klauspost/compress/zstd` and TinyGo cannot link its arm64 assembly. Without the
-tag the build fails at link time, not compile time.
+No build tags are needed on either compiler:
 
 ```bash
-tinygo build -tags noasm -o server ./yourapp
-go build ./yourapp    # standard Go needs nothing
+tinygo build -o server ./yourapp
+go build ./yourapp
 ```
 
-Unless you drop zstd, which is usually the better trade — see below.
+`-tags noasm` used to be required and is now inert; see below.
 
-## Dropping zstd
+## zstd
 
-`-tags fasthttp_nozstd` leaves `klauspost/compress/zstd` out. It halves the
-binary, and it also makes `noasm` unnecessary, because zstd was the only
-assembly in the tree:
+Upstream fasthttp cannot be linked by TinyGo at all, because
+`klauspost/compress/zstd` decodes in hand-written assembly and TinyGo links
+none of it. The failure comes at link time, after a clean compile:
+
+```
+seqdec_arm64.go:25: linker could not find symbol …zstd.sequenceDecs_decode_56_arm64
+```
+
+Under TinyGo this fork encodes through the repository's own
+[`compress/zstd`](../compress/zstd) instead, which is pure Go. That is what
+makes a plain `tinygo build` work, and it takes 2.49 MB out of the binary:
+
+| minimal two-route server, TinyGo | size |
+|---|---|
+| `net/http` | 1.22 MB |
+| **this fork, no tags** | **2.83 MB** |
+| this fork, `-tags fasthttp_nozstd` | 2.78 MB |
+| this fork before, `-tags noasm` | 5.32 MB |
+
+zstd costs 0.05 MB now, against 2.53 MB through klauspost. brotli is 0.24 MB and
+gzip, deflate and zlib together 0.07 MB; neither is worth a seam.
+
+Standard Go is unchanged — klauspost, upstream's own code, encoding and decoding
+and all seven compression levels.
+
+**What TinyGo gives up is decoding.** `compress/zstd` is an encoder.
+`BodyUnzstd`, `WriteUnzstd` and `AppendUnzstdBytes` report
+`ErrZstdUnsupported`, so a *client* under TinyGo should ask for
+`Accept-Encoding: br, gzip`, which loses nothing in practice: a server that
+offers zstd offers those too. A program that must decode can call
+`klauspost/compress/zstd` on `resp.Body()` itself under `-tags noasm`.
+
+Two smaller consequences:
+
+- **Compression levels do nothing.** `compress/zstd` has one. The
+  `CompressZstd*` constants and every `level` parameter stay, so application
+  code compiles and behaves the same either way.
+- **`FSHandler` does not serve zstd**, and `FS.CompressZstd` is ignored, because
+  serving a `.zst` cache entry means reading it back to sniff a content type.
+  Static files get br and gzip. Dynamic responses through `CompressHandler`,
+  `CompressHandlerBrotliLevel` and `SetBodyStreamWriter` do get zstd — that is
+  the case worth having.
+
+## Dropping zstd entirely
+
+`-tags fasthttp_nozstd` leaves zstd out on either compiler:
 
 ```bash
 tinygo build -tags fasthttp_nozstd -o server ./yourapp
 ```
 
-| minimal two-route server, TinyGo | size |
-|---|---|
-| `net/http` | 1.21 MB |
-| this fork, `-tags fasthttp_nozstd` | 2.77 MB |
-| this fork, `-tags noasm` | 5.28 MB |
+It saved half the binary when zstd meant klauspost; it now saves 0.05 MB, and is
+worth reaching for only in a program that will never negotiate zstd.
 
-zstd is 2.40 MB of that on its own — most of what fasthttp costs over
-`net/http`, and about ten times brotli's 0.24 MB. brotli, gzip and deflate are
-not separable for that reason: together they are 0.31 MB, and the seam would not
-pay for itself.
-
-In a zstd-free build a client that offers only `zstd` is served identity, and one
-that also offers `br` or `gzip` gets those, so content negotiation does the right
-thing without any change to your handlers. `BodyUnzstd` and friends report
+A client that offers only `zstd` is then served identity, and one that also
+offers `br` or `gzip` gets those, so content negotiation does the right thing
+without any change to your handlers. `BodyUnzstd` and friends report
 `ErrZstdUnsupported`; `AppendZstdBytes` and `AppendZstdBytesLevel` panic, because
 their signatures cannot return an error and quietly handing back an empty body
 would be worse. Nothing inside fasthttp calls any of them in this build.
-
-Substituting this repository's own [`compress/zstd`](../compress/zstd), which is
-0.08 MB and now compresses past deflate, would give a server that emits zstd and a
-client that cannot read it: that package excludes decoding, compression levels and
-`Reset`. See [PATCHES.md](./PATCHES.md).
 
 ## What works
 
@@ -101,8 +129,9 @@ identically on both compilers:
   `SetBodyStreamWriter`, `ServeConn` on any `net.Conn`
 - 4 MiB request and response bodies; headers including repeated ones; cookies
 - `multipart/form-data` uploads
-- All four content encodings — gzip, deflate, br, zstd — compressed and
-  decompressed
+- gzip, deflate and br compressed and decompressed; zstd compressed, and read
+  back with klauspost under `-tags force_tinygo_logic` to prove the frame is
+  real
 - `FSHandler`, including range requests
 - Redirect following, `DoTimeout`, `RemoteIP`, graceful `Shutdown`
 - 3200 concurrent requests with no errors, at roughly 40% of standard Go's
@@ -173,11 +202,14 @@ optimisation rewards `net/http`'s smaller dependency graph, fasthttp costs more:
 
 | Program | TinyGo | standard Go |
 |---|---|---|
-| Two routes on `net/http` | 1.21 MB | 7.72 MB |
-| Two routes on this fork, `-tags fasthttp_nozstd` | 2.77 MB | 7.52 MB |
-| Two routes on this fork, `-tags noasm` | 5.28 MB | 7.52 MB |
+| Two routes on `net/http` | 1.22 MB | 7.72 MB |
+| Two routes on this fork | 2.83 MB | 8.18 MB |
+| Two routes on this fork, `-tags fasthttp_nozstd` | 2.78 MB | 7.78 MB |
 
-Almost the whole gap between the last two rows is zstd; see above.
+The two compilers pay for zstd in opposite proportions: 0.05 MB of TinyGo
+binary through `compress/zstd`, 0.40 MB of standard-Go binary through
+klauspost. Before the swap the TinyGo row read 5.32 MB; see the zstd section
+above.
 
 ## Updating
 

@@ -146,7 +146,7 @@ See the package READMEs for detailed API behavior and limitations:
 - **`websocket` serves plaintext only.** Its client reaches `wss://` through
   `Dialer.NetDialTLSContext`; a server cannot terminate TLS, for the same
   reason `fasthttp` cannot.
-- **`fasthttp` serves plaintext only** and needs `-tags noasm` under TinyGo.
+- **`fasthttp` serves plaintext only.**
   TinyGo defines no `tls.Server`, so terminating TLS is impossible and the fork
   refuses rather than serving cleartext on the TLS port; HTTP/2 cannot work
   either, because ALPN is unobservable. Its client reaches HTTPS through a

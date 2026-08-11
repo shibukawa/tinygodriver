@@ -27,9 +27,9 @@ repository nor the MIT of `fasthttp/`. `LICENSE` is upstream's own.
 
 ## Quick start
 
-The build flags are the fasthttp fork's, since that is what pulls in the
-compression stack: `-tags fasthttp_nozstd` (recommended) or `-tags noasm`
-under TinyGo, nothing under standard Go.
+No build tags are needed on either compiler. The fasthttp fork pulls in the
+compression stack, and it encodes zstd through `compress/zstd` under TinyGo;
+`-tags fasthttp_nozstd` drops zstd if the last 0.05 MB matters.
 
 ```go
 package main

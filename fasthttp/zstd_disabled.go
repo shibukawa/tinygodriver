@@ -1,9 +1,9 @@
 //go:build fasthttp_nozstd
 
-// The zstd-free half of the package. klauspost/compress/zstd costs 2.40 MB of
-// TinyGo binary on its own -- more than half of what fasthttp adds over
-// net/http, and roughly ten times brotli's 0.24 MB -- so a program that will
-// never negotiate zstd can leave it out with -tags fasthttp_nozstd.
+// The zstd-free third of the package, for a program that will never negotiate
+// zstd at all. This tag was worth half the TinyGo binary when zstd meant
+// klauspost's 2.40 MB; zstd_tinygo.go took that down to 0.05 MB, so what is
+// left to save here is small.
 //
 // Nothing inside fasthttp reaches the writers below in this build: zstdAvailable
 // keeps it out of both CompressHandler switches and out of FS's encoding
@@ -20,8 +20,13 @@ import (
 	"github.com/shibukawa/tinygodriver/fasthttp/stackless"
 )
 
-// zstdAvailable reports whether this build can produce or consume zstd.
-const zstdAvailable = false
+// zstdAvailable reports whether this build can produce zstd and
+// zstdDecodeAvailable whether it can consume it. This build does neither; the
+// two are separate because zstd_tinygo.go does only the first.
+const (
+	zstdAvailable       = false
+	zstdDecodeAvailable = false
+)
 
 const (
 	CompressZstdSpeedNotSet = iota
@@ -32,7 +37,7 @@ const (
 )
 
 // ErrZstdUnsupported reports that this build excluded zstd.
-var ErrZstdUnsupported = errors.New("fasthttp: built with -tags fasthttp_nozstd")
+var ErrZstdUnsupported = errors.New("fasthttp: zstd is excluded by -tags fasthttp_nozstd")
 
 // zstdReader stands in for zstd.Decoder, so that readFileHeader keeps its shape
 // without naming the excluded package. It reads as an io.Reader because that is

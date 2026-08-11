@@ -1,12 +1,15 @@
-//go:build !fasthttp_nozstd
+//go:build !fasthttp_nozstd && !tinygo && !force_tinygo_logic
 
-// PETITWEB: this file is replaced by zstd_disabled.go under
-// -tags fasthttp_nozstd. See PATCHES.md.
+// PETITWEB: the standard-Go half of zstd, and upstream's own. TinyGo takes
+// zstd_tinygo.go instead, because klauspost's decoder is written in assembly
+// that TinyGo cannot link; -tags fasthttp_nozstd takes zstd_disabled.go. See
+// PATCHES.md.
 
 package fasthttp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -24,11 +27,21 @@ const (
 	CompressZstdBestCompression
 )
 
-// PETITWEB: zstdAvailable gates fasthttp's own use of zstd, and
-// zstdReader lets fs.go name the decoder without importing it.
-const zstdAvailable = true
+// PETITWEB: zstdAvailable gates fasthttp's own use of zstd and
+// zstdDecodeAvailable the half of it that reads; zstdReader lets fs.go name the
+// decoder without importing it. This build has both halves.
+const (
+	zstdAvailable       = true
+	zstdDecodeAvailable = true
+)
 
 type zstdReader = zstd.Decoder
+
+// PETITWEB: ErrZstdUnsupported is declared in every build so that
+// errors.Is against it compiles everywhere. Nothing returns it here; the
+// builds that do are zstd_tinygo.go, which cannot decode, and
+// zstd_disabled.go, which does neither.
+var ErrZstdUnsupported = errors.New("fasthttp: zstd is unsupported in this build")
 
 var (
 	zstdDecoderPool            sync.Pool

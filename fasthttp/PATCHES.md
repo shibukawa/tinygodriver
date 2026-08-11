@@ -13,6 +13,10 @@ readable.
 
 ## Why any patch is needed
 
+Two reasons, and they are unrelated. One is `crypto/tls`, below. The other is
+that upstream's zstd does not link under TinyGo at all — section 6, and the only
+one of the two that stops a build outright.
+
 TinyGo ships `crypto/tls` as a stub. Ten compile errors across seven sites, and
 not one of them is a design conflict — every one is a symbol that upstream uses
 and TinyGo does not define:
@@ -31,10 +35,11 @@ compiles but panics, and `tls.NewListener` compiles and returns a listener that
 performs no handshake at all.
 
 The replacements live in `compat_std.go` and `compat_tinygo.go`, constrained on
-`tinygo` alone. `force_tinygo_logic` is deliberately not offered: every
-divergence here is a missing standard-library symbol rather than alternate
-logic, so a host-Go build has nothing to exercise, and `cloneTLSConfig` would
-copy the mutex inside a real `tls.Config`.
+`tinygo` alone. `force_tinygo_logic` is deliberately not offered *there*: every
+divergence in that pair is a missing standard-library symbol rather than
+alternate logic, so a host-Go build has nothing to exercise, and
+`cloneTLSConfig` would copy the mutex inside a real `tls.Config`. The zstd files
+do take the tag, because they hold real alternate logic; see section 6.
 
 ## 1. `client.go`
 
@@ -54,7 +59,7 @@ copy the mutex inside a real `tls.Config`.
 ## 2. `server.go`
 
 - Both `CompressHandlerLevel` and `CompressHandlerBrotliLevel` gate their zstd
-  case on `zstdAvailable`; see section 6.
+  case on `zstdAvailable`; see sections 6 and 7.
 - `getNextProto` calls `negotiatedProtocol`, which is `""` on TinyGo.
   `ConnectionState` there has no `NegotiatedProtocol` field, so ALPN cannot be
   observed and the handlers registered through `Server.NextProto` — HTTP/2 among
@@ -119,32 +124,99 @@ patched, because both live in TinyGo's `net` rather than in fasthttp:
 dial itself, and it ignores `Dialer.LocalAddr`, so `TCPDialer.LocalAddr` has no
 effect.
 
-## 6. Optional zstd
+## 6. zstd on TinyGo
 
-`-tags fasthttp_nozstd` drops `klauspost/compress/zstd`. This is the only patch
-here that exists for binary size rather than for TinyGo compatibility, and the
-numbers are why — measured standalone under TinyGo on darwin/arm64:
+This is the one patch that is not about `crypto/tls`, and it is the one that
+decides whether `tinygo build` works at all. `klauspost/compress/zstd` decodes
+in hand-written assembly, and TinyGo links none of it:
 
-| dependency | added to the binary |
+```
+fse_decoder_asm.go:45: linker could not find symbol …zstd.buildDtable_asm
+seqdec_arm64.go:25:    linker could not find symbol …zstd.sequenceDecs_decode_56_arm64
+… four more
+```
+
+It fails at *link* time, after a clean compile, which is a miserable way to
+find out. `-tags noasm` gets past it by selecting klauspost's pure-Go fallbacks
+and costs 2.49 MB.
+
+So TinyGo encodes through this repository's own
+[`compress/zstd`](../compress/zstd) instead, which is pure Go:
+
+| build of `examples/fasthttpserver` | size |
 |---|---|
-| klauspost flate + gzip + zlib | 0.07 MB |
-| brotli | 0.24 MB |
-| **zstd** | **2.40 MB** |
+| klauspost, `-tags noasm` | 5.82 MB |
+| **compress/zstd, no tags** | **3.33 MB** |
+| no zstd, `-tags fasthttp_nozstd` | 3.28 MB |
 
-zstd alone is most of what fasthttp costs over `net/http`, and roughly ten times
-brotli. So zstd is separable and the others are not worth the seam.
+zstd went from 2.49 MB to 0.05 MB, and `noasm` now changes nothing because no
+TinyGo build reaches klauspost's zstd at all.
 
-- `zstd.go` gains `//go:build !fasthttp_nozstd`, a `zstdAvailable` constant and a
-  `zstdReader` alias for `zstd.Decoder`.
-- `zstd_disabled.go`, hand-written, replaces it under the tag. The exported API
-  stays whole so application code compiles either way.
-- `fs.go` drops the `zstd` import, names the decoder through `zstdReader`, and
-  derives `compressZstd` as `fs.CompressZstd && zstdAvailable`. Ignoring the
-  field rather than honouring it is deliberate: a handler that advertised an
-  encoding it cannot produce would break clients, and there is no error return
-  on that path to report it through.
-- `server.go` gates both `CompressHandler` switches, so a client offering only
-  zstd is served identity.
+The seam follows the repository's `rule:build-tag-selection`:
+
+| file | constraint | what it can do |
+|---|---|---|
+| `zstd.go` | `!fasthttp_nozstd && !tinygo && !force_tinygo_logic` | encode and decode, klauspost, upstream's own code |
+| `zstd_tinygo.go` | `!fasthttp_nozstd && (tinygo \|\| force_tinygo_logic)` | encode only |
+| `zstd_disabled.go` | `fasthttp_nozstd` | neither |
+
+`force_tinygo_logic` selects the TinyGo half on standard Go, which is how the
+encoder is tested against a decoder at all — `zstd_wire_test.go` reads back with
+klauspost what `compress/zstd` put on the wire. This is the first divergence in
+this package that is alternate *logic* rather than a missing standard-library
+symbol, which is why it takes the tag and `compat_std.go` still does not.
+
+### What TinyGo gives up
+
+**Decoding.** `compress/zstd` excludes it. `BodyUnzstd`, `WriteUnzstd` and
+`AppendUnzstdBytes` report `ErrZstdUnsupported`, so a *client* under TinyGo
+cannot read a zstd response — send `Accept-Encoding: br, gzip` and nothing is
+lost, since a server that offers zstd offers those too. A program that really
+needs to decode can call `klauspost/compress/zstd` itself on `resp.Body()`
+under `-tags noasm`; nothing here stops it.
+
+**Compression levels.** `compress/zstd` has one. The `CompressZstd*` constants
+and the `level` parameters stay, and are normalized and then ignored, so
+application code compiles and behaves the same either way. The per-level pool
+maps collapse to one pool per writer kind.
+
+**FS zstd.** `compressZstd` is derived as `fs.CompressZstd &&
+zstdDecodeAvailable`, so `FSHandler` serves br and gzip on TinyGo and never
+zstd. It is gated on the *decoder* because `newFSFile` reads a compressed file
+back to sniff its content type when the extension yields no MIME type — an
+encode-only build would answer with `application/octet-stream` for the zstd
+representation of a file and a sniffed type for the identity one, and a
+`Content-Type` that varies with `Accept-Encoding` is worse than no zstd. If
+`compress/zstd` ever grows a decoder, flipping `zstdDecodeAvailable` turns this
+back on and nothing else changes.
+
+What TinyGo keeps is the case that matters most: `CompressHandler` and
+`CompressHandlerBrotliLevel` negotiate zstd for dynamic responses, and
+`Response.zstdBody` and `SetBodyStreamWriter` compress through the pooled
+encoder.
+
+### `Reset`, added upstream of here
+
+`compress/zstd` gained `(*Writer).Reset(io.Writer)` for this. fasthttp pools its
+encoders and resets them onto the next response; without it every response would
+build a new 128 KiB block buffer and 16 KiB match table, which is most of what
+the encoder weighs. Both implementations in that package have it, and it keeps
+the ETag setting.
+
+## 7. Optional zstd
+
+`-tags fasthttp_nozstd` drops zstd altogether. It predates section 6, when zstd
+was 2.40 MB of TinyGo binary against brotli's 0.24 MB and flate + gzip + zlib's
+0.07 MB, and it saved half the binary. It now saves 0.05 MB, and remains for
+programs that will never negotiate zstd at all.
+
+- `zstd_disabled.go`, hand-written, replaces both other halves under the tag.
+  The exported API stays whole so application code compiles either way.
+- `fs.go` drops the `zstd` import and names the decoder through `zstdReader`,
+  which is an alias for `zstd.Decoder` on standard Go and a stub in the other two
+  builds.
+- `server.go` gates both `CompressHandler` switches on `zstdAvailable`, so a
+  client offering only zstd is served identity.
 
 Only the exported *compression* entry points panic — `AppendZstdBytes` and
 `AppendZstdBytesLevel`, whose signatures return `[]byte` with no error. Handing
@@ -153,23 +225,6 @@ back `dst` unchanged there would produce an empty body for a caller to label
 Everything with an `error` in its signature returns `ErrZstdUnsupported`, and
 nothing inside fasthttp reaches any of it.
 
-### Why not the repository's own `compress/zstd`
-
-Substituting `compress/zstd`, whose bounded TinyGo encoder is 0.08 MB, looks
-like the obvious alternative. It cannot replace klauspost here, though the reason
-is no longer the one it used to be.
-
-The ratio objection is gone, and then some. That encoder used to emit one match
-per block, which left dynamic HTML and JSON at 99.9% of their input; it now emits
-many, fits its FSE tables to each block, codes its literals, and lands at 8.2% and
-11.0% against deflate's 11.6% and 13.3%.
-
-What remains is the API. `compress/zstd` **excludes decoding outright**, so
-`BodyUnzstd`, `AppendUnzstdBytes` and FS's pre-compressed `.zst` reading have
-nothing to call, and it offers neither `Reset` nor compression levels, which are
-what fasthttp's per-level encoder pools are built on. A fork that used it would
-be a server that can emit zstd and a client that cannot read it.
-
-That is a coherent thing to want — a server does mostly encode — and at 0.08 MB
-against klauspost's 2.40 MB it would be a real saving over dropping zstd
-altogether. It is not what `-tags fasthttp_nozstd` does today.
+`ErrZstdUnsupported` is declared in all three files, including the standard-Go
+one that never returns it, so that `errors.Is` against it compiles under every
+tag combination.
