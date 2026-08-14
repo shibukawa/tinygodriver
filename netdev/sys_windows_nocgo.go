@@ -42,13 +42,12 @@ const (
 )
 
 var (
-	ws2_32             = syscall.NewLazyDLL("ws2_32.dll")
-	procAccept         = ws2_32.NewProc("accept")
-	procSelect         = ws2_32.NewProc("select")
-	procSend           = ws2_32.NewProc("send")
-	procRecv           = ws2_32.NewProc("recv")
-	procWSAGetLastErr  = ws2_32.NewProc("WSAGetLastError")
-	errInvalidSocketNo = errors.New("invalid socket")
+	ws2_32            = syscall.NewLazyDLL("ws2_32.dll")
+	procAccept        = ws2_32.NewProc("accept")
+	procSelect        = ws2_32.NewProc("select")
+	procSend          = ws2_32.NewProc("send")
+	procRecv          = ws2_32.NewProc("recv")
+	procWSAGetLastErr = ws2_32.NewProc("WSAGetLastError")
 )
 
 const nocgoInvalidSocket = ^uintptr(0)

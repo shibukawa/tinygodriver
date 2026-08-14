@@ -6,8 +6,7 @@
 // declared by hand here. TinyGo compiles cgo C files with -nostdlibinc against
 // a minimal macOS SDK and rejects -F/-iframework in CFLAGS, so system headers
 // for these frameworks cannot be included. Declaring the small surface we use
-// also decouples the build from the installed SDK version. netdev/tls_openssl.h
-// takes the same approach for OpenSSL.
+// also decouples the build from the installed SDK version.
 
 #include <stdbool.h>
 #include <stdlib.h>

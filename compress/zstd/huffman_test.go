@@ -13,25 +13,6 @@ import (
 	"testing"
 )
 
-// litsFor returns the literals a block of src would carry, which is what the
-// coder actually sees.
-func litsFor(t *testing.T, src []byte) *Writer {
-	t.Helper()
-	z, err := NewWriter(&bytes.Buffer{}, WithETag(false))
-	if err != nil {
-		t.Fatalf("NewWriter: %v", err)
-	}
-	consumed := z.findSequences(src)
-	z.literals = z.literals[:0]
-	at := 0
-	for _, s := range z.seqs {
-		z.literals = append(z.literals, src[at:at+int(s.litLen)]...)
-		at += int(s.litLen) + int(s.matchLen)
-	}
-	z.literals = append(z.literals, src[at:consumed]...)
-	return z
-}
-
 // literalsBlockType reads back the type the coder chose.
 func literalsBlockType(section []byte) int {
 	if len(section) == 0 {

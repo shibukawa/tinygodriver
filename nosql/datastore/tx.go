@@ -192,15 +192,6 @@ func (t *Tx) usable() error {
 	return nil
 }
 
-type wireBeginTransactionRequest struct {
-	DatabaseID         string          `json:"databaseId,omitempty"`
-	TransactionOptions json.RawMessage `json:"transactionOptions,omitempty"`
-}
-
-type wireBeginTransactionResponse struct {
-	Transaction string `json:"transaction"`
-}
-
 type wireRollbackRequest struct {
 	DatabaseID  string `json:"databaseId,omitempty"`
 	Transaction string `json:"transaction"`

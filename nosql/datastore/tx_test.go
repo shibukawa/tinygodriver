@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-const beganTransaction = `{"transaction":"dHgtMQ=="}`
-
 func TestTransactionStartsInTheReadAndCarriesTheHandle(t *testing.T) {
 	// Two round trips, not three: the read starts the transaction and its reply
 	// carries the handle the commit then uses.

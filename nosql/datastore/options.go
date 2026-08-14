@@ -19,7 +19,6 @@ type config struct {
 	tokenSource google.TokenSource
 	timeout     time.Duration
 	httpClient  *http.Client
-	ownsClient  bool
 	maxIdle     int
 	maxIdleSet  bool
 	attempts    int
