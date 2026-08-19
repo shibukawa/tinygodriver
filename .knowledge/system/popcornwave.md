@@ -6,7 +6,11 @@ title: Popcorn Wave Framework
 A web framework building its authentication and session backends on `nosql/datastore`, through the `firestorebind` code generator in system:tinybind-go. It is the first framework-scale consumer of this driver, and the shape of its workload is what makes requirement:datastore-single-use-transaction worth doing.
 
 ```yaml
-import_path: github.com/shibukawa/popcornwave
+import_path: github.com/shibukawa/popcornweb
+renamed: >
+  from Popcorn Wave to Popcorn Web on 2026-08-18, module path included.
+  Concepts written before that date, including
+  decision:jwt-package-reuse, still say popcornwave.
 pins: tinygodriver v1.1.9 as of 2026-08-07, previously v1.1.6
 why_not_earlier: >
   v1.1.4 and v1.1.5 write key properties without a partition, fixed on
