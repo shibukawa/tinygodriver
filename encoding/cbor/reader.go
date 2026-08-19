@@ -20,11 +20,26 @@ import (
 //
 // A Reader is not safe for concurrent use. Reuse one per connection rather than
 // allocating one per message; that is what Reset is for.
+//
+// # Nesting
+//
+// Skip, ReadRaw and Profile.Validate drive their own recursion and bound it by
+// DecoderOptions.MaxNestedLevels. ReadArrayHeader and ReadMapHeader do not:
+// they read one head and return, and the walk over the container is the
+// caller's own loop, so its depth is the caller's to bound. This differs from
+// Decoder, which keeps a frame stack and refuses a container past the limit
+// from ReadToken.
+//
+// The difference is deliberate. A frame stack is the state a Reader does not
+// keep, and keeping one would cost an allocation per reader in the path that
+// exists to have none. For untrusted input, call Profile.Validate first: it
+// answers whether the bytes are legal under a bound without decoding them into
+// anything, and generated code walking a fixed schema then recurses no deeper
+// than the schema does.
 type Reader struct {
-	data  []byte
-	off   int
-	opts  DecoderOptions
-	depth int
+	data []byte
+	off  int
+	opts DecoderOptions
 }
 
 // NewReader returns a Reader over data. A zero limit in opts selects the same
@@ -67,7 +82,6 @@ func ReaderOver(data []byte, opts DecoderOptions) Reader {
 func (r *Reader) Reset(data []byte) {
 	r.data = data
 	r.off = 0
-	r.depth = 0
 }
 
 // Offset reports how many bytes have been consumed, which is where the next
@@ -556,12 +570,15 @@ func (r *Reader) ReadFloat() (float64, error) {
 // ReadArrayHeader reads an array head and returns its length. A definite-length
 // array reports indefinite false and its item count; an indefinite one reports
 // true and a length of -1, and ends at the item Peek reports as EndArray.
+//
+// It bounds the item count but not the nesting depth, which the caller's own
+// walk owns. See the Nesting section of the Reader documentation.
 func (r *Reader) ReadArrayHeader() (length int, indefinite bool, err error) {
 	return r.readContainerHeader(4, StartArray, 1)
 }
 
 // ReadMapHeader reads a map head and returns its pair count, on the same terms
-// as ReadArrayHeader.
+// as ReadArrayHeader, nesting included.
 func (r *Reader) ReadMapHeader() (pairs int, indefinite bool, err error) {
 	return r.readContainerHeader(5, StartMap, 2)
 }
