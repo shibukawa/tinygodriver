@@ -39,7 +39,7 @@ type Profile struct {
 func Wire() Profile {
 	return Profile{
 		name:               "wire",
-		maxNestedLevels:    8,
+		maxNestedLevels:    16,
 		maxContainerItems:  1024,
 		maxStringBytes:     4096,
 		maxInputBytes:      64 << 10,
@@ -82,6 +82,17 @@ func World() Profile {
 
 // Name reports the profile's name, which appears in its refusals.
 func (p Profile) Name() string { return p.name }
+
+// MaxNestedLevels reports the nesting bound, so a caller wrapping messages of
+// this profile in an envelope can derive its own bound from it rather than
+// guess one. See the note on Validate for the arithmetic.
+func (p Profile) MaxNestedLevels() int { return p.maxNestedLevels }
+
+// MaxContainerItems reports the container bound.
+func (p Profile) MaxContainerItems() int { return p.maxContainerItems }
+
+// MaxInputBytes reports the input bound.
+func (p Profile) MaxInputBytes() int64 { return p.maxInputBytes }
 
 // AllowingFloats returns a copy of p that admits floats. A profile carrying
 // scaled integers should not need it; it exists so that a caller who has
@@ -132,6 +143,27 @@ func (p Profile) ReaderOver(data []byte) Reader {
 // Validate reports whether data is exactly one item legal under p. It answers
 // the question without decoding the item into anything, which is what makes it
 // usable as a boundary check on bytes from somewhere else.
+//
+// # Depth arithmetic
+//
+// Validate walks the whole document, so nesting adds up: an envelope that wraps
+// a message costs the envelope's depth plus the message's. A patch or delta
+// carrying a subtree of a document is therefore deeper than the document, and a
+// profile whose bound only just fits its messages will refuse patches of them.
+//
+// Reading does not add up the same way. Reader.ReadRaw measures the captured
+// item from zero, so decoding an envelope field by field and handing each
+// payload on as raw bytes costs the larger of the two depths rather than their
+// sum. An envelope needing 7 as one document decodes under a bound of 6 that
+// way, and Validate still refuses it.
+//
+// Where the two must agree -- validating untrusted bytes before decoding them --
+// the bound has to cover the sum. Derive it rather than guess it:
+//
+//	envelope := World().WithMaxNestedLevels(World().MaxNestedLevels() + 3)
+//
+// Three is what a patch of the shape [base, [[op, [path...], value], ...]]
+// adds over the value it carries.
 func (p Profile) Validate(data []byte) error {
 	v := profileValidator{p: p, r: Reader{data: data, opts: p.DecoderOptions()}}
 	if err := v.item(0); err != nil {

@@ -319,6 +319,12 @@ func (r *Reader) skipContainer(depth int, arg uint64, indefinite bool, perItem u
 // This is the primitive a type that carries its own decoding needs: a field of
 // a foreign type is always nested inside something, and handing that type its
 // own bytes is the only way to decode it without knowing its shape.
+//
+// The captured item is measured from zero against MaxNestedLevels, so the
+// depth already spent reaching it does not count against it. Decoding an
+// envelope field by field therefore costs the larger of the envelope's depth
+// and its payload's, where validating the whole document at once costs their
+// sum. See Profile.Validate.
 func (r *Reader) ReadRaw() (RawMessage, error) {
 	start := r.off
 	if err := r.skipItem(0); err != nil {

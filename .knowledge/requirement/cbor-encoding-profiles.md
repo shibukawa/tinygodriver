@@ -9,7 +9,8 @@ Two named option presets, one per profile system:ebigentserver defines, so a cal
 state: shipped 2026-08-19
 shipped:
   api: Wire() and World() return a Profile; Validate, ValidateAppended, DecoderOptions, EncoderOptions, NewReader, ReaderOver
-  wire_bounds: 8 levels, 1024 items, 4 KiB strings, 64 KiB input
+  wire_bounds: 16 levels, 1024 items, 4 KiB strings, 64 KiB input
+  accessors: MaxNestedLevels, MaxContainerItems and MaxInputBytes report the bounds
   world_bounds: 32 levels, 65536 items, 4 MiB strings, 64 MiB input and raw
   world_key_order: bytewise, so the length-first default stays passkey's alone
   escape_hatch: AllowingFloats and WithMaxInputBytes return modified copies
@@ -40,6 +41,28 @@ world_profile:
     RejectDuplicateMapKeys may hold a whole root item up to MaxRawMessageBytes.
     The default is 1 MiB and a snapshot can exceed it, so the world preset sets
     that bound deliberately rather than inheriting it.
+depth_arithmetic:
+  what_counts: >
+    MaxNestedLevels counts nested containers and a tag is one of them, so a tag
+    over an array is two levels
+  validate_sums: >
+    Validate walks the whole document, so an envelope wrapping a message costs
+    the envelope's depth plus the message's
+  reading_takes_the_larger: >
+    ReadRaw measures a captured item from zero, so decoding an envelope field by
+    field costs the larger of the two depths rather than their sum. An envelope
+    needing 7 as one document decodes under a bound of 6 that way.
+  a_profile_must_hold_patches_of_its_own_messages: >
+    a patch or delta carries a subtree of the document it describes, so it is
+    always deeper than that document: exactly three levels for the shape
+    [base, [[op, [path...], value], ...]]. Measured, a plausible snapshot needs
+    5, a patch of it 8, a patch of that 9. The wire bound was 8, which fit
+    messages and refused every patch of one, and that failure would have
+    surfaced the first time system:ebigentserver generated a delta rather than
+    at the boundary where it was introduced. Raised to 16.
+  the_number_is_a_protocol_decision: >
+    16 is headroom, not a derivation. The bound a profile needs comes from the
+    schema it carries and from what wraps it, which is why the accessors exist.
 validate_takes_a_profile:
   needed: >
     Validate gains a profile argument, so whether a byte string is legal under a

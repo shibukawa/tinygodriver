@@ -79,6 +79,39 @@ because each `AppendCBORTo` appends into the buffer its parent is already
 building, decoding because `ReadRaw` hands each one its own bytes wherever the
 field sits.
 
+### How deep is deep
+
+`MaxNestedLevels` counts nested containers, and **a tag is one of them** — a tag
+over an array is two levels, not one.
+
+The two ways of reading count differently, and the difference decides what bound
+you need:
+
+- `Validate` walks the whole document, so depths **add**. An envelope wrapping a
+  message costs the envelope's depth plus the message's.
+- `ReadRaw` measures a captured item **from zero**, so decoding an envelope field
+  by field and handing each payload on as raw bytes costs the **larger** of the
+  two, not their sum.
+
+This matters for anything that carries a subtree of a document: a patch, a delta,
+a log entry quoting a message. Such a document is always deeper than the document
+it describes — for the shape `[base, [[op, [path...], value], ...]]` it is exactly
+three levels deeper. **A profile whose bound only just fits its messages will
+refuse every patch of one**, and that shows up the first time a delta is
+generated, not before.
+
+Derive an envelope bound instead of guessing one:
+
+```go
+envelope := cbor.World().WithMaxNestedLevels(cbor.World().MaxNestedLevels() + 3)
+```
+
+The `Wire()` bound is 16 for this reason: a plausible snapshot needs 5, a patch
+of it needs 8, and a patch of that patch needs 9. Set it to what your schema
+actually needs — `MaxNestedLevels()`, `MaxContainerItems()` and `MaxInputBytes()`
+report what a profile carries so the arithmetic can be written down rather than
+assumed.
+
 ## Profiles
 
 A `Profile` is a named restriction, so both ends name the same shape instead of
