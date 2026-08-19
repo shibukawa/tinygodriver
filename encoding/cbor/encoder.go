@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"sort"
+	"slices"
 	"unicode/utf8"
 )
 
-// Encoder writes RFC 8949 Core Deterministic Encoding. Each method writes one
-// complete item. WriteArray and WriteMap validate their child RawMessages before
-// writing; WriteMap sorts keys by encoded length and then bytewise lexical order.
+// Encoder writes deterministic RFC 8949. Each method writes one complete item.
+// WriteArray and WriteMap validate their child RawMessages before writing;
+// WriteMap sorts keys under EncoderOptions.KeyOrder, which defaults to the
+// length-first ordering CTAP2 and COSE require rather than to RFC 8949 Core
+// Deterministic Encoding. Indefinite-length output is not supported, because it
+// cannot be deterministic.
 type Encoder struct {
 	w    io.Writer
 	opts EncoderOptions
@@ -167,12 +170,8 @@ func (e *Encoder) WriteMap(entries []MapEntry) error {
 			return fmt.Errorf("cbor: map value: %w", err)
 		}
 	}
-	sort.Slice(ordered, func(i, j int) bool {
-		if len(ordered[i].Key) != len(ordered[j].Key) {
-			return len(ordered[i].Key) < len(ordered[j].Key)
-		}
-		return bytes.Compare(ordered[i].Key, ordered[j].Key) < 0
-	})
+	order := e.opts.KeyOrder
+	slices.SortFunc(ordered, func(a, b MapEntry) int { return order.compare(a.Key, b.Key) })
 	for i := 1; i < len(ordered); i++ {
 		if bytes.Equal(ordered[i-1].Key, ordered[i].Key) {
 			return ErrDuplicateMapKey
@@ -386,8 +385,8 @@ func (p *deterministicParser) item(depth int) error {
 				return err
 			}
 			key := p.data[ks:p.off]
-			if prev != nil && (len(prev) > len(key) || (len(prev) == len(key) && bytes.Compare(prev, key) >= 0)) {
-				return fmt.Errorf("%w: map keys are not strictly ordered", ErrMalformed)
+			if prev != nil && p.opts.KeyOrder.compare(prev, key) >= 0 {
+				return fmt.Errorf("%w: map keys are not in %s order", ErrMalformed, p.opts.KeyOrder)
 			}
 			prev = key
 			if err := p.item(depth + 1); err != nil {

@@ -1,6 +1,8 @@
 package cbor
 
 import (
+	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -14,6 +16,14 @@ var (
 	ErrExtraneousData  = errors.New("cbor: extraneous data after root item")
 	ErrUnexpectedToken = errors.New("cbor: unexpected token")
 	ErrIntegerOverflow = errors.New("cbor: integer does not fit int64")
+	// ErrProfileViolation reports CBOR that is well formed but not legal under
+	// the profile it was read or written under.
+	ErrProfileViolation = errors.New("cbor: profile violation")
+	// ErrFloatRefused reports a float where the configuration carries scaled
+	// integers instead. It is a ErrProfileViolation with its own identity,
+	// because a float leak is the specific failure a deterministic simulation
+	// most needs to be told about.
+	ErrFloatRefused = fmt.Errorf("%w: float", ErrProfileViolation)
 )
 
 // DecoderOptions controls resource limits and stream behavior. A zero limit
@@ -26,7 +36,23 @@ type DecoderOptions struct {
 	MaxRawMessageBytes     int
 	RejectDuplicateMapKeys bool
 	Sequence               bool
+	// RejectFloats refuses every float on input. Under a profile that carries
+	// scaled integers, a float on the wire is a protocol violation rather than
+	// a value, and catching it here makes it an error on the receiving side
+	// instead of a disagreement about what the message meant.
+	RejectFloats bool
 }
+
+// maxSliceLen is the largest CBOR argument this package will convert to an int.
+// It is math.MaxInt, which is 2^63-1 on a dedicated server and 2^31-1 on a
+// 32-bit or js/wasm client.
+//
+// Naming it is how that width difference stays visible. Every conversion from a
+// uint64 argument to an int passes a check against this constant first, so both
+// widths refuse the same inputs for the same stated reason instead of one of
+// them silently wrapping. A length that survives the check fits an int on the
+// machine doing the checking, which is the only machine that will index with it.
+const maxSliceLen = math.MaxInt
 
 const (
 	defaultMaxInputBytes      = 1 << 20
@@ -36,12 +62,50 @@ const (
 	defaultMaxRawMessageBytes = 1 << 20
 )
 
-// EncoderOptions controls deterministic output limits. Zero selects a
-// conservative default. Indefinite-length output is deliberately unsupported.
+// KeyOrder selects which deterministic map key ordering an Encoder emits and
+// enforces. RFC 8949 defines two, and they produce different bytes for the same
+// map, so the choice is part of the wire contract rather than an internal
+// detail. The zero value is LengthFirstKeyOrder.
+type KeyOrder uint8
+
+const (
+	// LengthFirstKeyOrder sorts shorter encoded keys first and breaks ties
+	// bytewise. This is the length-first ordering of RFC 8949 section 4.2.3,
+	// which is what CTAP2 canonical CBOR and COSE require.
+	LengthFirstKeyOrder KeyOrder = iota
+	// BytewiseKeyOrder sorts bytewise lexicographically over the whole encoded
+	// key with no length pass. This is RFC 8949 section 4.2.1 Core
+	// Deterministic Encoding.
+	BytewiseKeyOrder
+)
+
+// compare orders two encoded map keys under o.
+func (o KeyOrder) compare(a, b []byte) int {
+	if o == LengthFirstKeyOrder {
+		if c := cmp.Compare(len(a), len(b)); c != 0 {
+			return c
+		}
+	}
+	return bytes.Compare(a, b)
+}
+
+func (o KeyOrder) String() string {
+	if o == BytewiseKeyOrder {
+		return "bytewise"
+	}
+	return "length-first"
+}
+
+// EncoderOptions controls deterministic output limits and the map key ordering.
+// Zero selects a conservative default. Indefinite-length output is deliberately
+// unsupported.
 type EncoderOptions struct {
 	MaxNestedLevels   int
 	MaxContainerItems int
 	MaxStringBytes    int
+	// KeyOrder selects the map key ordering WriteMap emits and WriteRaw
+	// enforces. The zero value keeps the CTAP2 and COSE ordering.
+	KeyOrder KeyOrder
 }
 
 // RawMessage holds exactly one validated CBOR item when returned by Decoder.

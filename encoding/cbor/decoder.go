@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"sort"
-	"strconv"
+	"slices"
 	"unicode/utf8"
 )
 
@@ -33,6 +32,14 @@ type Decoder struct {
 	pendingTags int
 	capture     *[]byte
 	tokenSource *Decoder
+	// scratch backs the fixed-width argument reads. It lives on the Decoder
+	// because a local array handed to io.ReadFull escapes, which would put an
+	// allocation on every head byte that carries an argument.
+	scratch [8]byte
+	// keyBuf backs duplicate map key detection. One buffer serves every depth,
+	// because a key is canonicalized and recorded before the scan descends into
+	// its value.
+	keyBuf []byte
 }
 
 func NewDecoder(r io.Reader, opts DecoderOptions) (*Decoder, error) {
@@ -58,7 +65,11 @@ func normalizeDecoderOptions(o *DecoderOptions) error {
 	if o.MaxContainerItems == 0 {
 		o.MaxContainerItems = defaultMaxContainerItems
 	}
-	if o.MaxContainerItems > math.MaxInt/2 {
+	// Half of maxSliceLen, because a map frame counts keys and values
+	// separately and so doubles this bound. Capping it here is what lets every
+	// later container length be converted to an int without a second check:
+	// an item count that got past this fits, on whichever width is compiling.
+	if o.MaxContainerItems > maxSliceLen/2 {
 		return fmt.Errorf("cbor: MaxContainerItems is too large")
 	}
 	if o.MaxStringBytes == 0 {
@@ -94,13 +105,40 @@ func (d *Decoder) readByte() (byte, error) {
 	return 0, ErrTruncated
 }
 
+// readFull reads exactly len(p) bytes, accounting them against the input budget
+// and the raw capture the way readByte does. Bytes that did arrive are still
+// accounted when the read comes up short, so the reader is not left describing
+// a position it has already passed.
+func (d *Decoder) readFull(p []byte) error {
+	if len(p) == 0 {
+		return nil
+	}
+	if remaining := d.opts.MaxInputBytes - d.read; remaining < 0 || int64(len(p)) > remaining {
+		return fmt.Errorf("%w: input bytes", ErrLimitExceeded)
+	}
+	n, err := io.ReadFull(d.r, p)
+	if n > 0 {
+		d.read += int64(n)
+		if d.capture != nil {
+			if len(*d.capture)+n > d.opts.MaxRawMessageBytes {
+				return fmt.Errorf("%w: raw message bytes", ErrLimitExceeded)
+			}
+			*d.capture = append(*d.capture, p[:n]...)
+		}
+	}
+	if err != nil {
+		return ErrTruncated
+	}
+	return nil
+}
+
 // readChunkBytes caps the buffer readBytes reserves before any payload arrives.
 // Past it the slice grows as bytes actually turn up, so the allocation follows
 // the input rather than the number the input claimed.
 const readChunkBytes = 4096
 
 func (d *Decoder) readBytes(n uint64, stringLimit bool) ([]byte, error) {
-	if n > uint64(math.MaxInt) {
+	if n > uint64(maxSliceLen) {
 		return nil, fmt.Errorf("%w: item length", ErrLimitExceeded)
 	}
 	if stringLimit && n > uint64(d.opts.MaxStringBytes) {
@@ -117,16 +155,20 @@ func (d *Decoder) readBytes(n uint64, stringLimit bool) ([]byte, error) {
 	// a truncated item. This reaches an unauthenticated caller through a passkey
 	// attestation, so the amplification was a request the size of a header
 	// costing the whole configured string bound in live heap.
-	b := make([]byte, 0, min(int(n), readChunkBytes))
-	for range n {
-		v, err := d.readByte()
-		if err != nil {
-			if err == io.EOF {
-				return nil, ErrTruncated
-			}
+	//
+	// The buffer therefore grows a chunk at a time, and each chunk is filled
+	// from the reader before the next one is reserved. A declared length still
+	// never becomes an allocation on its own, but a string that does arrive now
+	// costs one read per chunk instead of one read per byte.
+	total := int(n)
+	b := make([]byte, 0, min(total, readChunkBytes))
+	for len(b) < total {
+		base := len(b)
+		want := min(total-base, readChunkBytes)
+		b = slices.Grow(b, want)[:base+want]
+		if err := d.readFull(b[base:]); err != nil {
 			return nil, err
 		}
-		b = append(b, v)
 	}
 	return b, nil
 }
@@ -135,30 +177,22 @@ func (d *Decoder) argument(ai byte) (uint64, error) {
 	switch {
 	case ai < 24:
 		return uint64(ai), nil
-	case ai == 24:
-		b, err := d.readByte()
-		if err != nil {
+	case ai <= 27:
+		width := 1 << (ai - 24) // 1, 2, 4 or 8
+		p := d.scratch[:width]
+		if err := d.readFull(p); err != nil {
 			return 0, truncated(err)
 		}
-		return uint64(b), nil
-	case ai == 25:
-		b, err := d.readBytes(2, false)
-		if err != nil {
-			return 0, truncated(err)
+		switch width {
+		case 1:
+			return uint64(p[0]), nil
+		case 2:
+			return uint64(binary.BigEndian.Uint16(p)), nil
+		case 4:
+			return uint64(binary.BigEndian.Uint32(p)), nil
+		default:
+			return binary.BigEndian.Uint64(p), nil
 		}
-		return uint64(binary.BigEndian.Uint16(b)), nil
-	case ai == 26:
-		b, err := d.readBytes(4, false)
-		if err != nil {
-			return 0, truncated(err)
-		}
-		return uint64(binary.BigEndian.Uint32(b)), nil
-	case ai == 27:
-		b, err := d.readBytes(8, false)
-		if err != nil {
-			return 0, truncated(err)
-		}
-		return binary.BigEndian.Uint64(b), nil
 	default:
 		return 0, fmt.Errorf("%w: reserved additional information %d", ErrMalformed, ai)
 	}
@@ -366,11 +400,13 @@ func (d *Decoder) ReadToken() (Token, error) {
 			if n > uint64(d.opts.MaxContainerItems) {
 				return Token{}, fmt.Errorf("%w: container items", ErrLimitExceeded)
 			}
+			// n is already at or below MaxContainerItems, which
+			// normalizeDecoderOptions capped at maxSliceLen/2. Both the
+			// doubling below and the conversion to int are therefore in range
+			// on a 64-bit server and on a 32-bit or js/wasm client alike, and
+			// neither needs a guard of its own.
 			remaining := n
 			if major == 5 {
-				if n > uint64(math.MaxInt64/2) {
-					return Token{}, fmt.Errorf("%w: map pairs", ErrLimitExceeded)
-				}
 				remaining *= 2
 			}
 			frame.remaining = int64(remaining)
@@ -452,18 +488,27 @@ func (d *Decoder) readSimple(ai byte) (Token, error) {
 	case 22:
 		tok = Token{Kind: Null}
 	case 25:
+		if d.opts.RejectFloats {
+			return Token{}, ErrFloatRefused
+		}
 		b, err := d.readBytes(2, false)
 		if err != nil {
 			return Token{}, err
 		}
 		tok = Token{Kind: Float, Float: float16(binary.BigEndian.Uint16(b))}
 	case 26:
+		if d.opts.RejectFloats {
+			return Token{}, ErrFloatRefused
+		}
 		b, err := d.readBytes(4, false)
 		if err != nil {
 			return Token{}, err
 		}
 		tok = Token{Kind: Float, Float: float64(math.Float32frombits(binary.BigEndian.Uint32(b)))}
 	case 27:
+		if d.opts.RejectFloats {
+			return Token{}, ErrFloatRefused
+		}
 		b, err := d.readBytes(8, false)
 		if err != nil {
 			return Token{}, err
@@ -635,14 +680,11 @@ func (d *Decoder) scanItemHead(depth int, b byte) error {
 		switch ai {
 		case 20, 21, 22:
 			return nil
-		case 25:
-			_, err := d.readBytes(2, false)
-			return err
-		case 26:
-			_, err := d.readBytes(4, false)
-			return err
-		case 27:
-			_, err := d.readBytes(8, false)
+		case 25, 26, 27:
+			if d.opts.RejectFloats {
+				return ErrFloatRefused
+			}
+			_, err := d.readBytes(1<<(ai-24), false)
 			return err
 		default:
 			return fmt.Errorf("%w: unsupported simple value %d", ErrMalformed, ai)
@@ -665,7 +707,7 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 			return fmt.Errorf("%w: container items", ErrLimitExceeded)
 		}
 	}
-	seen := make(map[string]struct{})
+	var seen map[string]struct{}
 	items := 0
 	for {
 		if !indef && uint64(items) >= count {
@@ -689,14 +731,9 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 				}
 				key := (*d.capture)[start:]
 				if d.opts.RejectDuplicateMapKeys {
-					id, err := normalizedKey(key)
-					if err != nil {
+					if err := d.noteMapKey(&seen, key); err != nil {
 						return err
 					}
-					if _, ok := seen[id]; ok {
-						return ErrDuplicateMapKey
-					}
-					seen[id] = struct{}{}
 				}
 				if err := d.scanItem(depth); err != nil {
 					return err
@@ -717,14 +754,9 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 			}
 			key := (*d.capture)[start:]
 			if d.opts.RejectDuplicateMapKeys {
-				id, err := normalizedKey(key)
-				if err != nil {
+				if err := d.noteMapKey(&seen, key); err != nil {
 					return err
 				}
-				if _, ok := seen[id]; ok {
-					return ErrDuplicateMapKey
-				}
-				seen[id] = struct{}{}
 			}
 			if indef {
 				// A break is legal only where the next key would begin, never as a value.
@@ -742,114 +774,24 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 	return nil
 }
 
-func normalizedKey(raw []byte) (string, error) {
-	limit := len(raw) + 1
-	d, err := NewDecoder(bytes.NewReader(raw), DecoderOptions{
-		MaxInputBytes:      int64(len(raw)),
-		MaxNestedLevels:    limit,
-		MaxContainerItems:  limit,
-		MaxStringBytes:     limit,
-		MaxRawMessageBytes: limit,
-	})
+// noteMapKey canonicalizes one encoded map key and records it, reporting a
+// duplicate against every key already recorded for the same map. The set is
+// created on first use, so a map without detection enabled, and every array,
+// costs nothing.
+func (d *Decoder) noteMapKey(seen *map[string]struct{}, key []byte) error {
+	buf, err := canonicalizeKey(d.keyBuf[:0], key, d.opts.MaxNestedLevels)
 	if err != nil {
-		return "", err
+		return err
 	}
-	fingerprint, err := keyFingerprint(d, nil)
-	if err != nil {
-		return "", err
+	d.keyBuf = buf
+	if *seen == nil {
+		*seen = make(map[string]struct{})
 	}
-	if _, err := d.ReadToken(); err != io.EOF {
-		if err == nil {
-			return "", ErrExtraneousData
-		}
-		return "", err
+	if _, ok := (*seen)[string(buf)]; ok {
+		return ErrDuplicateMapKey
 	}
-	return fingerprint, nil
-}
-
-func keyFingerprint(d *Decoder, first *Token) (string, error) {
-	var tok Token
-	var err error
-	if first == nil {
-		tok, err = d.ReadToken()
-	} else {
-		tok = *first
-	}
-	if err != nil {
-		return "", err
-	}
-	switch tok.Kind {
-	case UnsignedInteger:
-		return "u" + strconv.FormatUint(tok.Argument, 10) + ";", nil
-	case NegativeInteger:
-		return "n" + strconv.FormatUint(tok.Argument, 10) + ";", nil
-	case ByteString:
-		return "b" + strconv.Itoa(len(tok.Bytes)) + ":" + string(tok.Bytes), nil
-	case TextString:
-		return "s" + strconv.Itoa(len(tok.Text)) + ":" + tok.Text, nil
-	case Boolean:
-		if tok.Bool {
-			return "B1", nil
-		}
-		return "B0", nil
-	case Null:
-		return "N", nil
-	case Float:
-		bits := math.Float64bits(tok.Float)
-		if math.IsNaN(tok.Float) {
-			bits = 0x7ff8000000000000
-		}
-		return "f" + strconv.FormatUint(bits, 16) + ";", nil
-	case Tag:
-		content, err := keyFingerprint(d, nil)
-		if err != nil {
-			return "", err
-		}
-		return "t" + strconv.FormatUint(tok.Argument, 10) + "{" + content + "}", nil
-	case StartArray:
-		result := "a["
-		for {
-			next, err := d.ReadToken()
-			if err != nil {
-				return "", err
-			}
-			if next.Kind == EndArray {
-				return result + "]", nil
-			}
-			item, err := keyFingerprint(d, &next)
-			if err != nil {
-				return "", err
-			}
-			result += strconv.Itoa(len(item)) + ":" + item
-		}
-	case StartMap:
-		var pairs []string
-		for {
-			next, err := d.ReadToken()
-			if err != nil {
-				return "", err
-			}
-			if next.Kind == EndMap {
-				sort.Strings(pairs)
-				result := "m{"
-				for _, pair := range pairs {
-					result += strconv.Itoa(len(pair)) + ":" + pair
-				}
-				return result + "}", nil
-			}
-			key, err := keyFingerprint(d, &next)
-			if err != nil {
-				return "", err
-			}
-			value, err := keyFingerprint(d, nil)
-			if err != nil {
-				return "", err
-			}
-			pairs = append(pairs, strconv.Itoa(len(key))+":"+key+strconv.Itoa(len(value))+":"+value)
-		}
-	default:
-		return "", fmt.Errorf("%w: %s cannot begin a map key", ErrMalformed, tok.Kind)
-	}
+	(*seen)[string(buf)] = struct{}{}
+	return nil
 }
 
 // Validate checks that data contains exactly one bounded CBOR item.
