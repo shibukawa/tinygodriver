@@ -89,9 +89,14 @@ func TestTheHeaderAPILeavesNestingToTheCaller(t *testing.T) {
 		t.Errorf("Decoder.ReadToken = %v after %d tokens, want ErrLimitExceeded", tokenErr, tokens)
 	}
 
-	// And the boundary the documentation points untrusted input at does refuse.
-	if err := Wire().Validate(data); !errors.Is(err, ErrLimitExceeded) {
-		t.Errorf("Wire().Validate = %v, want ErrLimitExceeded", err)
+	// And the boundary the documentation points untrusted input at does refuse,
+	// once it is narrowed to something a schema would meet. The profile default
+	// is a stack safety net, so it accepts this depth on purpose.
+	if err := Wire().Validate(data); err != nil {
+		t.Errorf("Wire().Validate = %v, want 1000 levels accepted under the default safety net", err)
+	}
+	if err := Wire().WithMaxNestedLevels(4).Validate(data); !errors.Is(err, ErrLimitExceeded) {
+		t.Errorf("a narrowed wire profile = %v, want ErrLimitExceeded", err)
 	}
 }
 

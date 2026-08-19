@@ -55,8 +55,23 @@ type DecoderOptions struct {
 const maxSliceLen = math.MaxInt
 
 const (
-	defaultMaxInputBytes      = 1 << 20
-	defaultMaxNestedLevels    = 32
+	defaultMaxInputBytes = 1 << 20
+	// A safety net, not a budget. Every walk in this package recurses, and
+	// nothing else stops deeply nested input from exhausting the stack: host Go
+	// dies at roughly two million levels with a diagnosable "fatal error: stack
+	// overflow", and TinyGo dies at roughly forty-seven thousand on an 8 MB
+	// stack with a bare SIGSEGV and no message at all. That second one is the
+	// reason a limit exists here even though a caller should never meet it.
+	//
+	// 10000 is encoding/json's maxNestingDepth, chosen there for the same
+	// reason. It is far past any schema and far short of either crash, so it
+	// stops being something to configure. Callers who want a tight structural
+	// check on a known schema can still ask for one; see Profile.WithMaxNestedLevels.
+	//
+	// A target with a small stack needs a smaller number: the measured cost is
+	// about 180 bytes of stack per level on darwin/arm64 under TinyGo, so an
+	// 8 KiB goroutine stack is exhausted somewhere near fifty.
+	defaultMaxNestedLevels    = 10000
 	defaultMaxContainerItems  = 4096
 	defaultMaxStringBytes     = 1 << 20
 	defaultMaxRawMessageBytes = 1 << 20

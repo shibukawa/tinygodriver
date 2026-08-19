@@ -36,10 +36,16 @@ type Profile struct {
 // Numerics are scaled integers. Floats are refused outright, at encode and at
 // decode, so a float that reaches the wire is a caught protocol violation
 // rather than two peers drifting apart.
+//
+// Nesting is not restricted beyond the package's stack safety net. A wire
+// message is shallow in practice, but bounding that would make every envelope
+// over one -- a patch, a delta, a log entry quoting a message -- something the
+// caller has to do arithmetic about, for no protection the restriction on maps,
+// tags and floats does not already give.
 func Wire() Profile {
 	return Profile{
 		name:               "wire",
-		maxNestedLevels:    16,
+		maxNestedLevels:    defaultMaxNestedLevels,
 		maxContainerItems:  1024,
 		maxStringBytes:     4096,
 		maxInputBytes:      64 << 10,
@@ -66,7 +72,7 @@ func Wire() Profile {
 func World() Profile {
 	return Profile{
 		name:               "world",
-		maxNestedLevels:    32,
+		maxNestedLevels:    defaultMaxNestedLevels,
 		maxContainerItems:  1 << 16,
 		maxStringBytes:     4 << 20,
 		maxInputBytes:      64 << 20,
@@ -145,6 +151,10 @@ func (p Profile) ReaderOver(data []byte) Reader {
 // usable as a boundary check on bytes from somewhere else.
 //
 // # Depth arithmetic
+//
+// Neither profile bounds nesting to anything a schema would meet: both take the
+// package default, which is a stack safety net rather than a budget. What
+// follows matters only for a caller who narrows it deliberately.
 //
 // Validate walks the whole document, so nesting adds up: an envelope that wraps
 // a message costs the envelope's depth plus the message's. A patch or delta

@@ -2,6 +2,7 @@ package cbor
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +109,85 @@ func TestTheRouteCostsNothingWhenNothingFails(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Errorf("a successful decode allocated %v times, want 0", allocs)
+	}
+}
+
+// The nesting limit is a stack safety net set far past any schema, so the input
+// that trips it is nested thousands deep. Describing the route to that would
+// recurse thousands deep a second time and produce tens of kilobytes of
+// "[0][0][0]" that says nothing, which is a second denial of service wearing
+// the first one's error message.
+func TestADeepRefusalDoesNotProduceADeepMessage(t *testing.T) {
+	data := nestedArrays(200000)
+	r, err := NewReader(data, DecoderOptions{MaxInputBytes: 1 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = r.Skip()
+	if !errors.Is(err, ErrLimitExceeded) {
+		t.Fatalf("200000 levels = %v, want ErrLimitExceeded", err)
+	}
+	if n := len(err.Error()); n > 200 {
+		t.Errorf("the refusal is %d bytes long, want it bounded: %.120s...", n, err.Error())
+	}
+	var positioned *Error
+	if !errors.As(err, &positioned) {
+		t.Fatalf("err = %v, want a *cbor.Error", err)
+	}
+	if positioned.Path != "" {
+		t.Errorf("path = %q, want none: past a human depth the offset is the whole answer", positioned.Path)
+	}
+}
+
+// A text key can be megabytes under the world profile. An error message is not
+// the place to repeat one.
+func TestALongKeyIsTruncatedInTheRoute(t *testing.T) {
+	key := make([]byte, 4096)
+	for i := range key {
+		key[i] = 'k'
+	}
+	data := AppendMapHeader(nil, 1)
+	data = AppendText(data, string(key))
+	data = append(data, 0x1c) // reserved additional information, as the value
+
+	err := World().Validate(data)
+	if !errors.Is(err, ErrMalformed) {
+		t.Fatalf("err = %v, want ErrMalformed", err)
+	}
+	if n := len(err.Error()); n > 200 {
+		t.Errorf("the refusal is %d bytes long, want it bounded", n)
+	}
+	var positioned *Error
+	if !errors.As(err, &positioned) {
+		t.Fatal("want a *cbor.Error")
+	}
+	if !strings.Contains(positioned.Path, "...") {
+		t.Errorf("path = %q, want the key elided", positioned.Path)
+	}
+}
+
+// The default nesting bound exists so that input this deep is refused rather
+// than exhausting the stack. Measured, TinyGo faults at roughly forty-seven
+// thousand levels on an 8 MiB stack, with a bare SIGSEGV and no message.
+func TestTheDefaultNestingBoundIsAStackSafetyNet(t *testing.T) {
+	if defaultMaxNestedLevels < 1000 {
+		t.Fatalf("defaultMaxNestedLevels = %d, want a safety net rather than a budget", defaultMaxNestedLevels)
+	}
+	if defaultMaxNestedLevels > 20000 {
+		t.Fatalf("defaultMaxNestedLevels = %d, want it well short of where TinyGo faults", defaultMaxNestedLevels)
+	}
+	for _, depth := range []int{defaultMaxNestedLevels - 1, defaultMaxNestedLevels + 1, 100000} {
+		r, err := NewReader(nestedArrays(depth), DecoderOptions{MaxInputBytes: 1 << 30})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = r.Skip()
+		if depth < defaultMaxNestedLevels {
+			if err != nil {
+				t.Errorf("depth %d = %v, want it accepted", depth, err)
+			}
+		} else if !errors.Is(err, ErrLimitExceeded) {
+			t.Errorf("depth %d = %v, want ErrLimitExceeded", depth, err)
+		}
 	}
 }

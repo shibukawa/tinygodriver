@@ -14,10 +14,24 @@ import (
 // exactly where this package must cost nothing. A failure is not the steady
 // state, so it can afford one extra walk.
 
+// maxRouteDepth bounds how deep a route is worth describing, and with it how
+// deep this walk recurses and how long the string it builds can get.
+//
+// Both bounds matter on the error path specifically. The nesting limit is a
+// stack safety net set far past any schema, so the input that trips it is
+// nested thousands deep; describing the route to it would recurse thousands
+// deep a second time and produce tens of kilobytes of "[0][0][0]" that says
+// nothing. Past this depth the offset is the whole answer.
+const maxRouteDepth = 32
+
+// maxRouteKeyBytes bounds one rendered map key. A text key may be megabytes
+// under the world profile, and an error message is not the place to repeat it.
+const maxRouteKeyBytes = 40
+
 // pathTo describes the container route to the item beginning at target, in a
 // form close to diagnostic notation: [i] indexes an array, {k} selects a map
-// value under key k, and {#i key} names the i-th key of a map. The root item
-// has no route and yields "".
+// value under key k, and {#i key} names the i-th key of a map. The root item,
+// and anything nested past maxRouteDepth, has no route and yields "".
 func (r *Reader) pathTo(target int) string {
 	if target <= 0 || len(r.data) == 0 {
 		return ""
@@ -56,7 +70,7 @@ func (w *pathWalker) item(depth int) (bool, error) {
 	if w.r.off == w.target {
 		return true, nil
 	}
-	if depth > w.r.opts.MaxNestedLevels || w.r.off > w.target {
+	if depth >= maxRouteDepth || depth > w.r.opts.MaxNestedLevels || w.r.off > w.target {
 		return false, nil
 	}
 	major, _, arg, indefinite, err := w.r.head()
@@ -201,7 +215,11 @@ func describeKey(key []byte) string {
 		return strconv.FormatInt(-1-int64(arg), 10)
 	case 3:
 		if arg <= uint64(len(key)-r.off) {
-			return strconv.Quote(string(key[r.off : r.off+int(arg)]))
+			text := key[r.off : r.off+int(arg)]
+			if len(text) > maxRouteKeyBytes {
+				return strconv.Quote(string(text[:maxRouteKeyBytes])) + "..."
+			}
+			return strconv.Quote(string(text))
 		}
 	case 2:
 		return "h'" + strconv.FormatUint(uint64(arg), 10) + " bytes'"
