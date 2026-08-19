@@ -14,6 +14,24 @@ shipped:
   peek: Reader.Peek reports the next kind without consuming
   reset: Reader.Reset and Encoder.Reset
   materializing_path_kept: WriteArray and WriteMap are unchanged, and still sort
+  composition_at_depth_verified: >
+    three levels of foreign type, each carrying its own encoding, round-trip
+    byte-identically at zero allocations on both sides
+nesting_boundary:
+  bounded: Skip, ReadRaw and Profile.Validate, all by MaxNestedLevels
+  not_bounded: >
+    ReadArrayHeader and ReadMapHeader read one head and return, so the walk is
+    the caller's loop and its depth is the caller's to bound. Decoder differs,
+    keeping a frame stack and refusing from ReadToken.
+  why: >
+    a frame stack is the state a Reader does not keep, and keeping one would
+    cost an allocation per reader in the path that exists to have none. Untrusted
+    input goes through Profile.Validate first; generated code over a fixed schema
+    recurses no deeper than the schema.
+  pinned: >
+    TestTheHeaderAPILeavesNestingToTheCaller asserts the asymmetry in both
+    directions, so it cannot drift into being true by accident or false by
+    omission
 priority: must
 evidence_of_the_current_shape:
   encoder_never_emitted_production_bytes: >

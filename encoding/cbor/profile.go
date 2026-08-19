@@ -91,6 +91,9 @@ func (p Profile) AllowingFloats() Profile { p.allowFloats = true; return p }
 // WithMaxInputBytes returns a copy of p with a different input bound.
 func (p Profile) WithMaxInputBytes(n int64) Profile { p.maxInputBytes = n; return p }
 
+// WithMaxNestedLevels returns a copy of p with a different nesting bound.
+func (p Profile) WithMaxNestedLevels(n int) Profile { p.maxNestedLevels = n; return p }
+
 // DecoderOptions returns the limits this profile implies, for NewDecoder or
 // NewReader.
 func (p Profile) DecoderOptions() DecoderOptions {

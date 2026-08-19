@@ -57,6 +57,28 @@ that creates is that it appends exactly one valid, complete item. Nothing in the
 type system can hold a foreign implementation to that, so `Profile.ValidateAppended`
 checks what it actually wrote.
 
+## Nesting
+
+`Skip`, `ReadRaw` and `Profile.Validate` drive their own recursion and bound it
+by `MaxNestedLevels`. `ReadArrayHeader` and `ReadMapHeader` do not — they read
+one head and return, so the walk over the container is your loop and its depth
+is yours to bound. `Decoder` differs here: it keeps a frame stack and refuses a
+container past the limit from `ReadToken`.
+
+That is deliberate. A frame stack is the state `Reader` does not keep, and
+keeping one would cost an allocation per reader in the path that exists to have
+none. For untrusted input, validate first:
+
+```go
+if err := cbor.World().Validate(data); err != nil { return err }
+// now the bytes are known to be legal under the profile's bounds
+```
+
+Foreign types compose to any depth on both sides at zero allocation: encoding
+because each `AppendCBORTo` appends into the buffer its parent is already
+building, decoding because `ReadRaw` hands each one its own bytes wherever the
+field sits.
+
 ## Profiles
 
 A `Profile` is a named restriction, so both ends name the same shape instead of
