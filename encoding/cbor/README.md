@@ -81,6 +81,28 @@ field sits.
 
 ### How deep is deep
 
+`MaxNestedLevels` defaults to 10000 — the same number `encoding/json` uses, and
+for the same reason. It is a **stack safety net, not a budget**: both profiles
+take it, and no schema should ever meet it.
+
+The net is not optional here. Every walk in this package recurses, and measured
+on darwin/arm64:
+
+| | survives | fails at | how |
+|---|---|---|---|
+| host Go | ~1,000,000 levels | ~2,000,000 | `fatal error: stack overflow` |
+| **TinyGo** | ~46,500 levels | ~47,000 | **bare SIGSEGV, no message** |
+
+TinyGo does not detect stack exhaustion. That is why a limit exists even though
+a caller should never see it. About 180 bytes of stack go per level, so a target
+with a small stack wants a smaller number.
+
+Narrow it deliberately if you want a structural check on a known schema:
+
+```go
+tight := cbor.Wire().WithMaxNestedLevels(12)
+```
+
 `MaxNestedLevels` counts nested containers, and **a tag is one of them** — a tag
 over an array is two levels, not one.
 
@@ -106,11 +128,10 @@ Derive an envelope bound instead of guessing one:
 envelope := cbor.World().WithMaxNestedLevels(cbor.World().MaxNestedLevels() + 3)
 ```
 
-The `Wire()` bound is 16 for this reason: a plausible snapshot needs 5, a patch
-of it needs 8, and a patch of that patch needs 9. Set it to what your schema
-actually needs — `MaxNestedLevels()`, `MaxContainerItems()` and `MaxInputBytes()`
-report what a profile carries so the arithmetic can be written down rather than
-assumed.
+Neither profile bounds nesting to anything a schema would meet, so this only
+matters if you narrow one. `MaxNestedLevels()`, `MaxContainerItems()` and
+`MaxInputBytes()` report what a profile carries, so the arithmetic can be
+written down rather than assumed.
 
 ## Profiles
 

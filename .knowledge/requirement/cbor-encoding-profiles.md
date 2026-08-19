@@ -9,9 +9,9 @@ Two named option presets, one per profile system:ebigentserver defines, so a cal
 state: shipped 2026-08-19
 shipped:
   api: Wire() and World() return a Profile; Validate, ValidateAppended, DecoderOptions, EncoderOptions, NewReader, ReaderOver
-  wire_bounds: 16 levels, 1024 items, 4 KiB strings, 64 KiB input
+  wire_bounds: 1024 items, 4 KiB strings, 64 KiB input; nesting takes the package default
   accessors: MaxNestedLevels, MaxContainerItems and MaxInputBytes report the bounds
-  world_bounds: 32 levels, 65536 items, 4 MiB strings, 64 MiB input and raw
+  world_bounds: 65536 items, 4 MiB strings, 64 MiB input and raw; nesting takes the package default
   world_key_order: bytewise, so the length-first default stays passkey's alone
   escape_hatch: AllowingFloats and WithMaxInputBytes return modified copies
   cost: Wire().Validate 23.9 ns/op and World().Validate 90.0 ns/op, both zero allocation
@@ -52,6 +52,28 @@ depth_arithmetic:
     ReadRaw measures a captured item from zero, so decoding an envelope field by
     field costs the larger of the two depths rather than their sum. An envelope
     needing 7 as one document decodes under a bound of 6 that way.
+  nesting_is_not_a_profile_property:
+    decided: 2026-08-19, after the patch depth finding
+    what: >
+      neither profile bounds nesting to anything a schema would meet. Both take
+      defaultMaxNestedLevels, 10000, which is encoding/json's maxNestingDepth.
+    why: >
+      a bound tight enough to describe a schema is tight enough to refuse every
+      envelope over one, and it buys no protection the restrictions on maps,
+      tags and floats do not already give. It made the caller do arithmetic
+      about patches for nothing.
+    but_a_net_is_still_needed: >
+      every walk here recurses and TinyGo does not detect stack exhaustion.
+      Measured on darwin/arm64: host Go survives a million levels and dies at two
+      million with a diagnosable fatal error, while TinyGo dies at about
+      forty-seven thousand with a bare SIGSEGV and no message. About 180 bytes of
+      stack per level, so a small-stack target wants a smaller number.
+    what_the_net_cost: >
+      raising the bound made the error path the new problem. The route walker
+      described a 10000-deep refusal as ten thousand "[0]" segments, 30 KB of
+      message built by a second walk as deep as the first. Routes now stop at 32
+      levels and one rendered map key at 40 bytes, so the refusal is 73 bytes
+      whatever the input claims.
   a_profile_must_hold_patches_of_its_own_messages: >
     a patch or delta carries a subtree of the document it describes, so it is
     always deeper than that document: exactly three levels for the shape
