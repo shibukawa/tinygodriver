@@ -37,6 +37,14 @@ type Writer struct {
 	block    []byte
 	spans    []span
 
+	// rep1 is repeat-offset slot one as the decoder holds it entering the next
+	// compressed block: 1 at frame start, then the last offset of each
+	// compressed block that reached the wire. The decoder carries this history
+	// across the blocks of a frame, so the encoder must too, or an
+	// Offset_Value 1 early in a later block names the wrong distance and the
+	// frame decodes to the wrong bytes at the right length.
+	rep1 uint32
+
 	// Symbol histograms and the distributions fitted to them, per block.
 	llCounts [36]uint32
 	ofCounts [32]uint32
@@ -83,8 +91,9 @@ func NewWriter(w io.Writer, options ...Option) (*Writer, error) {
 	}
 	resolved := resolveOptions(options)
 	return &Writer{
-		out: newOutputWriter(w, resolved.etag),
-		buf: make([]byte, 0, maxBlockSize),
+		out:  newOutputWriter(w, resolved.etag),
+		buf:  make([]byte, 0, maxBlockSize),
+		rep1: 1,
 	}, nil
 }
 
@@ -225,6 +234,7 @@ func (z *Writer) Reset(w io.Writer) {
 	z.buf = z.buf[:0]
 	z.wroteHeader = false
 	z.closed = false
+	z.rep1 = 1
 	if w == nil {
 		z.err = errNilWriter
 		return

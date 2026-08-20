@@ -152,7 +152,7 @@ func TestSectionBreakdown(t *testing.T) {
 			at += int(s.litLen) + int(s.matchLen)
 		}
 		z.literals = append(z.literals, p.data[at:consumed]...)
-		applyRepeatOffsets(z.seqs)
+		applyRepeatOffsets(z.seqs, 1)
 		litBytes := len(z.appendLiterals(nil))
 		seqBytes := 0
 		if seqs > 0 {

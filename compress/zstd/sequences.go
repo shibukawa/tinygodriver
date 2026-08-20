@@ -60,10 +60,16 @@ type seqCode struct {
 // other two slots, and the special meanings all three take on when a match
 // follows another match with no literals between them, would each need the full
 // three-slot history to stay in step with the decoder for a smaller return.
-func applyRepeatOffsets(seqs []sequence) {
-	// The decoder starts a frame with 1, 4, 8 in its repeat slots, so the first
-	// sequence can only match slot one by having a distance of exactly 1.
-	rep1 := uint32(1)
+//
+// The decoder resets its repeat slots to 1, 4, 8 at frame start and nowhere
+// else: the history runs across every compressed block of the frame, and raw
+// and RLE blocks leave it untouched. rep1 is therefore the caller's to thread
+// -- slot one as the decoder will hold it when it reaches these sequences --
+// and the return value is slot one after them, to be carried into the next
+// compressed block that actually reaches the wire. A block the encoder
+// abandons must not advance it, because the decoder never executes an
+// abandoned block's sequences.
+func applyRepeatOffsets(seqs []sequence, rep1 uint32) uint32 {
 	for i := range seqs {
 		if seqs[i].offset == rep1 && seqs[i].litLen != 0 {
 			seqs[i].ofValue = 1
@@ -74,6 +80,7 @@ func applyRepeatOffsets(seqs []sequence) {
 		seqs[i].ofValue = seqs[i].offset + 3
 		rep1 = seqs[i].offset
 	}
+	return rep1
 }
 
 func hash4(p []byte, i int) uint32 {
@@ -384,7 +391,7 @@ func (z *Writer) appendCompressedBlock(dst []byte, p []byte, last bool, rleSize 
 		z.litCounts[b]++
 	}
 	z.litCountsReady = true
-	applyRepeatOffsets(z.seqs)
+	rep1 := applyRepeatOffsets(z.seqs, z.rep1)
 
 	start := len(dst)
 	dst = append(dst, 0, 0, 0) // Block_Header, rewritten once the size is known
@@ -405,5 +412,9 @@ func (z *Writer) appendCompressedBlock(dst []byte, p []byte, last bool, rleSize 
 	dst[start] = byte(header)
 	dst[start+1] = byte(header >> 8)
 	dst[start+2] = byte(header >> 16)
+	// Only now is the block certain to reach the wire, so only now may the
+	// decoder-visible repeat history advance. The refusals above fall back to
+	// raw and RLE blocks, which a decoder replays without touching its slots.
+	z.rep1 = rep1
 	return dst, true
 }
