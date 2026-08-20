@@ -1,112 +1,59 @@
 ---
 id: requirement:cbor-encoding-profiles
 type: requirement
-title: Two Enforceable CBOR Profiles
+title: Profiles Are Format Restrictions, Not Limit Sets
 ---
-Two named option presets, one per profile system:ebigentserver defines, so a caller names a profile instead of assembling limits by hand. This package enforces a profile it is handed; it never infers one from a message.
+A Profile is a named subset of CBOR that both ends of a protocol agree on. It carries no resource limits, because those answer to a different owner, and it names no application's subset, because every consumer names its own.
 
 ```yaml
-state: shipped 2026-08-19
-shipped:
-  api: Wire() and World() return a Profile; Validate, ValidateAppended, DecoderOptions, EncoderOptions, NewReader, ReaderOver
-  wire_bounds: 1024 items, 4 KiB strings, 64 KiB input; nesting takes the package default
-  accessors: MaxNestedLevels, MaxContainerItems and MaxInputBytes report the bounds
-  world_bounds: 65536 items, 4 MiB strings, 64 MiB input and raw; nesting takes the package default
-  world_key_order: bytewise, so the length-first default stays passkey's alone
-  escape_hatch: AllowingFloats and WithMaxInputBytes return modified copies
-  cost: Wire().Validate 23.9 ns/op and World().Validate 90.0 ns/op, both zero allocation
 priority: must
-defined_elsewhere: >
-  system:ebigentserver's cbor-wire-profile and cbor-world-profile concepts own
-  the definitions. This repository owns enforcement only.
-wire_profile:
-  enforces:
-    - definite lengths only
-    - arrays only, no maps
-    - no floats, per requirement:cbor-scaled-integer-support
-    - no tags
-    - no text keys
-    - fixed item count and order per message schema
-    - a small nesting bound
-  field_names_never_appear: >
-    which is what makes partial version compatibility undetectable, and why the
-    protocol version is a hard mismatch rather than a negotiation
-world_profile:
-  enforces:
-    - deterministic map key order, see rule:cbor-map-key-ordering
-    - no indefinite-length output
-    - optional fields and tags permitted
-    - larger bounds, for snapshots
-  raw_retention: >
-    RejectDuplicateMapKeys may hold a whole root item up to MaxRawMessageBytes.
-    The default is 1 MiB and a snapshot can exceed it, so the world preset sets
-    that bound deliberately rather than inheriting it.
-depth_arithmetic:
-  what_counts: >
-    MaxNestedLevels counts nested containers and a tag is one of them, so a tag
-    over an array is two levels
-  validate_sums: >
-    Validate walks the whole document, so an envelope wrapping a message costs
-    the envelope's depth plus the message's
-  reading_takes_the_larger: >
-    ReadRaw measures a captured item from zero, so decoding an envelope field by
-    field costs the larger of the two depths rather than their sum. An envelope
-    needing 7 as one document decodes under a bound of 6 that way.
-  nesting_is_not_a_profile_property:
-    decided: 2026-08-19, after the patch depth finding
-    what: >
-      neither profile bounds nesting to anything a schema would meet. Both take
-      defaultMaxNestedLevels, 10000, which is encoding/json's maxNestingDepth.
-    why: >
-      a bound tight enough to describe a schema is tight enough to refuse every
-      envelope over one, and it buys no protection the restrictions on maps,
-      tags and floats do not already give. It made the caller do arithmetic
-      about patches for nothing.
-    but_a_net_is_still_needed: >
-      every walk here recurses and TinyGo does not detect stack exhaustion.
-      Measured on darwin/arm64: host Go survives a million levels and dies at two
-      million with a diagnosable fatal error, while TinyGo dies at about
-      forty-seven thousand with a bare SIGSEGV and no message. About 180 bytes of
-      stack per level, so a small-stack target wants a smaller number.
-    what_the_net_cost: >
-      raising the bound made the error path the new problem. The route walker
-      described a 10000-deep refusal as ten thousand "[0]" segments, 30 KB of
-      message built by a second walk as deep as the first. Routes now stop at 32
-      levels and one rendered map key at 40 bytes, so the refusal is 73 bytes
-      whatever the input claims.
-  a_profile_must_hold_patches_of_its_own_messages: >
-    a patch or delta carries a subtree of the document it describes, so it is
-    always deeper than that document: exactly three levels for the shape
-    [base, [[op, [path...], value], ...]]. Measured, a plausible snapshot needs
-    5, a patch of it 8, a patch of that 9. The wire bound was 8, which fit
-    messages and refused every patch of one, and that failure would have
-    surfaced the first time system:ebigentserver generated a delta rather than
-    at the boundary where it was introduced. Raised to 16.
-  the_number_is_a_protocol_decision: >
-    16 is headroom, not a derivation. The bound a profile needs comes from the
-    schema it carries and from what wraps it, which is why the accessors exist.
-validate_takes_a_profile:
-  needed: >
-    Validate gains a profile argument, so whether a byte string is legal under a
-    profile is answerable without decoding it into anything
-  today: >
-    no such entry point exists, so passkey builds an Encoder over io.Discard and
-    calls WriteRaw for the side effect of its validation, at parse.go:213. A
-    validator reachable only through an encoder is the shape to remove.
-selection_is_not_ours: >
-  which profile a message kind uses is system:ebigentserver's
-  profile-selection-by-message-kind rule, and the caller's call
-errors: >
-  a profile violation gets its own sentinel, leaving
-  requirement:error-classification's existing set intact, and a limit refusal
-  keeps naming the limit it hit
-open: >
-  whether RawMessage gains a profile-tagged variant, so a raw item validated
-  under the world profile cannot be spliced into a wire-profile message by mistake
-open_streaming: >
-  whether the world profile needs indefinite-length output for streaming episode
-  logs. rule:cbor-determinism-contract forbids it today.
+state: reshaped 2026-08-20; first shipped 2026-08-19 with both halves in one object
+the_split:
+  a_profile_belongs_to_the_protocol: >
+    both peers must agree on it, a disagreement is a defect, and changing it
+    changes the format
+  a_limit_belongs_to_the_deployment: >
+    how large an item a process will read is that process's business. A
+    dedicated server and a js/wasm client hold different answers and there is
+    nothing to agree on.
+  so_they_are_passed_together_not_bundled: >
+    Validate(data, opts), NewReader(data, opts), ReaderOver(data, opts).
+    Bundling them made a deployment decision look like a protocol change and hid
+    a protocol change inside a deployment one.
+  what_it_cost_before_the_split: >
+    the nesting bound was a stack concern carried as a format assertion, so the
+    wire profile fit its own messages and refused patches of them. That is the
+    same defect twice: see rule:cbor-determinism-contract.
+shape:
+  fields: Name, RequireSortedKeys, KeyOrder, RejectMaps, RejectTags, RejectFloats, RejectIndefinite, RejectTextKeys
+  zero_value: restricts nothing; every well-formed CBOR item is legal under it
+  building_one: a struct literal, so a consumer needs nothing from this package to name its subset
+presets_are_standards_only:
+  Canonical: CTAP2 canonical CBOR and COSE; length-first keys, no indefinite lengths, floats permitted
+  Deterministic: RFC 8949 section 4.2.1; the same with bytewise keys
+  refused_as_presets: >
+    wire and world. They are system:ebigentserver's subsets, defined by its own
+    concepts, and a codec that ships one application's restrictions is claiming
+    an authority it does not have. They are struct literals in that project now,
+    and this package's tests carry them as the worked example.
+float_is_not_a_policy: >
+  RejectFloats is opt-in. Floats are ordinary CBOR here, supported at encode and
+  decode with shortest-form output and one canonical NaN; see
+  requirement:cbor-numeric-primitives. A format that carries scaled integers
+  switches it on and gets ErrFloatRefused on both sides.
+enforcement_is_all_it_does: >
+  which profile a message kind is read under is the schema's and the caller's.
+  This package never infers one.
+found_by_fuzzing_the_reshape:
+  indefinite_head_on_a_scalar: >
+    Validate accepted 0x1f, an integer head claiming an indefinite length, which
+    Skip had always refused. Every preset used to refuse indefinite lengths
+    before the check was reached, so a zero-value profile is what made it
+    reachable. A profile permitting indefinite lengths permits the legal ones;
+    it does not waive well-formedness.
+  see_also: requirement:cbor-error-diagnostics for the second finding
 done_when: >
-  a wire-profile message round-trips byte-identically on darwin/arm64,
-  linux/amd64 and js/wasm, and a float in one is an error at encode and at decode
+  a consumer defines its subset without this package knowing about it, the same
+  profile under two limit sets gives the same format verdict, and the same
+  limits under two profiles give the same limit verdict
 ```

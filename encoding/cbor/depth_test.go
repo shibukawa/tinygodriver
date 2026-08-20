@@ -116,27 +116,29 @@ func TestAProfileMustHoldPatchesOfItsOwnMessages(t *testing.T) {
 		{"a patch of it", patch},
 		{"a patch of that patch", patchOfPatch},
 	} {
-		if err := Wire().Validate(tc.data); err != nil {
+		if err := wireProfile.Validate(tc.data, defaultOpts()); err != nil {
 			t.Errorf("the wire profile refused %s at %d levels: %v", tc.name, needsNestedLevels(t, tc.data), err)
 		}
-		if err := World().Validate(tc.data); err != nil {
+		if err := worldProfile.Validate(tc.data, defaultOpts()); err != nil {
 			t.Errorf("the world profile refused %s: %v", tc.name, err)
 		}
 	}
 }
 
-// An envelope profile derived from the one it wraps, rather than guessed.
-func TestAnEnvelopeBoundCanBeDerived(t *testing.T) {
-	envelope := Wire().WithMaxNestedLevels(Wire().MaxNestedLevels() + 3)
-	if got := envelope.MaxNestedLevels(); got != Wire().MaxNestedLevels()+3 {
-		t.Fatalf("derived bound = %d, want %d", got, Wire().MaxNestedLevels()+3)
+// A narrowed bound is a decoder setting now, not a profile property, so an
+// envelope over a message needs a wider setting rather than a wider profile.
+// The two objects stay separate: the same profile, different limits.
+func TestAnEnvelopeBoundIsADecoderSetting(t *testing.T) {
+	const schemaDepth = 12
+	tight := DecoderOptions{MaxNestedLevels: schemaDepth}
+	envelope := DecoderOptions{MaxNestedLevels: schemaDepth + 3}
+
+	deep := nestedArrays(schemaDepth + 2)
+	if err := wireProfile.Validate(deep, tight); !errors.Is(err, ErrLimitExceeded) {
+		t.Errorf("the tight bound accepted %d levels, want a refusal", schemaDepth+2)
 	}
-	deep := nestedArrays(Wire().MaxNestedLevels() + 2)
-	if err := Wire().Validate(deep); !errors.Is(err, ErrLimitExceeded) {
-		t.Errorf("the wire profile accepted %d levels, want a refusal", Wire().MaxNestedLevels()+2)
-	}
-	if err := envelope.Validate(deep); err != nil {
-		t.Errorf("the derived envelope refused what it was widened for: %v", err)
+	if err := wireProfile.Validate(deep, envelope); err != nil {
+		t.Errorf("the envelope bound refused what it was widened for: %v", err)
 	}
 }
 

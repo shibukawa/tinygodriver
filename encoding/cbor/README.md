@@ -135,23 +135,75 @@ written down rather than assumed.
 
 ## Profiles
 
-A `Profile` is a named restriction, so both ends name the same shape instead of
-assembling limits by hand.
-
-- `Wire()` — fixed-order arrays, no maps, no tags, no floats, no indefinite
-  lengths, small bounds. Field names never appear, which is what makes it small
-  and why a version mismatch has to be settled before any message is read.
-- `World()` — maps, optional fields and tags, bytewise key order, bounds sized
-  for snapshots rather than ticks.
-
-Both refuse floats: numerics are scaled integers, so a float is a protocol
-violation rather than a value, and it is refused at encode **and** at decode.
+A `Profile` is a named subset of CBOR that both ends of a protocol agree on.
+CTAP2 canonical CBOR, COSE and RFC 8949 §4.2 deterministic encoding are all
+restrictions of this kind.
 
 ```go
-if err := cbor.Wire().Validate(data); err != nil { /* not a wire message */ }
+type Profile struct {
+	Name              string
+	RequireSortedKeys bool
+	KeyOrder          KeyOrder
+	RejectMaps        bool
+	RejectTags        bool
+	RejectFloats      bool
+	RejectIndefinite  bool
+	RejectTextKeys    bool
+}
 ```
 
-`Profile.Validate` answers the question without decoding the item into anything.
+The zero value restricts nothing — every well-formed CBOR item is legal under
+it. Two presets are supplied because they are standards rather than anyone's
+application: `Canonical()` for CTAP2 and COSE (length-first keys, no indefinite
+lengths, floats permitted) and `Deterministic()` for RFC 8949 §4.2.1 (the same
+with bytewise keys).
+
+Anything else is a struct literal. A compact fixed-schema wire format, for
+instance:
+
+```go
+wire := cbor.Profile{
+	Name:             "wire",
+	RejectMaps:       true,
+	RejectTags:       true,
+	RejectFloats:     true,
+	RejectIndefinite: true,
+	RejectTextKeys:   true,
+}
+
+if err := wire.Validate(data, opts); err != nil { /* not a wire message */ }
+```
+
+`Validate` answers the question without decoding the item into anything.
+
+### Profiles carry no limits
+
+A profile says what the **format** may contain. `DecoderOptions` says what
+**this process** is willing to read. They are separate because they answer to
+different owners:
+
+| | profile | limits |
+|---|---|---|
+| belongs to | the protocol | the deployment |
+| must both peers agree? | **yes** — a disagreement is a defect | no — a server and a browser client differ by design |
+| changing it | changes the format | changes a setting |
+
+So they are passed together rather than bundled: `Validate(data, opts)`,
+`NewReader(data, opts)`, `ReaderOver(data, opts)`. Mixing them makes a
+deployment decision look like a protocol change, and hides a protocol change
+inside a deployment one.
+
+### Floats
+
+Floats are ordinary CBOR here and are supported throughout: `AppendFloat`,
+`ReadFloat`, shortest-form encoding, one canonical NaN. `Profile.RejectFloats`
+is opt-in, for a format that carries scaled integers and wants a float in it to
+be a caught protocol violation rather than a value. It is refused at encode
+**and** at decode.
+
+Fixed-point is not a concept this package has. A scaled type carries its own
+encoding through `AppendCBORTo` / `DecodeCBORFrom`, and the codec never learns
+what the scale was.
 
 ## Cost
 

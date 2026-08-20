@@ -2,17 +2,28 @@ package cbor
 
 import (
 	"encoding/binary"
+	"errors"
 	"strconv"
 )
+
+// errStopWalk unwinds the route walk without describing a route.
+//
+// Giving up has to stop the whole walk, not just the item in front of it. A
+// container loop asks for its next child until one reports the target or an
+// error, so a child that declines by returning neither -- and without consuming
+// anything -- is asked again forever. An indefinite-length container has no
+// count to end that loop, so the spin is unbounded, which turned a refusal into
+// a hang.
+var errStopWalk = errors.New("cbor: route walk stopped")
 
 // Nothing tracks a container route while decoding succeeds. A path is built
 // only once something has already failed, by walking the input again from the
 // start until the offset that failed is reached.
 //
 // That ordering is the point. A decoder that maintained a route would pay for
-// it on every item of every message, and the steady state of a tick loop is
-// exactly where this package must cost nothing. A failure is not the steady
-// state, so it can afford one extra walk.
+// it on every item of every message, and a hot decode loop is exactly where
+// this package must cost nothing. A failure is not the steady state, so it can
+// afford one extra walk.
 
 // maxRouteDepth bounds how deep a route is worth describing, and with it how
 // deep this walk recurses and how long the string it builds can get.
@@ -71,7 +82,7 @@ func (w *pathWalker) item(depth int) (bool, error) {
 		return true, nil
 	}
 	if depth >= maxRouteDepth || depth > w.r.opts.MaxNestedLevels || w.r.off > w.target {
-		return false, nil
+		return false, errStopWalk
 	}
 	major, _, arg, indefinite, err := w.r.head()
 	if err != nil {

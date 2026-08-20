@@ -1,12 +1,18 @@
 ---
-id: requirement:cbor-scaled-integer-support
+id: requirement:cbor-numeric-primitives
 type: requirement
-title: Scaled Integer Support And Float Refusal
+title: Numeric Primitives And Optional Float Refusal
 ---
-Wire-profile numerics are bare CBOR integers whose scale lives in the schema. This package supplies range-checked sized-integer primitives and refuses float; it owns no arithmetic and no scale conversion.
+Range-checked sized-integer reads, and float refusal as an option rather than a policy. This package has no notion of a scale: a scaled type carries its own encoding through requirement:cbor-codec-interface, and the codec never learns what the scale was.
 
 ```yaml
-state: shipped 2026-08-19
+state: shipped 2026-08-19; renamed from cbor-scaled-integer-support on 2026-08-20
+renamed_because: >
+  the old name said the package supported scaled integers, and it supports no
+  such thing. There is no scale field, no conversion, no tag 4, and no fixmath
+  dependency. What exists is sized integer reads, which any schema wants, and a
+  float switch. The name was the last place a game requirement was still
+  claiming to be in the code.
 shipped:
   sized_reads: ReadInt8/16/32/64 and ReadUint8/16/32/64 on Reader
   float_refusal: >

@@ -1,9 +1,11 @@
 package cbor
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A byte offset locates a failure; a route names it. For a generated decoder
@@ -28,7 +30,7 @@ func TestErrorsCarryAContainerRoute(t *testing.T) {
 			// {1: [2, 1.5]} -- the float is what the world profile refuses
 			name:       "a map value",
 			data:       []byte{0xa1, 0x01, 0x82, 0x02, 0xf9, 0x3e, 0x00},
-			validate:   func(b []byte) error { return World().Validate(b) },
+			validate:   func(b []byte) error { return worldProfile.Validate(b, defaultOpts()) },
 			wantOffset: 4,
 			wantPath:   "at {1}[1]",
 		},
@@ -36,7 +38,7 @@ func TestErrorsCarryAContainerRoute(t *testing.T) {
 			// {"players": [<reserved>]}
 			name:       "a text key names the field",
 			data:       []byte{0xa1, 0x67, 'p', 'l', 'a', 'y', 'e', 'r', 's', 0x81, 0x1c},
-			validate:   func(b []byte) error { return World().Validate(b) },
+			validate:   func(b []byte) error { return worldProfile.Validate(b, defaultOpts()) },
 			wantOffset: 10,
 			wantPath:   `at {"players"}[0]`,
 		},
@@ -91,7 +93,7 @@ func TestErrorMessageIncludesBothWhenKnown(t *testing.T) {
 // while decoding succeeds.
 func TestTheRouteCostsNothingWhenNothingFails(t *testing.T) {
 	data := worldSnapshot()
-	r := World().ReaderOver(data)
+	r := worldProfile.ReaderOver(data, defaultOpts())
 	allocs := testingAllocs(func() {
 		r.Reset(data)
 		pairs, _, err := r.ReadMapHeader()
@@ -150,7 +152,7 @@ func TestALongKeyIsTruncatedInTheRoute(t *testing.T) {
 	data = AppendText(data, string(key))
 	data = append(data, 0x1c) // reserved additional information, as the value
 
-	err := World().Validate(data)
+	err := worldProfile.Validate(data, defaultOpts())
 	if !errors.Is(err, ErrMalformed) {
 		t.Fatalf("err = %v, want ErrMalformed", err)
 	}
@@ -189,5 +191,53 @@ func TestTheDefaultNestingBoundIsAStackSafetyNet(t *testing.T) {
 		} else if !errors.Is(err, ErrLimitExceeded) {
 			t.Errorf("depth %d = %v, want ErrLimitExceeded", depth, err)
 		}
+	}
+}
+
+// Describing a route gives up past a certain depth, and giving up has to stop
+// the walk rather than decline one item. A container asks for its next child
+// until one reports the target or an error; a child that returns neither, and
+// consumes nothing, is asked again forever. An indefinite-length container has
+// no count to end that loop.
+//
+// The fuzzer found this as a hang: a map whose key is thirty-two nested
+// indefinite arrays, truncated. Every profile used to refuse indefinite lengths
+// before the route was ever computed, which is what kept it hidden.
+func TestGivingUpOnARouteDoesNotSpin(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{
+			"the fuzzer's map key",
+			append(append([]byte{0xa2}, bytes.Repeat([]byte{0x9f}, 32)...), 0x30),
+		},
+		{
+			"indefinite arrays past the route depth",
+			append(bytes.Repeat([]byte{0x9f}, 40), 0x1c),
+		},
+		{
+			"indefinite maps past the route depth",
+			append(bytes.Repeat([]byte{0xbf}, 40), 0x1c),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan error, 1)
+			go func() {
+				r := ReaderOver(tc.data, defaultOpts())
+				done <- r.Skip()
+			}()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("want a refusal")
+				}
+				if n := len(err.Error()); n > 200 {
+					t.Errorf("the refusal is %d bytes long, want it bounded", n)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Skip did not return: the route walk is spinning")
+			}
+		})
 	}
 }
