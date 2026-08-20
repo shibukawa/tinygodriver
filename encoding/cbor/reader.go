@@ -58,6 +58,12 @@ func NewReader(data []byte, opts DecoderOptions) (*Reader, error) {
 // is the allocation. A negative limit is treated as unset here rather than
 // refused, because there is no error to return.
 func ReaderOver(data []byte, opts DecoderOptions) Reader {
+	// The zero options are what a DecodeCBORFrom implementation passes, once per
+	// field per message, and they always normalize to the same defaults. One
+	// comparison replaces the whole clamp-and-normalize walk on that path.
+	if opts == (DecoderOptions{}) {
+		return Reader{data: data, opts: defaultDecoderOptions}
+	}
 	if opts.MaxInputBytes < 0 {
 		opts.MaxInputBytes = 0
 	}
@@ -107,20 +113,26 @@ func (r *Reader) take(n int) ([]byte, error) {
 // information, and argument. indefinite reports ai == 31, whose meaning depends
 // on the major type and is left to the caller.
 func (r *Reader) head() (major, ai byte, arg uint64, indefinite bool, err error) {
-	b, err := r.take(1)
-	if err != nil {
-		return 0, 0, 0, false, err
+	// This runs once per item on the hottest path in the package, so it indexes
+	// the input directly rather than going through take: the immediate-argument
+	// case is one bounds check, one shift and one mask.
+	if r.off >= len(r.data) {
+		return 0, 0, 0, false, ErrTruncated
 	}
-	major, ai = b[0]>>5, b[0]&0x1f
+	b := r.data[r.off]
+	r.off++
+	major, ai = b>>5, b&0x1f
 	switch {
 	case ai < 24:
 		return major, ai, uint64(ai), false, nil
 	case ai <= 27:
-		v, err := r.take(1 << (ai - 24))
-		if err != nil {
-			return 0, 0, 0, false, err
+		n := 1 << (ai - 24)
+		if r.off+n > len(r.data) {
+			return 0, 0, 0, false, ErrTruncated
 		}
-		switch len(v) {
+		v := r.data[r.off : r.off+n]
+		r.off += n
+		switch n {
 		case 1:
 			arg = uint64(v[0])
 		case 2:

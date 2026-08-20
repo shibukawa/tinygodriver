@@ -79,7 +79,7 @@ func AppendNull(dst []byte) []byte { return append(dst, 0xf6) }
 // AppendFloat appends a float in the shortest form that round-trips, which is
 // what makes float output deterministic. A wire Profile refuses floats
 // outright; this exists for the world profile and for COSE.
-func AppendFloat(dst []byte, v float64) []byte { return append(dst, marshalFloat(v)...) }
+func AppendFloat(dst []byte, v float64) []byte { return appendFloat(dst, v) }
 
 // AppendTag appends a tag head. The tagged content is the next item appended.
 func AppendTag(dst []byte, tag uint64) []byte { return appendHead(dst, 6, tag) }
@@ -112,7 +112,7 @@ func AppendRaw(dst []byte, raw RawMessage) []byte { return append(dst, raw...) }
 func MarshalNegative(arg uint64) RawMessage { return RawMessage(appendHead(nil, 1, arg)) }
 
 // WriteNegative writes the negative integer -1-arg. See AppendNegative.
-func (e *Encoder) WriteNegative(arg uint64) error { return e.write(appendHead(nil, 1, arg)) }
+func (e *Encoder) WriteNegative(arg uint64) error { return e.flush(appendHead(e.buf[:0], 1, arg)) }
 
 // Reset points the Encoder at a new writer, keeping its options, so a session
 // can hold one encoder instead of allocating one per message.

@@ -78,6 +78,16 @@ const (
 	defaultMaxRawMessageBytes = 1 << 20
 )
 
+// defaultDecoderOptions is the zero DecoderOptions after normalization, so the
+// common zero-options constructors can assign it instead of re-deriving it.
+var defaultDecoderOptions = DecoderOptions{
+	MaxInputBytes:      defaultMaxInputBytes,
+	MaxNestedLevels:    defaultMaxNestedLevels,
+	MaxContainerItems:  defaultMaxContainerItems,
+	MaxStringBytes:     defaultMaxStringBytes,
+	MaxRawMessageBytes: defaultMaxRawMessageBytes,
+}
+
 // KeyOrder selects which deterministic map key ordering an Encoder emits and
 // enforces. RFC 8949 defines two, and they produce different bytes for the same
 // map, so the choice is part of the wire contract rather than an internal
