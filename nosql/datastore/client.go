@@ -49,6 +49,12 @@ type Client struct {
 	namespace string
 	endpoint  string
 
+	// partitionID is the partition every key this client sends belongs to,
+	// built once here rather than per encoded key. urlPrefix is the endpoint
+	// through the ":" before the operation name, for the same reason.
+	partitionID wirePartitionID
+	urlPrefix   string
+
 	tokens     google.TokenSource
 	cache      *google.CachedSource
 	signer     io.Closer
@@ -102,6 +108,8 @@ func New(projectID string, opts ...Option) (*Client, error) {
 		database:    cfg.database,
 		namespace:   cfg.namespace,
 		endpoint:    endpoint,
+		partitionID: wirePartitionID{ProjectID: projectID, DatabaseID: cfg.database, NamespaceID: cfg.namespace},
+		urlPrefix:   endpoint + "/v1/projects/" + url.PathEscape(projectID) + ":",
 		attempts:    cfg.attempts,
 		backoffBase: cfg.backoffBase,
 		timeout:     cfg.timeout,
@@ -195,24 +203,16 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) partition() *wirePartitionID {
-	p := &wirePartitionID{ProjectID: c.projectID, DatabaseID: c.database}
-	if c.namespace != "" {
-		p.NamespaceID = c.namespace
-	}
-	return p
+	return &c.partitionID
 }
 
 // encodeKey renders a key with the project and database attached, which is what
 // makes a Key portable inside a program: it carries only what identifies the
-// entity, and the client supplies the rest.
+// entity, and the client supplies the rest. A key carrying its own namespace
+// gets it applied inside Key.wire, which copies the partition to do so; there
+// used to be a second copy of the same override here.
 func (c *Client) encodeKey(k Key) wireKey {
-	partition := c.partition()
-	if k.Namespace != "" {
-		withNamespace := *partition
-		withNamespace.NamespaceID = k.Namespace
-		partition = &withNamespace
-	}
-	return k.wire(partition)
+	return k.wire(&c.partitionID)
 }
 
 func (c *Client) encodeEntity(e Entity) (json.RawMessage, error) {
@@ -248,7 +248,7 @@ func (c *Client) call(ctx context.Context, op, kind string, request, response an
 		return fmt.Errorf("datastore: encoding %s: %w", op, err)
 	}
 
-	endpoint := c.endpoint + "/v1/projects/" + url.PathEscape(c.projectID) + ":" + op
+	endpoint := c.urlPrefix + op
 
 	attempts := c.attempts
 	if attempts < 1 {

@@ -271,16 +271,25 @@ func (c *Client) do(ctx context.Context, r *request) (*http.Response, error) {
 			}
 		}
 
-		req, err := http.NewRequestWithContext(ctx, r.method, target.String(), body)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		// NewRequestWithContext re-parses the URL, which drops the AWS-style
-		// escaping. Restore it, together with the exact body length.
-		req.URL = target
-		req.Host = target.Host
-		req.ContentLength = r.length
+		// The request is assembled directly rather than through
+		// http.NewRequestWithContext, which would render target to a string
+		// only to parse it back — dropping the AWS-style escaping on the way.
+		// The fields are the ones NewRequest sets for an opaque ReadCloser
+		// body: the bodies this package sends are all wrapped readers, so
+		// NewRequest's ContentLength and GetBody special cases for bare
+		// bytes and strings readers never applied, and the redirect loop here
+		// replays bodies through r.body itself.
+		req := (&http.Request{
+			Method:        r.method,
+			URL:           target,
+			Proto:         "HTTP/1.1",
+			ProtoMajor:    1,
+			ProtoMinor:    1,
+			Header:        make(http.Header, len(r.header)+4),
+			Body:          body,
+			Host:          target.Host,
+			ContentLength: r.length,
+		}).WithContext(ctx)
 		for name, value := range r.header {
 			req.Header.Set(name, value)
 		}

@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"errors"
 	"strconv"
 	"strings"
@@ -19,12 +20,14 @@ import (
 
 var errMalformedXML = errors.New("s3: malformed XML document")
 
-// xmlScan walks a document tag by tag. Text preceding the most recent tag is
-// kept in text, already unescaped.
+// xmlScan walks a document tag by tag. The character data in front of the
+// most recent tag is recorded as a range into b and unescaped only when a
+// consumer asks for it through text — most runs are structure the parsers
+// discard, and unescaping them was most of what parsing a listing allocated.
 type xmlScan struct {
-	b    []byte
-	i    int
-	text string
+	b            []byte
+	i            int
+	text0, text1 int
 }
 
 // Tag events. Self-closing tags are reported as xmlSelf rather than a
@@ -36,44 +39,51 @@ const (
 	xmlEOF
 )
 
-// next advances to the next tag, capturing the character data in front of it.
-// Comments and processing instructions are skipped as if they were not there.
-func (s *xmlScan) next() (int, string, error) {
+// text unescapes the character data recorded by the last next call.
+func (s *xmlScan) text() string {
+	return xmlUnescape(s.b[s.text0:s.text1])
+}
+
+var xmlCommentOpen = []byte("!--")
+
+// next advances to the next tag, recording the character data in front of it.
+// Comments and processing instructions are skipped as if they were not there;
+// the recorded run is the one after the last skipped construct, which is what
+// this scanner has always reported.
+//
+// The name is a slice of the document, valid as long as the scanner is: the
+// callers compare it and switch on it, and handing out the bytes keeps a
+// per-tag string off every element of every listing.
+func (s *xmlScan) next() (int, []byte, error) {
 	textStart := s.i
 	for {
-		start := s.i
 		for s.i < len(s.b) && s.b[s.i] != '<' {
 			s.i++
 		}
-		if start == textStart {
-			s.text = xmlUnescape(s.b[textStart:s.i])
-		} else {
-			// Text resumed after a skipped comment or PI; append the new run.
-			s.text += xmlUnescape(s.b[start:s.i])
-		}
+		s.text0, s.text1 = textStart, s.i
 		if s.i == len(s.b) {
-			return xmlEOF, "", nil
+			return xmlEOF, nil, nil
 		}
 		s.i++ // consume '<'
 		if s.i == len(s.b) {
-			return 0, "", errMalformedXML
+			return 0, nil, errMalformedXML
 		}
 
 		switch s.b[s.i] {
 		case '?':
 			if !s.skipPast("?>") {
-				return 0, "", errMalformedXML
+				return 0, nil, errMalformedXML
 			}
 			textStart = s.i
 			continue
 		case '!':
-			if strings.HasPrefix(string(s.b[s.i:]), "!--") {
+			if bytes.HasPrefix(s.b[s.i:], xmlCommentOpen) {
 				s.i += 3
 				if !s.skipPast("-->") {
-					return 0, "", errMalformedXML
+					return 0, nil, errMalformedXML
 				}
 			} else if !s.skipPast(">") {
-				return 0, "", errMalformedXML
+				return 0, nil, errMalformedXML
 			}
 			textStart = s.i
 			continue
@@ -82,15 +92,15 @@ func (s *xmlScan) next() (int, string, error) {
 			name := s.readName()
 			s.skipSpace()
 			if s.i >= len(s.b) || s.b[s.i] != '>' {
-				return 0, "", errMalformedXML
+				return 0, nil, errMalformedXML
 			}
 			s.i++
 			return xmlClose, name, nil
 		}
 
 		name := s.readName()
-		if name == "" {
-			return 0, "", errMalformedXML
+		if len(name) == 0 {
+			return 0, nil, errMalformedXML
 		}
 		// Skip attributes; '>' inside a quoted value must not end the tag.
 		for s.i < len(s.b) {
@@ -101,7 +111,7 @@ func (s *xmlScan) next() (int, string, error) {
 					s.i++
 				}
 				if s.i == len(s.b) {
-					return 0, "", errMalformedXML
+					return 0, nil, errMalformedXML
 				}
 				s.i++
 			case '>':
@@ -117,13 +127,13 @@ func (s *xmlScan) next() (int, string, error) {
 				s.i++
 			}
 		}
-		return 0, "", errMalformedXML
+		return 0, nil, errMalformedXML
 	}
 }
 
 // readName reads an element name, dropping any namespace prefix so
 // <s3:Contents> and <Contents> read the same, as they do under encoding/xml.
-func (s *xmlScan) readName() string {
+func (s *xmlScan) readName() []byte {
 	start := s.i
 	for s.i < len(s.b) {
 		switch s.b[s.i] {
@@ -133,8 +143,8 @@ func (s *xmlScan) readName() string {
 		s.i++
 	}
 done:
-	name := string(s.b[start:s.i])
-	if colon := strings.IndexByte(name, ':'); colon >= 0 {
+	name := s.b[start:s.i]
+	if colon := bytes.IndexByte(name, ':'); colon >= 0 {
 		name = name[colon+1:]
 	}
 	return name
@@ -152,7 +162,9 @@ func (s *xmlScan) skipSpace() {
 }
 
 func (s *xmlScan) skipPast(delim string) bool {
-	at := strings.Index(string(s.b[s.i:]), delim)
+	// bytes.Index on the live slice: converting the remainder to a string
+	// copied the rest of the document on every skip.
+	at := bytes.Index(s.b[s.i:], []byte(delim))
 	if at < 0 {
 		return false
 	}
@@ -163,7 +175,7 @@ func (s *xmlScan) skipPast(delim string) bool {
 // root finds the document element and checks its name.
 func (s *xmlScan) root(name string) error {
 	ev, got, err := s.next()
-	if err != nil || ev != xmlOpen || got != name {
+	if err != nil || ev != xmlOpen || string(got) != name {
 		return errMalformedXML
 	}
 	return nil
@@ -172,7 +184,7 @@ func (s *xmlScan) root(name string) error {
 // textElement consumes the rest of an element just opened and returns its
 // character data. Nested markup is flattened, which is what chardata mapping
 // under encoding/xml did.
-func (s *xmlScan) textElement(name string) (string, error) {
+func (s *xmlScan) textElement(name []byte) (string, error) {
 	var out string
 	depth := 0
 	for {
@@ -180,13 +192,13 @@ func (s *xmlScan) textElement(name string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		out += s.text
+		out += s.text()
 		switch ev {
 		case xmlOpen:
 			depth++
 		case xmlClose:
 			if depth == 0 {
-				if got != name {
+				if !bytes.Equal(got, name) {
 					return "", errMalformedXML
 				}
 				return out, nil
@@ -199,7 +211,7 @@ func (s *xmlScan) textElement(name string) (string, error) {
 }
 
 // skipElement consumes the rest of an element just opened, contents included.
-func (s *xmlScan) skipElement(name string) error {
+func (s *xmlScan) skipElement(name []byte) error {
 	depth := 0
 	for {
 		ev, got, err := s.next()
@@ -211,7 +223,7 @@ func (s *xmlScan) skipElement(name string) error {
 			depth++
 		case xmlClose:
 			if depth == 0 {
-				if got != name {
+				if !bytes.Equal(got, name) {
 					return errMalformedXML
 				}
 				return nil
@@ -338,12 +350,12 @@ func parseListBucketResult(body []byte) (*ListResult, error) {
 		case xmlSelf:
 			// An empty optional element, <NextContinuationToken/> style.
 		case xmlClose:
-			if name != "ListBucketResult" {
+			if string(name) != "ListBucketResult" {
 				return nil, errMalformedXML
 			}
 			return result, nil
 		case xmlOpen:
-			switch name {
+			switch string(name) {
 			case "IsTruncated":
 				text, err := s.textElement(name)
 				if err != nil {
@@ -391,7 +403,7 @@ func parseContents(s *xmlScan) (ObjectInfo, error) {
 			return info, errMalformedXML
 		case xmlSelf:
 		case xmlClose:
-			if name != "Contents" {
+			if string(name) != "Contents" {
 				return info, errMalformedXML
 			}
 			return info, nil
@@ -400,7 +412,7 @@ func parseContents(s *xmlScan) (ObjectInfo, error) {
 			if err != nil {
 				return info, err
 			}
-			switch name {
+			switch string(name) {
 			case "Key":
 				info.Key = text
 			case "ETag":
@@ -436,7 +448,7 @@ func parseCommonPrefixes(s *xmlScan) (string, error) {
 			return "", errMalformedXML
 		case xmlSelf:
 		case xmlClose:
-			if name != "CommonPrefixes" {
+			if string(name) != "CommonPrefixes" {
 				return "", errMalformedXML
 			}
 			return prefix, nil
@@ -445,7 +457,7 @@ func parseCommonPrefixes(s *xmlScan) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if name == "Prefix" {
+			if string(name) == "Prefix" {
 				prefix = text
 			}
 		}
@@ -470,7 +482,7 @@ func parseErrorDocument(body []byte) (code, message, requestID string, ok bool) 
 			return "", "", "", false
 		case xmlSelf:
 		case xmlClose:
-			if name != "Error" {
+			if string(name) != "Error" {
 				return "", "", "", false
 			}
 			return code, message, requestID, true
@@ -479,7 +491,7 @@ func parseErrorDocument(body []byte) (code, message, requestID string, ok bool) 
 			if err != nil {
 				return "", "", "", false
 			}
-			switch name {
+			switch string(name) {
 			case "Code":
 				code = text
 			case "Message":

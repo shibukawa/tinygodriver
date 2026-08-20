@@ -13,6 +13,6 @@ var signingAlgorithms = [...]string{"HS256"}
 // binary carries neither crypto/rsa's arithmetic nor math/big. The parameter
 // keeps the *rsa.PublicKey type so VerificationKey stays the same shape on
 // both builds; a type reference alone links none of the RSA code.
-func verifyRS256(string, *rsa.PublicKey, []byte) error {
+func verifyRS256([]byte, *rsa.PublicKey, []byte) error {
 	return ErrUnsupportedAlgorithm
 }

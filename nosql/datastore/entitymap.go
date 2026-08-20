@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -97,6 +98,48 @@ type fieldSpec struct {
 	isKey     bool
 }
 
+// cachedField is one marshalable field of a struct type: its index and its
+// parsed tag.
+type cachedField struct {
+	index int
+	spec  fieldSpec
+}
+
+// fieldCache maps a struct type to its parsed fields, the same shape as the
+// cache in nosql/dynamodb: tag parsing per field per call dominated repeated
+// marshaling of the same type, which is the ordinary shape of a program that
+// reads and writes one kind. A plain map under an RWMutex rather than
+// sync.Map: the read path is one RLock, and sync.Map is measurably more
+// binary in a TinyGo build.
+var fieldCache struct {
+	sync.RWMutex
+	types map[reflect.Type][]cachedField
+}
+
+func cachedFields(t reflect.Type) []cachedField {
+	fieldCache.RLock()
+	fields, ok := fieldCache.types[t]
+	fieldCache.RUnlock()
+	if ok {
+		return fields
+	}
+	fields = make([]cachedField, 0, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		spec := specFor(t.Field(i))
+		if spec.skip {
+			continue
+		}
+		fields = append(fields, cachedField{index: i, spec: spec})
+	}
+	fieldCache.Lock()
+	if fieldCache.types == nil {
+		fieldCache.types = map[reflect.Type][]cachedField{}
+	}
+	fieldCache.types[t] = fields
+	fieldCache.Unlock()
+	return fields
+}
+
 func specFor(f reflect.StructField) fieldSpec {
 	if f.PkgPath != "" {
 		return fieldSpec{skip: true} // unexported
@@ -143,12 +186,9 @@ var (
 func marshalStruct(rv reflect.Value) (Entity, error) {
 	out := Entity{Properties: map[string]Value{}}
 	rt := rv.Type()
-	for i := 0; i < rt.NumField(); i++ {
-		spec := specFor(rt.Field(i))
-		if spec.skip {
-			continue
-		}
-		fv := rv.Field(i)
+	for _, f := range cachedFields(rt) {
+		spec := f.spec
+		fv := rv.Field(f.index)
 
 		if spec.isKey {
 			key, err := keyFromField(fv)
@@ -163,7 +203,7 @@ func marshalStruct(rv reflect.Value) (Entity, error) {
 		}
 		value, err := marshalValue(fv)
 		if err != nil {
-			return Entity{}, fmt.Errorf("datastore: field %s: %w", rt.Field(i).Name, err)
+			return Entity{}, fmt.Errorf("datastore: field %s: %w", rt.Field(f.index).Name, err)
 		}
 		if spec.noIndex {
 			value = Unindexed(value)
@@ -264,12 +304,9 @@ func marshalValue(rv reflect.Value) (Value, error) {
 
 func unmarshalStruct(e Entity, rv reflect.Value) error {
 	rt := rv.Type()
-	for i := 0; i < rt.NumField(); i++ {
-		spec := specFor(rt.Field(i))
-		if spec.skip {
-			continue
-		}
-		fv := rv.Field(i)
+	for _, f := range cachedFields(rt) {
+		spec := f.spec
+		fv := rv.Field(f.index)
 		if !fv.CanSet() {
 			continue
 		}
@@ -285,7 +322,7 @@ func unmarshalStruct(e Entity, rv reflect.Value) error {
 			continue
 		}
 		if err := unmarshalValue(value, fv); err != nil {
-			return fmt.Errorf("datastore: field %s: %w", rt.Field(i).Name, err)
+			return fmt.Errorf("datastore: field %s: %w", rt.Field(f.index).Name, err)
 		}
 	}
 	return nil

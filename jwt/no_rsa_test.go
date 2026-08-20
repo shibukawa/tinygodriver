@@ -13,7 +13,7 @@ import (
 func TestNoRSABuildRefusesRS256(t *testing.T) {
 	token := &Token{
 		Header:       Header{Algorithm: "RS256"},
-		signingInput: "a.b",
+		signingInput: []byte("a.b"),
 		Signature:    []byte{1},
 	}
 	resolver := KeyResolverFunc(func(Header) (VerificationKey, error) {

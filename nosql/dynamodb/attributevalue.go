@@ -260,16 +260,40 @@ func (a AttributeValue) AsMap() (map[string]AttributeValue, bool) {
 func (a AttributeValue) IsNull() bool { return a.NULL }
 
 // set counts the fields carrying a value, so the codec can reject an ambiguous
-// attribute instead of silently picking one.
+// attribute instead of silently picking one. Plain additions rather than a
+// slice of booleans: this runs per attribute of every marshaled item, and the
+// slice was an allocation each time.
 func (a AttributeValue) set() int {
 	n := 0
-	for _, ok := range []bool{
-		a.S != nil, a.N != nil, a.B != nil, a.BOOL != nil, a.NULL,
-		a.L != nil, a.M != nil, a.SS != nil, a.NS != nil, a.BS != nil,
-	} {
-		if ok {
-			n++
-		}
+	if a.S != nil {
+		n++
+	}
+	if a.N != nil {
+		n++
+	}
+	if a.B != nil {
+		n++
+	}
+	if a.BOOL != nil {
+		n++
+	}
+	if a.NULL {
+		n++
+	}
+	if a.L != nil {
+		n++
+	}
+	if a.M != nil {
+		n++
+	}
+	if a.SS != nil {
+		n++
+	}
+	if a.NS != nil {
+		n++
+	}
+	if a.BS != nil {
+		n++
 	}
 	return n
 }
@@ -332,62 +356,200 @@ func appendMember(prefix string, value any) ([]byte, error) {
 // UnmarshalJSON reads the single-member object DynamoDB sends. An unknown
 // member is an error rather than an ignored field: a type this package does not
 // know about would otherwise decode to an empty attribute.
+//
+// The member is located by a direct scan rather than by decoding into a
+// one-entry map, which was the allocation hot spot of reading any reply. The
+// scan handles exactly the well-formed single-member object; any input it is
+// not sure about — extra members, escaped member names, malformed framing —
+// falls through to the map path, which reports it precisely as before.
 func (a *AttributeValue) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	if len(raw) != 1 {
-		return fmt.Errorf("dynamodb: attribute value has %d members, want 1", len(raw))
-	}
-
-	*a = AttributeValue{}
-	for name, value := range raw {
-		switch name {
-		case "S":
-			var v string
-			if err := json.Unmarshal(value, &v); err != nil {
-				return err
-			}
-			a.S = &v
-		case "N":
-			var v string
-			if err := json.Unmarshal(value, &v); err != nil {
-				return err
-			}
-			a.N = &v
-		case "B":
-			return json.Unmarshal(value, &a.B)
-		case "BOOL":
-			var v bool
-			if err := json.Unmarshal(value, &v); err != nil {
-				return err
-			}
-			a.BOOL = &v
-		case "NULL":
-			var v bool
-			if err := json.Unmarshal(value, &v); err != nil {
-				return err
-			}
-			a.NULL = v
-			if !v {
-				// {"NULL": false} is not a value DynamoDB sends, and taking it
-				// as an attribute would produce one with nothing set.
-				return errors.New(`dynamodb: {"NULL":false} is not an attribute value`)
-			}
-		case "L":
-			return json.Unmarshal(value, &a.L)
-		case "M":
-			return json.Unmarshal(value, &a.M)
-		case "SS":
-			return json.Unmarshal(value, &a.SS)
-		case "NS":
-			return json.Unmarshal(value, &a.NS)
-		case "BS":
-			return json.Unmarshal(value, &a.BS)
-		default:
-			return fmt.Errorf("dynamodb: unknown attribute type %q", name)
+	name, value, ok := splitSingleMember(data)
+	if !ok {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		if len(raw) != 1 {
+			return fmt.Errorf("dynamodb: attribute value has %d members, want 1", len(raw))
+		}
+		for rawName, rawValue := range raw {
+			name, value = []byte(rawName), rawValue
 		}
 	}
+	return a.unmarshalMember(name, value)
+}
+
+func (a *AttributeValue) unmarshalMember(name []byte, value json.RawMessage) error {
+	*a = AttributeValue{}
+	switch string(name) {
+	case "S":
+		var v string
+		if err := json.Unmarshal(value, &v); err != nil {
+			return err
+		}
+		a.S = &v
+	case "N":
+		var v string
+		if err := json.Unmarshal(value, &v); err != nil {
+			return err
+		}
+		a.N = &v
+	case "B":
+		return json.Unmarshal(value, &a.B)
+	case "BOOL":
+		var v bool
+		if err := json.Unmarshal(value, &v); err != nil {
+			return err
+		}
+		a.BOOL = &v
+	case "NULL":
+		var v bool
+		if err := json.Unmarshal(value, &v); err != nil {
+			return err
+		}
+		a.NULL = v
+		if !v {
+			// {"NULL": false} is not a value DynamoDB sends, and taking it
+			// as an attribute would produce one with nothing set.
+			return errors.New(`dynamodb: {"NULL":false} is not an attribute value`)
+		}
+	case "L":
+		return json.Unmarshal(value, &a.L)
+	case "M":
+		return json.Unmarshal(value, &a.M)
+	case "SS":
+		return json.Unmarshal(value, &a.SS)
+	case "NS":
+		return json.Unmarshal(value, &a.NS)
+	case "BS":
+		return json.Unmarshal(value, &a.BS)
+	default:
+		return fmt.Errorf("dynamodb: unknown attribute type %q", name)
+	}
 	return nil
+}
+
+// splitSingleMember locates the one member of a JSON object without decoding
+// it into a map. It reports ok only for the shape it is certain of: one plain
+// (escape-free) member name, one well-formed value, nothing else. The returned
+// slices alias data.
+func splitSingleMember(data []byte) (name []byte, value []byte, ok bool) {
+	i := skipJSONSpace(data, 0)
+	if i >= len(data) || data[i] != '{' {
+		return nil, nil, false
+	}
+	i = skipJSONSpace(data, i+1)
+	if i >= len(data) || data[i] != '"' {
+		return nil, nil, false
+	}
+	j := i + 1
+	for j < len(data) && data[j] != '"' {
+		if data[j] == '\\' {
+			return nil, nil, false
+		}
+		j++
+	}
+	if j >= len(data) {
+		return nil, nil, false
+	}
+	name = data[i+1 : j]
+	i = skipJSONSpace(data, j+1)
+	if i >= len(data) || data[i] != ':' {
+		return nil, nil, false
+	}
+	i = skipJSONSpace(data, i+1)
+	end := scanJSONValue(data, i)
+	if end < 0 {
+		return nil, nil, false
+	}
+	value = data[i:end]
+	i = skipJSONSpace(data, end)
+	if i >= len(data) || data[i] != '}' {
+		return nil, nil, false
+	}
+	if skipJSONSpace(data, i+1) != len(data) {
+		return nil, nil, false
+	}
+	return name, value, true
+}
+
+func skipJSONSpace(data []byte, i int) int {
+	for i < len(data) {
+		switch data[i] {
+		case ' ', '\t', '\r', '\n':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// scanJSONString returns the index just past the closing quote of the string
+// starting at i, or -1 when it never closes.
+func scanJSONString(data []byte, i int) int {
+	i++ // opening quote
+	for i < len(data) {
+		switch data[i] {
+		case '\\':
+			i += 2
+		case '"':
+			return i + 1
+		default:
+			i++
+		}
+	}
+	return -1
+}
+
+// scanJSONValue returns the index just past the JSON value starting at i.
+// Structure is tracked only as far as finding the value's extent — the value
+// itself is judged by encoding/json when it is decoded, and a mis-scan
+// surfaces there or in the caller's framing checks, never silently.
+func scanJSONValue(data []byte, i int) int {
+	if i >= len(data) {
+		return -1
+	}
+	switch data[i] {
+	case '"':
+		return scanJSONString(data, i)
+	case '{', '[':
+		depth := 0
+		for i < len(data) {
+			switch data[i] {
+			case '"':
+				i = scanJSONString(data, i)
+				if i < 0 {
+					return -1
+				}
+			case '{', '[':
+				depth++
+				i++
+			case '}', ']':
+				depth--
+				i++
+				if depth == 0 {
+					return i
+				}
+			default:
+				i++
+			}
+		}
+		return -1
+	default:
+		// A number, true, false, or null: it extends to the next structural
+		// byte. An empty extent is not a value.
+		start := i
+		for i < len(data) {
+			switch data[i] {
+			case ',', '}', ']', ' ', '\t', '\r', '\n':
+				if i == start {
+					return -1
+				}
+				return i
+			}
+			i++
+		}
+		return i
+	}
 }

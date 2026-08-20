@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 )
 
 // Service limits, from the published quotas. They are exported because a
@@ -109,7 +110,7 @@ func (c *Client) encodeMutation(m Mutation) (wireMutation, error) {
 		return out, m.configErr
 	}
 	if m.baseVersion != nil {
-		out.BaseVersion = fmt.Sprintf("%d", *m.baseVersion)
+		out.BaseVersion = strconv.FormatInt(*m.baseVersion, 10)
 	}
 	out.UpdateTime = m.updateTime
 
