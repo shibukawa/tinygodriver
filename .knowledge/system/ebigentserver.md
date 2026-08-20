@@ -10,12 +10,17 @@ import_path: github.com/shibukawa/ebigentserver
 state: >
   specification. Its Phase 0 settles numerics and code generation before
   anything else is built, on the stated grounds that adding them later is a rewrite.
-uses_from_here: decision:cbor-import-path, both profiles of requirement:cbor-encoding-profiles
+uses_from_here: decision:cbor-import-path
+owns_its_own_profiles: >
+  wire and world are struct literals in that project, not presets in this one.
+  requirement:cbor-encoding-profiles supplies the mechanism and Canonical and
+  Deterministic, which are standards; an application's subset is the
+  application's to name.
 what_it_defines_that_this_repo_enforces:
   cbor-wire-profile: the compact subset, fixed-order arrays with no field names
   cbor-world-profile: the evolvable subset, for snapshots and episode logs
   fixed-point-on-wire: scaled integers only, scale carried by the protocol version
-  no-float-in-simulation: the property requirement:cbor-scaled-integer-support enforces at the codec
+  no-float-in-simulation: the property requirement:cbor-numeric-primitives enforces at the codec
   protocol-version-must-match: a hard mismatch rather than a negotiation
   profile-selection-by-message-kind: which profile a message kind uses; not this repository's call
 determinism_gate: >

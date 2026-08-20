@@ -79,10 +79,10 @@ func BenchmarkWireDecodeStreaming(b *testing.B) {
 
 func BenchmarkWireValidate(b *testing.B) {
 	encoded := benchInput.AppendCBORTo(nil)
-	profile := Wire()
+	profile, opts := wireProfile, defaultOpts()
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := profile.Validate(encoded); err != nil {
+		if err := profile.Validate(encoded, opts); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -124,10 +124,10 @@ func worldSnapshot() []byte {
 
 func BenchmarkWorldValidate(b *testing.B) {
 	data := worldSnapshot()
-	profile := World()
+	profile, opts := worldProfile, defaultOpts()
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := profile.Validate(data); err != nil {
+		if err := profile.Validate(data, opts); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -135,7 +135,7 @@ func BenchmarkWorldValidate(b *testing.B) {
 
 func BenchmarkWorldDecodeReader(b *testing.B) {
 	data := worldSnapshot()
-	r := World().ReaderOver(data)
+	r := worldProfile.ReaderOver(data, defaultOpts())
 	b.ReportAllocs()
 	for b.Loop() {
 		r.Reset(data)

@@ -20,9 +20,10 @@ var (
 	// the profile it was read or written under.
 	ErrProfileViolation = errors.New("cbor: profile violation")
 	// ErrFloatRefused reports a float where the configuration carries scaled
-	// integers instead. It is a ErrProfileViolation with its own identity,
-	// because a float leak is the specific failure a deterministic simulation
-	// most needs to be told about.
+	// integers instead. It is an ErrProfileViolation with its own identity,
+	// because a format that excludes floats usually does so to keep results
+	// reproducible, and that is worth naming separately from every other way a
+	// profile can be violated.
 	ErrFloatRefused = fmt.Errorf("%w: float", ErrProfileViolation)
 )
 
@@ -36,10 +37,10 @@ type DecoderOptions struct {
 	MaxRawMessageBytes     int
 	RejectDuplicateMapKeys bool
 	Sequence               bool
-	// RejectFloats refuses every float on input. Under a profile that carries
-	// scaled integers, a float on the wire is a protocol violation rather than
-	// a value, and catching it here makes it an error on the receiving side
-	// instead of a disagreement about what the message meant.
+	// RejectFloats refuses every float on input. A format that carries scaled
+	// integers wants this: a float in it is a protocol violation rather than a
+	// value, and catching it on arrival makes it an error rather than a
+	// disagreement about what the message meant. Profile.RejectFloats sets it.
 	RejectFloats bool
 }
 

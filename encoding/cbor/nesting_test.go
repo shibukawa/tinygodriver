@@ -36,7 +36,7 @@ func TestNestingIsBoundedWhereThePackageWalks(t *testing.T) {
 		skipErr := r.Skip()
 		r.Reset(data)
 		_, rawErr := r.ReadRaw()
-		validateErr := Wire().WithMaxNestedLevels(4).Validate(data)
+		validateErr := wireProfile.Validate(data, DecoderOptions{MaxNestedLevels: 4})
 
 		for name, got := range map[string]error{"Skip": skipErr, "ReadRaw": rawErr, "Validate": validateErr} {
 			if tc.refused {
@@ -92,10 +92,10 @@ func TestTheHeaderAPILeavesNestingToTheCaller(t *testing.T) {
 	// And the boundary the documentation points untrusted input at does refuse,
 	// once it is narrowed to something a schema would meet. The profile default
 	// is a stack safety net, so it accepts this depth on purpose.
-	if err := Wire().Validate(data); err != nil {
-		t.Errorf("Wire().Validate = %v, want 1000 levels accepted under the default safety net", err)
+	if err := wireProfile.Validate(data, defaultOpts()); err != nil {
+		t.Errorf("the wire profile = %v, want 1000 levels accepted under the default safety net", err)
 	}
-	if err := Wire().WithMaxNestedLevels(4).Validate(data); !errors.Is(err, ErrLimitExceeded) {
+	if err := wireProfile.Validate(data, DecoderOptions{MaxNestedLevels: 4}); !errors.Is(err, ErrLimitExceeded) {
 		t.Errorf("a narrowed wire profile = %v, want ErrLimitExceeded", err)
 	}
 }
@@ -204,7 +204,7 @@ func TestForeignTypesComposeAtDepth(t *testing.T) {
 	}
 	encoded := want.AppendCBORTo(nil)
 
-	if err := Wire().Validate(encoded); err != nil {
+	if err := wireProfile.Validate(encoded, defaultOpts()); err != nil {
 		t.Fatalf("the wire profile refused a three-level message: %v (%x)", err, encoded)
 	}
 

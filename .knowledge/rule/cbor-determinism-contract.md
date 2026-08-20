@@ -19,7 +19,7 @@ verified:
     maxSliceLen/2 by normalizeDecoderOptions, so every later container length
     converts to an int in range on both widths. The math.MaxInt64/2 guard that
     implied otherwise is gone, and maxSliceLen names the assumption.
-  no_float: enforced at encode and at decode, see requirement:cbor-scaled-integer-support
+  no_float: enforced at encode and at decode, see requirement:cbor-numeric-primitives
 applies_to: requirement:cbor-encoding-profiles
 stable_bytes: >
   the same value encodes to the same bytes on every architecture and every run.
@@ -27,7 +27,7 @@ stable_bytes: >
   system:ebigentserver treats as a hard mismatch rather than a negotiation.
 no_float_on_wire: >
   no float reaches the wire profile, at encode or at decode. Enforced on both
-  sides; see requirement:cbor-scaled-integer-support.
+  sides; see requirement:cbor-numeric-primitives.
 no_observable_map_order: >
   map iteration order is never observable in output. Deterministic map output
   already sorts; nothing new may introduce an unsorted path. Which order is

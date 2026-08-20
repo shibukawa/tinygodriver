@@ -3,7 +3,7 @@ id: system:fixmath
 type: system
 title: fixmath Fixed-Point Library
 ---
-A deterministic fixed-point math library, specification-only as of 2026-08-19. It is named here because requirement:cbor-scaled-integer-support must serve it with neither package depending on the other.
+A deterministic fixed-point math library, specification-only as of 2026-08-19. It is named here because requirement:cbor-numeric-primitives must serve it with neither package depending on the other.
 
 ```yaml
 import_path: github.com/shibukawa/fixmath

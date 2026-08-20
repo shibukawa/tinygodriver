@@ -103,7 +103,7 @@ func TestWireMessageEncodesToPinnedBytes(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("encoded %x, want %x", got, want)
 	}
-	if err := Wire().Validate(got); err != nil {
+	if err := wireProfile.Validate(got, defaultOpts()); err != nil {
 		t.Fatalf("the pinned bytes are not legal under the wire profile: %v", err)
 	}
 }
@@ -115,7 +115,7 @@ func TestWireMessageRoundTrips(t *testing.T) {
 		{Tick: 4294967295, MoveX: -2147483648, MoveY: 2147483647, Buttons: 65535},
 	} {
 		encoded := want.AppendCBORTo(nil)
-		if err := Wire().Validate(encoded); err != nil {
+		if err := wireProfile.Validate(encoded, defaultOpts()); err != nil {
 			t.Fatalf("%+v encoded to %x, which the profile refuses: %v", want, encoded, err)
 		}
 		var got playerInput

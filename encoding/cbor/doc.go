@@ -23,12 +23,20 @@
 // bounded root item before exposing any of its tokens, at the cost of retaining
 // up to MaxRawMessageBytes.
 //
+// # Profiles
+//
+// A Profile is a named subset of CBOR that both ends of a protocol agree on --
+// CTAP2 canonical CBOR and RFC 8949 deterministic encoding are two, and
+// Canonical and Deterministic supply them. It carries no resource limits: those
+// are a property of the process doing the reading, not of the format, and they
+// live in DecoderOptions. A caller with its own subset writes a struct literal.
+//
 // # Intended uses
 //
-// Security-sensitive formats where preserving signed integer labels and
-// rejecting hostile input matter more than mapping arbitrary structs: WebAuthn
-// authenticator data and COSE_Key on one side, compact realtime game messages
-// on the other.
+// Formats where preserving integer labels, holding a byte-exact encoding, and
+// rejecting hostile input matter more than mapping arbitrary Go values. WebAuthn
+// authenticator data and COSE_Key are one such case; a compact fixed-schema
+// message format is another.
 //
 // The package intentionally does not support struct tags, diagnostic notation,
 // COSE signing, encryption, key management, or indefinite-length output.

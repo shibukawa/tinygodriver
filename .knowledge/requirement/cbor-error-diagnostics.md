@@ -27,6 +27,16 @@ shipped:
     A decoder maintaining one would pay on every item of every message; a
     failure is not the steady state and can afford one extra walk.
     TestTheRouteCostsNothingWhenNothingFails pins that.
+  the_walk_must_stop_when_it_gives_up: >
+    found by fuzzing on 2026-08-20, as a hang rather than a wrong answer. The
+    route walk gives up past 32 levels, and it declined that one item by
+    returning neither the target nor an error, having consumed nothing. A
+    container loop asks for its next child until one reports the target or an
+    error, so it asked forever; an indefinite-length container has no count to
+    end the loop, which made the spin unbounded. A refusal became a hang. Giving
+    up now unwinds the whole walk. The input was a map whose key is thirty-two
+    nested indefinite arrays, and it was unreachable while every profile refused
+    indefinite lengths before a route was ever computed.
 priority: should
 today: >
   the sentinels are wrapped with a short label such as "input bytes" or "map

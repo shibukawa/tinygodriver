@@ -8,8 +8,8 @@ import "io"
 // extended buffer, the way the strconv.Append and time.AppendFormat families
 // do. It takes a destination rather than returning a fresh slice because a
 // value returning bytes allocates once per value and undoes the caller's buffer
-// pooling at every nested field, which a message per player per tick cannot
-// afford.
+// pooling at every nested field, which a caller encoding thousands of messages
+// a second cannot afford.
 //
 // It returns no error. The append path below this point carries none, and the
 // obligation that creates is on the implementation: for every value of the

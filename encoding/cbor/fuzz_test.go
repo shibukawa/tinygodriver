@@ -34,17 +34,18 @@ func FuzzReaderSurface(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		for _, profile := range []Profile{Wire(), World(), World().AllowingFloats()} {
-			accepted := profile.Validate(data) == nil
+		for _, profile := range []Profile{wireProfile, worldProfile, worldWithFloats, Canonical(), Deterministic(), {}} {
+			opts := defaultOpts()
+			accepted := profile.Validate(data, opts) == nil
 
-			r := profile.ReaderOver(data)
+			r := profile.ReaderOver(data, opts)
 			skipErr := r.Skip()
 			if accepted {
 				if skipErr != nil {
-					t.Fatalf("%s accepted %x but Skip refused it: %v", profile.Name(), data, skipErr)
+					t.Fatalf("%s accepted %x but Skip refused it: %v", profile.Name, data, skipErr)
 				}
 				if !r.Done() {
-					t.Fatalf("%s accepted %x but Skip left %d bytes", profile.Name(), data, r.Remaining())
+					t.Fatalf("%s accepted %x but Skip left %d bytes", profile.Name, data, r.Remaining())
 				}
 			}
 
@@ -59,7 +60,7 @@ func FuzzReaderSurface(f *testing.F) {
 				}
 			}
 			if accepted && rawErr != nil {
-				t.Fatalf("%s accepted %x but ReadRaw refused it: %v", profile.Name(), data, rawErr)
+				t.Fatalf("%s accepted %x but ReadRaw refused it: %v", profile.Name, data, rawErr)
 			}
 		}
 	})
@@ -75,7 +76,7 @@ func FuzzRoundTripUnderProfile(f *testing.F) {
 		dst = AppendInt(dst, y)
 		dst = AppendUint(dst, uint64(buttons))
 
-		if err := Wire().Validate(dst); err != nil {
+		if err := wireProfile.Validate(dst, defaultOpts()); err != nil {
 			t.Fatalf("the wire profile refused what the append path produced: %v (%x)", err, dst)
 		}
 
