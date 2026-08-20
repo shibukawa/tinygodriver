@@ -157,7 +157,7 @@ type tlsSession struct {
 }
 
 var (
-	sessionMu   sync.Mutex
+	sessionMu   sync.RWMutex
 	sessions            = map[uintptr]*tlsSession{}
 	sessionNext uintptr = 1
 )
@@ -171,9 +171,10 @@ func sessionHandle(s *tlsSession) uintptr {
 	return h
 }
 
+// The lookup runs on every Send and Recv, so it takes the read side only.
 func sessionFromHandle(h uintptr) *tlsSession {
-	sessionMu.Lock()
-	defer sessionMu.Unlock()
+	sessionMu.RLock()
+	defer sessionMu.RUnlock()
 	return sessions[h]
 }
 

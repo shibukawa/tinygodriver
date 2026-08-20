@@ -224,8 +224,13 @@ static int wait_ready(https_sc *s, int for_write) {
 
 // Returns the byte count, 0 on clean EOF, -1 on timeout, -2 on socket error.
 static int sock_recv(https_sc *s, void *buf, int len) {
-	int w = wait_ready(s, 0);
-	if (w != 0) return w;
+	// With no deadline the socket is blocking and recv itself waits, so the
+	// select would be a wasted syscall per record; netdev's waitFD makes the
+	// same skip.
+	if (s->deadline_ns != 0) {
+		int w = wait_ready(s, 0);
+		if (w != 0) return w;
+	}
 	int n = recv(s->sock, (char *)buf, len, 0);
 	if (n == 0) {
 		s->eof = 1;
@@ -239,8 +244,10 @@ static int sock_recv(https_sc *s, void *buf, int len) {
 static int sock_send_all(https_sc *s, const void *buf, int len) {
 	int sent = 0;
 	while (sent < len) {
-		int w = wait_ready(s, 1);
-		if (w != 0) return w;
+		if (s->deadline_ns != 0) {
+			int w = wait_ready(s, 1);
+			if (w != 0) return w;
+		}
 		int n = send(s->sock, (const char *)buf + sent, len - sent, 0);
 		if (n == SOCKET_ERROR) return -2;
 		sent += n;
@@ -921,6 +928,9 @@ int https_sc_read(uintptr_t handle, void *buf, int len,
 
 	s->deadline_ns = timeout_ns > 0 ? now_ns() + timeout_ns : 0;
 
+	// Bytes decrypted straight into the caller's buffer, bypassing the stash.
+	int direct = 0;
+
 	for (;;) {
 		if (s->enc_len > 0) {
 			SecBuffer b[4];
@@ -948,9 +958,28 @@ int https_sc_read(uintptr_t handle, void *buf, int len,
 				}
 
 				// Both buffers point into s->enc, so the plaintext has to be
-				// copied out before the leftovers are moved to the front.
+				// copied out before the leftovers are moved to the front. With
+				// an empty stash it goes straight into the caller's buffer and
+				// only what does not fit is stashed, sparing the copy through
+				// s->dec that a full round trip would make. A renegotiation
+				// keeps the stash path: do_handshake below can fail with a
+				// retryable timeout, and plaintext already handed to a caller
+				// who then sees an error would be lost, where the stash
+				// survives for the retry.
 				if (data != NULL && data->cbBuffer > 0) {
-					if (stash_plaintext(s, data->pvBuffer, (int)data->cbBuffer) != 0) {
+					unsigned char *plain = (unsigned char *)data->pvBuffer;
+					int plain_len = (int)data->cbBuffer;
+					if (ss != SEC_I_RENEGOTIATE && s->dec_len == s->dec_off &&
+					    direct < len) {
+						int take = len - direct < plain_len ? len - direct
+						                                    : plain_len;
+						memcpy((unsigned char *)buf + direct, plain, (size_t)take);
+						direct += take;
+						plain += take;
+						plain_len -= take;
+					}
+					if (plain_len > 0 &&
+					    stash_plaintext(s, plain, plain_len) != 0) {
 						return HTTPS_SC_ERR_ALLOC;
 					}
 				}
@@ -969,7 +998,7 @@ int https_sc_read(uintptr_t handle, void *buf, int len,
 					if (rc != HTTPS_SC_OK) return rc;
 				}
 
-				if (s->dec_len > s->dec_off) break;
+				if (direct > 0 || s->dec_len > s->dec_off) break;
 				if (s->eof) break;
 				continue;
 			}
@@ -993,7 +1022,10 @@ int https_sc_read(uintptr_t handle, void *buf, int len,
 		s->enc_len += rn;
 	}
 
-	*n = take_plaintext(s, buf, len);
+	// direct and the stash never both hold bytes for this call: the stash is
+	// only fed past a full buffer or across a renegotiation, and both leave
+	// the leftovers for the next call.
+	*n = direct + take_plaintext(s, (unsigned char *)buf + direct, len - direct);
 	return HTTPS_SC_OK;
 }
 

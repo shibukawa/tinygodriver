@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shibukawa/tinygodriver/netdev"
@@ -109,8 +110,10 @@ type plainConn struct {
 	host string
 	port string
 
-	relMu    sync.Mutex
-	released bool
+	// released flips exactly once, when Upgrade takes the descriptor. It is
+	// atomic rather than mutex-guarded so the check on every Read and Write
+	// costs no lock acquisition.
+	released atomic.Bool
 }
 
 var (
@@ -124,15 +127,11 @@ func (c *plainConn) Fd() int { return c.fd }
 
 // release hands the descriptor to another owner, so Close becomes a no-op.
 func (c *plainConn) release() {
-	c.relMu.Lock()
-	defer c.relMu.Unlock()
-	c.released = true
+	c.released.Store(true)
 }
 
 func (c *plainConn) isReleased() bool {
-	c.relMu.Lock()
-	defer c.relMu.Unlock()
-	return c.released
+	return c.released.Load()
 }
 
 func (c *plainConn) Read(p []byte) (int, error) {

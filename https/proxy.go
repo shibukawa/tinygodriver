@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 // Proxy selection for the native path.
@@ -49,11 +50,35 @@ func proxyFor(host, port string, secure bool) (*proxy, error) {
 		return nil, nil
 	}
 
-	u, err := parseProxyURL(raw)
+	u, err := parseProxyURLCached(raw)
 	if err != nil {
 		return nil, err
 	}
 	return u, nil
+}
+
+// parsedProxyCache remembers the last parse, keyed on the raw variable value.
+// The environment rarely changes mid-process, but keying on the raw string
+// means that when it does, the next request sees the new proxy; only the
+// repeated url.Parse of an unchanged value is saved. The cached *proxy is
+// shared across requests, which is safe because every consumer only reads it.
+var parsedProxyCache struct {
+	mu    sync.Mutex
+	valid bool
+	raw   string
+	p     *proxy
+	err   error
+}
+
+func parseProxyURLCached(raw string) (*proxy, error) {
+	parsedProxyCache.mu.Lock()
+	defer parsedProxyCache.mu.Unlock()
+	if !parsedProxyCache.valid || parsedProxyCache.raw != raw {
+		parsedProxyCache.p, parsedProxyCache.err = parseProxyURL(raw)
+		parsedProxyCache.raw = raw
+		parsedProxyCache.valid = true
+	}
+	return parsedProxyCache.p, parsedProxyCache.err
 }
 
 // proxyEnv reads the variable pair for the scheme. The uppercase spelling wins,

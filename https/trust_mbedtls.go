@@ -101,8 +101,27 @@ func readCADir(dir string) ([]byte, error) {
 	return out, nil
 }
 
-// anchorsFor builds the PEM blob handed to the backend for one dial.
+// anchorsFor returns the PEM blob handed to the backend for one dial.
+//
+// A Config with no anchors of its own trusts exactly the system store, so
+// that case returns the shared process-wide bundle rather than copying
+// 150-250KB per dial. Sharing is safe because everything downstream only
+// reads it: mbedtls.nulTerminated copies PEM before it crosses into C, and
+// the C parser takes const input. Configs that do carry anchors assemble the
+// blob once and keep it; concurrent dials on one Config meet in the
+// sync.Once.
 func anchorsFor(cfg *Config) ([]byte, error) {
+	if cfg == nil || (len(cfg.RootCAs) == 0 && !cfg.RootCAsOnly) {
+		return systemCertPool()
+	}
+	cfg.anchorsOnce.Do(func() {
+		cfg.anchorsPEM, cfg.anchorsErr = buildAnchors(cfg)
+	})
+	return cfg.anchorsPEM, cfg.anchorsErr
+}
+
+// buildAnchors assembles the bundle for a Config that carries its own anchors.
+func buildAnchors(cfg *Config) ([]byte, error) {
 	// mbedTLS tolerates unparseable entries in a bundle, which is right for a
 	// system store but would silently swallow a caller's malformed PEM. Reject
 	// that here so every backend reports it the same way.
@@ -111,23 +130,21 @@ func anchorsFor(cfg *Config) ([]byte, error) {
 	}
 
 	var out []byte
-	if cfg == nil || !cfg.RootCAsOnly {
+	if !cfg.RootCAsOnly {
 		sys, err := systemCertPool()
 		if err != nil {
 			// Only fatal when the caller supplied no anchors of their own.
-			if cfg == nil || len(cfg.RootCAs) == 0 {
+			if len(cfg.RootCAs) == 0 {
 				return nil, err
 			}
 		} else {
 			out = append(out, sys...)
 		}
 	}
-	if cfg != nil {
-		for _, pem := range cfg.RootCAs {
-			out = append(out, pem...)
-			if len(out) > 0 && out[len(out)-1] != '\n' {
-				out = append(out, '\n')
-			}
+	for _, pem := range cfg.RootCAs {
+		out = append(out, pem...)
+		if len(out) > 0 && out[len(out)-1] != '\n' {
+			out = append(out, '\n')
 		}
 	}
 	return out, nil

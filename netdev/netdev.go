@@ -104,8 +104,12 @@ type netdever interface {
 }
 
 // Device is a host OS implementation of Netdever.
+//
+// The map lock is a RWMutex because every Send and Recv passes through a
+// lookup while entries change only on Socket, Accept and Close; readers
+// should not serialize behind one another for that.
 type Device struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	sockets map[int]*socket
 }
 

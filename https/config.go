@@ -4,6 +4,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"os"
+	"sync"
 )
 
 // Version identifies a TLS protocol version. The values match the wire
@@ -50,6 +51,16 @@ type Config struct {
 
 	// err records a failure from an Option, reported when the Config is used.
 	err error
+
+	// anchorsOnce guards the assembled trust bundle a PEM-based backend hands
+	// to C. Rebuilding it per dial means re-validating the caller's PEM and
+	// copying the entire system store, which runs to hundreds of kilobytes,
+	// so the result is kept on the Config. RootCAs and RootCAsOnly are
+	// treated as fixed once the Config has dialed, which the Option
+	// constructors already encourage.
+	anchorsOnce sync.Once
+	anchorsPEM  []byte
+	anchorsErr  error
 }
 
 // Option configures a Config.

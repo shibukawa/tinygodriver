@@ -23,13 +23,9 @@ import (
 // it works there too -- at Secure Transport's TLS 1.2 ceiling, which is the
 // same trade the STARTTLS path already documents.
 
-// dialTLSMaybeProxy connects to host:port, through a proxy when the
-// environment names one.
-func dialTLSMaybeProxy(ctx context.Context, host, port string, cfg *Config, timeout time.Duration) (net.Conn, error) {
-	p, err := proxyFor(host, port, true)
-	if err != nil {
-		return nil, &Error{Op: "dial", Host: host, Backend: backendName, Err: err}
-	}
+// dialTLSMaybeProxy connects to host:port, through p when the caller resolved
+// a proxy for this request.
+func dialTLSMaybeProxy(ctx context.Context, host, port string, cfg *Config, timeout time.Duration, p *proxy) (net.Conn, error) {
 	if p == nil {
 		return dialTLS(ctx, host, port, cfg, timeout)
 	}
@@ -69,22 +65,13 @@ func dialTLSMaybeProxy(ctx context.Context, host, port string, cfg *Config, time
 }
 
 // dialPlainMaybeProxy is the http:// counterpart. There is no tunnel here: a
-// proxy expects the origin-absolute request form instead, which is why the
-// caller is told whether the connection is proxied.
-func dialPlainMaybeProxy(ctx context.Context, host, port string, timeout time.Duration) (net.Conn, bool, error) {
-	p, err := proxyFor(host, port, false)
-	if err != nil {
-		return nil, false, &Error{Op: "dial", Host: host, Backend: backendName, Err: err}
-	}
+// proxy expects the origin-absolute request form instead, which the caller
+// already knows from resolving p.
+func dialPlainMaybeProxy(ctx context.Context, host, port string, timeout time.Duration, p *proxy) (net.Conn, error) {
 	if p == nil {
-		conn, err := net.DialTimeout("tcp4", net.JoinHostPort(host, port), timeout)
-		return conn, false, err
+		return net.DialTimeout("tcp4", net.JoinHostPort(host, port), timeout)
 	}
-	conn, err := net.DialTimeout("tcp4", net.JoinHostPort(p.Host, p.Port), timeout)
-	if err != nil {
-		return nil, false, err
-	}
-	return conn, true, nil
+	return net.DialTimeout("tcp4", net.JoinHostPort(p.Host, p.Port), timeout)
 }
 
 // connectTunnel performs the CONNECT exchange.
@@ -127,8 +114,12 @@ func connectTunnel(conn net.Conn, host, port string, p *proxy) error {
 // line's code and reason.
 func readTunnelResponse(conn net.Conn) (string, error) {
 	var first string
+	// One scratch byte for the whole response rather than one per line; the
+	// reads stay byte-at-a-time because anything past the header terminator
+	// is the first TLS record.
+	buf := make([]byte, 1)
 	for i := 0; ; i++ {
-		line, err := readCRLFLine(conn)
+		line, err := readCRLFLine(conn, buf)
 		if err != nil {
 			return "", err
 		}
@@ -149,9 +140,8 @@ func readTunnelResponse(conn net.Conn) (string, error) {
 	}
 }
 
-func readCRLFLine(conn net.Conn) (string, error) {
+func readCRLFLine(conn net.Conn, buf []byte) (string, error) {
 	var sb strings.Builder
-	buf := make([]byte, 1)
 	for sb.Len() < 8192 {
 		n, err := conn.Read(buf)
 		if err != nil {

@@ -225,7 +225,10 @@ static int wait_ready(https_mbed *s, int for_write) {
 
 static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
 	https_mbed *s = (https_mbed *)ctx;
-	if (wait_ready(s, 1) != 0) {
+	/* With no deadline the fd is blocking and the write itself waits, so the
+	 * readiness poll would be a wasted syscall per record; netdev's waitFD
+	 * makes the same skip. */
+	if (s->deadline_ns != 0 && wait_ready(s, 1) != 0) {
 		s->timed_out = 1;
 		return MBEDTLS_ERR_SSL_TIMEOUT;
 	}
@@ -236,7 +239,7 @@ static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
 
 static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
 	https_mbed *s = (https_mbed *)ctx;
-	if (wait_ready(s, 0) != 0) {
+	if (s->deadline_ns != 0 && wait_ready(s, 0) != 0) {
 		s->timed_out = 1;
 		return MBEDTLS_ERR_SSL_TIMEOUT;
 	}
