@@ -6,7 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -142,6 +144,137 @@ func TestContextCancellationInterruptsSQLite(t *testing.T) {
 	}
 	if err := db.Ping(); err != nil {
 		t.Fatalf("connection was not reusable after interrupt: %v", err)
+	}
+}
+
+func TestRowsCancelMidIterationInterrupts(t *testing.T) {
+	db := openTestDB(t, ":memory:")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The first row (x = 0) arrives immediately; every later row costs a
+	// hundred million recursive steps, so the second Next call sits inside
+	// sqlite3_step until the interrupt fires.
+	rows, err := db.QueryContext(ctx, `WITH RECURSIVE counter(x) AS (
+        VALUES(0) UNION ALL SELECT x+1 FROM counter WHERE x < 1000000000
+    ) SELECT x FROM counter WHERE x % 100000000 = 0`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatalf("first row missing: %v", rows.Err())
+	}
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+	for rows.Next() {
+	}
+	if err := rows.Err(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if err := db.Ping(); err != nil {
+		t.Fatalf("connection was not reusable after mid-iteration interrupt: %v", err)
+	}
+}
+
+func TestRowsWatcherDoesNotLeakGoroutines(t *testing.T) {
+	db := openTestDB(t, ":memory:")
+	if _, err := db.Exec("CREATE TABLE item(id INTEGER PRIMARY KEY, value TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		if _, err := db.Exec("INSERT INTO item(value) VALUES(?)", fmt.Sprintf("value-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runQuery := func(drain bool) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		rows, err := db.QueryContext(ctx, "SELECT id, value FROM item")
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for rows.Next() {
+			var id int64
+			var value string
+			if err := rows.Scan(&id, &value); err != nil {
+				t.Fatal(err)
+			}
+			count++
+			if !drain && count == 3 {
+				break
+			}
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Warm up the pool and helper goroutines before taking the baseline.
+	runQuery(true)
+	before := runtime.NumGoroutine()
+	for i := 0; i < 100; i++ {
+		runQuery(i%2 == 0)
+	}
+	// database/sql's own context watchers need a moment to exit after cancel,
+	// so poll with a generous tolerance instead of demanding an exact match.
+	const tolerance = 10
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		after := runtime.NumGoroutine()
+		if after <= before+tolerance {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines grew from %d to %d after 100 queries", before, after)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func BenchmarkRowsCancellableContext(b *testing.B) {
+	db, err := sql.Open(DriverName, ":memory:")
+	if err != nil {
+		b.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE item(id INTEGER PRIMARY KEY, value TEXT, created TIMESTAMP)"); err != nil {
+		b.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for i := 0; i < 100; i++ {
+		if _, err := db.Exec("INSERT INTO item(value, created) VALUES(?, ?)", fmt.Sprintf("value-%d", i), now); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		rows, err := db.QueryContext(ctx, "SELECT id, value, created FROM item")
+		if err != nil {
+			b.Fatal(err)
+		}
+		for rows.Next() {
+			var id int64
+			var value string
+			var created time.Time
+			if err := rows.Scan(&id, &value, &created); err != nil {
+				b.Fatal(err)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			b.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			b.Fatal(err)
+		}
+		cancel()
 	}
 }
 
