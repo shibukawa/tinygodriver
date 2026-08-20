@@ -108,16 +108,13 @@ func readCADir(dir string) ([]byte, error) {
 // 150-250KB per dial. Sharing is safe because everything downstream only
 // reads it: mbedtls.nulTerminated copies PEM before it crosses into C, and
 // the C parser takes const input. Configs that do carry anchors assemble the
-// blob once and keep it; concurrent dials on one Config meet in the
-// sync.Once.
+// blob per dial; caching it on the Config would cost a lock-bearing field,
+// and Config is a value callers copy.
 func anchorsFor(cfg *Config) ([]byte, error) {
 	if cfg == nil || (len(cfg.RootCAs) == 0 && !cfg.RootCAsOnly) {
 		return systemCertPool()
 	}
-	cfg.anchorsOnce.Do(func() {
-		cfg.anchorsPEM, cfg.anchorsErr = buildAnchors(cfg)
-	})
-	return cfg.anchorsPEM, cfg.anchorsErr
+	return buildAnchors(cfg)
 }
 
 // buildAnchors assembles the bundle for a Config that carries its own anchors.
