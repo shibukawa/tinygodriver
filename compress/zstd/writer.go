@@ -425,47 +425,43 @@ var (
 
 func init() {
 	for l := range llCodeSmall {
-		llCodeSmall[l], _, _ = lengthCode(l, literalLengthBases[:], literalLengthBits[:])
+		llCodeSmall[l] = lengthCode(l, literalLengthBases[:])
 	}
 	for l := range mlCodeSmall {
-		mlCodeSmall[l], _, _ = lengthCode(l+3, matchLengthBases[:], matchLengthBits[:])
+		mlCodeSmall[l] = lengthCode(l+3, matchLengthBases[:])
 	}
 }
 
-func literalLengthCode(length int) (code, bits8 uint8, extra uint32) {
-	var c uint8
+func literalLengthCode(length int) uint8 {
 	if length < 64 {
-		c = llCodeSmall[length]
-	} else {
-		c = uint8(18 + bits.Len32(uint32(length)))
-		if c > 35 {
-			c = 35
-		}
+		return llCodeSmall[length]
 	}
-	return c, literalLengthBits[c], uint32(length - literalLengthBases[c])
+	c := uint8(18 + bits.Len32(uint32(length)))
+	if c > 35 {
+		c = 35
+	}
+	return c
 }
 
-func matchLengthCode(length int) (code, bits8 uint8, extra uint32) {
-	var c uint8
+func matchLengthCode(length int) uint8 {
 	if uint(length-3) < 128 {
-		c = mlCodeSmall[length-3]
-	} else {
-		c = uint8(35 + bits.Len32(uint32(length-3)))
-		if c > 52 {
-			c = 52
-		}
+		return mlCodeSmall[length-3]
 	}
-	return c, matchLengthBits[c], uint32(length - matchLengthBases[c])
+	c := uint8(35 + bits.Len32(uint32(length-3)))
+	if c > 52 {
+		c = 52
+	}
+	return c
 }
 
 // lengthCode is the reference mapping the startup tables are built from.
-func lengthCode(length int, bases []int, widths []uint8) (code, bits uint8, extra uint32) {
+func lengthCode(length int, bases []int) uint8 {
 	for i := len(bases) - 1; i >= 0; i-- {
 		if length >= bases[i] {
-			return uint8(i), widths[i], uint32(length - bases[i])
+			return uint8(i)
 		}
 	}
-	return 0, 0, 0
+	return 0
 }
 
 func (z *Writer) writeBlock(p []byte, last bool) error {

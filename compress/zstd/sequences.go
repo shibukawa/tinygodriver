@@ -270,8 +270,8 @@ func (z *Writer) appendSequences(dst []byte) []byte {
 	maxLL, maxOF, maxML := 0, 0, 0
 	for i := range seqs {
 		s := &seqs[i]
-		ll, _, _ := literalLengthCode(int(s.litLen))
-		ml, _, _ := matchLengthCode(int(s.matchLen))
+		ll := literalLengthCode(int(s.litLen))
+		ml := matchLengthCode(int(s.matchLen))
 		of := uint8(bits.Len32(s.ofValue) - 1)
 		codes[i] = seqCode{ll: ll, of: of, ml: ml}
 		llCounts[ll]++
