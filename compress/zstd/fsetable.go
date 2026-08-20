@@ -43,9 +43,10 @@ type seqTable struct {
 // fitTable chooses how to code one symbol stream. counts is indexed by symbol,
 // maxSymbol is the largest with a nonzero count, and predef is the fallback.
 //
-// scratch is reused so that fitting three tables per block allocates nothing.
+// scratch and ctScratch are reused so that fitting three tables per block
+// allocates nothing.
 func fitTable(counts []uint32, maxSymbol int, nbSeq int, maxLog uint8,
-	predef *ctable, scratch []int16) seqTable {
+	predef *ctable, scratch []int16, ctScratch *ctableScratch) seqTable {
 	fallback := seqTable{mode: modePredefined, ct: predef}
 
 	used := 0
@@ -62,7 +63,7 @@ func fitTable(counts []uint32, maxSymbol int, nbSeq int, maxLog uint8,
 	case used == 1:
 		// One symbol for the whole block: the description is the symbol itself,
 		// and a one-state table emits no bits for it at all.
-		return seqTable{mode: modeRLE, rle: byte(single), ct: rleCTable(single)}
+		return seqTable{mode: modeRLE, rle: byte(single), ct: ctScratch.rle(single)}
 	}
 
 	// A description runs to a few dozen bytes, so it needs a block with enough
@@ -93,20 +94,9 @@ func fitTable(counts []uint32, maxSymbol int, nbSeq int, maxLog uint8,
 	}
 	return seqTable{
 		mode:     modeFSE,
-		ct:       buildCTable(norm, tableLog),
+		ct:       ctScratch.fitted(norm, tableLog),
 		norm:     norm,
 		tableLog: tableLog,
-	}
-}
-
-// rleCTable is a table with one state, for a stream that carries one symbol. Its
-// accuracy log is zero, so the state machine drives it like any other table and
-// writes nothing: no state bits, no final state.
-func rleCTable(symbol int) *ctable {
-	return &ctable{
-		stateTable: []uint16{0},
-		symbolTT:   make([]symbolTransform, symbol+1),
-		tableLog:   0,
 	}
 }
 
@@ -182,21 +172,11 @@ func normalizeCounts(counts []uint32, norm []int16, total int, tableLog uint8) b
 // cheap. The stream ends as soon as the states are accounted for, so the symbols
 // after the last used one need not be written at all.
 func appendTableDescription(dst []byte, norm []int16, tableLog uint8) []byte {
-	var (
-		bitStream uint32
-		bitCount  uint
-	)
-	put := func(v uint32, n uint) {
-		bitStream |= v << bitCount
-		bitCount += n
-		if bitCount >= 16 {
-			dst = append(dst, byte(bitStream), byte(bitStream>>8))
-			bitStream >>= 16
-			bitCount -= 16
-		}
-	}
+	// A description is a few dozen bits; the writer is a plain struct rather
+	// than a closure over its three locals, which would box them all.
+	dw := descWriter{dst: dst}
 
-	put(uint32(tableLog-minTableLog), 4)
+	dw.put(uint32(tableLog-minTableLog), 4)
 
 	tableSize := int32(1) << tableLog
 	remaining := tableSize + 1 // the extra state is the format's own accounting
@@ -215,13 +195,13 @@ func appendTableDescription(dst []byte, norm []int16, tableLog uint8) []byte {
 			}
 			for symbol >= start+24 {
 				start += 24
-				put(0xFFFF, 16)
+				dw.put(0xFFFF, 16)
 			}
 			for symbol >= start+3 {
 				start += 3
-				put(3, 2)
+				dw.put(3, 2)
 			}
-			put(uint32(symbol-start), 2)
+			dw.put(uint32(symbol-start), 2)
 			if symbol >= len(norm) {
 				break
 			}
@@ -235,11 +215,11 @@ func appendTableDescription(dst []byte, norm []int16, tableLog uint8) []byte {
 
 		v := uint32(count) + 1 // the value on the wire is one higher
 		if int32(v) >= threshold {
-			put(v+uint32(max), nbBits)
+			dw.put(v+uint32(max), nbBits)
 		} else if int32(v) < max {
-			put(v, nbBits-1)
+			dw.put(v, nbBits-1)
 		} else {
-			put(v, nbBits)
+			dw.put(v, nbBits)
 		}
 
 		previous0 = count == 0
@@ -250,9 +230,27 @@ func appendTableDescription(dst []byte, norm []int16, tableLog uint8) []byte {
 	}
 
 	// Flush whatever is left, padding to a byte.
-	for n := (bitCount + 7) / 8; n > 0; n-- {
-		dst = append(dst, byte(bitStream))
-		bitStream >>= 8
+	for n := (dw.bitCount + 7) / 8; n > 0; n-- {
+		dw.dst = append(dw.dst, byte(dw.bitStream))
+		dw.bitStream >>= 8
 	}
-	return dst
+	return dw.dst
+}
+
+// descWriter accumulates a table description's bitstream, least-significant
+// bit first, sixteen bits at a time.
+type descWriter struct {
+	bitStream uint32
+	bitCount  uint
+	dst       []byte
+}
+
+func (w *descWriter) put(v uint32, n uint) {
+	w.bitStream |= v << w.bitCount
+	w.bitCount += n
+	if w.bitCount >= 16 {
+		w.dst = append(w.dst, byte(w.bitStream), byte(w.bitStream>>8))
+		w.bitStream >>= 16
+		w.bitCount -= 16
+	}
 }

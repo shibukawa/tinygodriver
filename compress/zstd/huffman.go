@@ -40,19 +40,44 @@ const (
 	literalsCompressed = 2
 )
 
-// huffTable is a canonical Huffman code over literal bytes.
+// huffTable is a canonical Huffman code over literal bytes. The per-symbol
+// arrays span every byte value even though codes stop at maxHuffSymbol, so the
+// stream coder can index them with a byte directly.
 type huffTable struct {
-	bits   [maxHuffSymbol + 1]uint8  // code length per symbol, 0 when absent
-	vals   [maxHuffSymbol + 1]uint16 // code value per symbol
-	max    int                       // largest symbol with a code
-	maxBit uint8                     // longest code length
+	bits   [256]uint8  // code length per symbol, 0 when absent
+	vals   [256]uint16 // code value per symbol
+	max    int         // largest symbol with a code
+	maxBit uint8       // longest code length
 }
 
-// buildHuffTable fits a code to counts. It reports false when the alphabet cannot
-// be described: fewer than two symbols, a symbol above what the direct weight
-// representation reaches, or a tree deeper than the format allows even after the
-// rare counts have been lifted.
-func buildHuffTable(counts *[256]uint32, total int) (*huffTable, bool) {
+// huffNode is one tree node: leaves first, then internal nodes appended as they
+// are created. Indices and symbols both fit comfortably in 16 bits.
+type huffNode struct {
+	weight      uint64
+	left, right int16 // -1 for a leaf
+	symbol      int16
+}
+
+// huffScratch is the tree builder's working set, sized for the largest tree the
+// direct weight representation can describe: 129 leaves and 128 merges. It
+// lives on the Writer so building a tree, which can happen four times per
+// block, allocates nothing.
+type huffScratch struct {
+	nodes [2 * (maxHuffSymbol + 1)]huffNode
+	live  [maxHuffSymbol + 1]int16
+	stack [2 * (maxHuffSymbol + 1)]huffFrame
+}
+
+type huffFrame struct {
+	n     int16
+	depth uint8
+}
+
+// buildHuffTable fits a code to counts, writing it into t. It reports false
+// when the alphabet cannot be described: fewer than two symbols, a symbol above
+// what the direct weight representation reaches, or a tree deeper than the
+// format allows even after the rare counts have been lifted.
+func buildHuffTable(t *huffTable, sc *huffScratch, counts *[256]uint32, total int) bool {
 	maxSymbol := -1
 	used := 0
 	for s, c := range counts {
@@ -66,7 +91,7 @@ func buildHuffTable(counts *[256]uint32, total int) (*huffTable, bool) {
 	// at least two of them, and one symbol has no tree at all. One symbol is an
 	// RLE literals block, which the caller handles.
 	if used < 2 || maxSymbol < 1 || maxSymbol > maxHuffSymbol {
-		return nil, false
+		return false
 	}
 
 	// Lifting the rarest counts bounds the tree's depth. A first attempt uses the
@@ -79,16 +104,16 @@ func buildHuffTable(counts *[256]uint32, total int) (*huffTable, bool) {
 		if floor < 1 {
 			floor = 1
 		}
-		if huffLengths(counts, maxSymbol, floor, &lengths) <= maxHuffBits {
+		if huffLengths(sc, counts, maxSymbol, floor, &lengths) <= maxHuffBits {
 			ok = true
 			break
 		}
 	}
 	if !ok {
-		return nil, false
+		return false
 	}
 
-	t := &huffTable{max: maxSymbol}
+	*t = huffTable{max: maxSymbol}
 	for s := 0; s <= maxSymbol; s++ {
 		t.bits[s] = lengths[s]
 		if lengths[s] > t.maxBit {
@@ -117,7 +142,7 @@ func buildHuffTable(counts *[256]uint32, total int) (*huffTable, bool) {
 			next[n]++
 		}
 	}
-	return t, true
+	return true
 }
 
 // huffLengths assigns code lengths by repeated merging of the two smallest
@@ -126,15 +151,9 @@ func buildHuffTable(counts *[256]uint32, total int) (*huffTable, bool) {
 //
 // The alphabet is at most 129 symbols, so merging in place over a slice costs
 // little and is far harder to get wrong than a heap.
-func huffLengths(counts *[256]uint32, maxSymbol int, floor uint32, out *[maxHuffSymbol + 1]uint8) uint8 {
-	// Nodes: leaves first, then internal nodes appended as they are created.
-	type node struct {
-		weight      uint64
-		left, right int // -1 for a leaf
-		symbol      int
-	}
-	nodes := make([]node, 0, 2*(maxSymbol+1))
-	live := make([]int, 0, maxSymbol+1)
+func huffLengths(sc *huffScratch, counts *[256]uint32, maxSymbol int, floor uint32, out *[maxHuffSymbol + 1]uint8) uint8 {
+	nodes := sc.nodes[:0]
+	live := sc.live[:0]
 	for s := 0; s <= maxSymbol; s++ {
 		c := counts[s]
 		if c == 0 {
@@ -143,8 +162,8 @@ func huffLengths(counts *[256]uint32, maxSymbol int, floor uint32, out *[maxHuff
 		if c < floor {
 			c = floor
 		}
-		nodes = append(nodes, node{weight: uint64(c), left: -1, right: -1, symbol: s})
-		live = append(live, len(nodes)-1)
+		nodes = append(nodes, huffNode{weight: uint64(c), left: -1, right: -1, symbol: int16(s)})
+		live = append(live, int16(len(nodes)-1))
 	}
 
 	for len(live) > 1 {
@@ -161,7 +180,7 @@ func huffLengths(counts *[256]uint32, maxSymbol int, floor uint32, out *[maxHuff
 				b = i
 			}
 		}
-		nodes = append(nodes, node{
+		nodes = append(nodes, huffNode{
 			weight: nodes[live[a]].weight + nodes[live[b]].weight,
 			left:   live[a],
 			right:  live[b],
@@ -172,20 +191,17 @@ func huffLengths(counts *[256]uint32, maxSymbol int, floor uint32, out *[maxHuff
 		if lo > hi {
 			lo, hi = hi, lo
 		}
-		live[lo] = len(nodes) - 1
+		live[lo] = int16(len(nodes) - 1)
 		live[hi] = live[len(live)-1]
 		live = live[:len(live)-1]
 	}
 
 	*out = [maxHuffSymbol + 1]uint8{}
 	var deepest uint8
-	// Depth-first walk, carrying the depth. The tree has at most 258 nodes, so an
+	// Depth-first walk, carrying the depth. The tree has at most 257 nodes, so an
 	// explicit stack is bounded and cheap.
-	type frame struct {
-		n     int
-		depth uint8
-	}
-	stack := []frame{{n: live[0], depth: 0}}
+	stack := sc.stack[:0]
+	stack = append(stack, huffFrame{n: live[0], depth: 0})
 	for len(stack) > 0 {
 		f := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
@@ -201,8 +217,8 @@ func huffLengths(counts *[256]uint32, maxSymbol int, floor uint32, out *[maxHuff
 			}
 			continue
 		}
-		stack = append(stack, frame{n: n.left, depth: f.depth + 1})
-		stack = append(stack, frame{n: n.right, depth: f.depth + 1})
+		stack = append(stack, huffFrame{n: n.left, depth: f.depth + 1})
+		stack = append(stack, huffFrame{n: n.right, depth: f.depth + 1})
 	}
 	return deepest
 }
@@ -239,15 +255,33 @@ func huffWeight(t *huffTable, symbol int) byte {
 // The literals go in backwards. A Huffman stream is read from its end, the same
 // way a sequences bitstream is, so the last literal has to be written first for
 // the decoder to hand them back in order.
+//
+// Two literals go between flushes: a flush leaves at most 31 bits pending, and
+// two codes of at most 11 bits each keep the container within its 64, where a
+// third could not be guaranteed to. Flushing emits the same bytes in the same
+// order however often it runs, so the stream is unchanged by the batching.
 func appendHuffStream(dst []byte, lits []byte, t *huffTable) []byte {
 	bw := bitWriter{out: dst}
-	for i := len(lits) - 1; i >= 0; i-- {
-		c := lits[i]
-		bw.addBits(uint32(t.vals[c]), t.bits[c])
+	i := len(lits) - 1
+	for ; i >= 1; i -= 2 {
+		c0, c1 := lits[i], lits[i-1]
+		bw.addBits(uint32(t.vals[c0]), t.bits[c0])
+		bw.addBits(uint32(t.vals[c1]), t.bits[c1])
 		bw.flush32()
+	}
+	if i == 0 {
+		c := lits[0]
+		bw.addBits(uint32(t.vals[c]), t.bits[c])
 	}
 	bw.close()
 	return bw.out
+}
+
+// appendRawLiterals is the stored form the coded choices are measured against
+// and fall back to.
+func appendRawLiterals(dst, lits []byte) []byte {
+	dst = appendLiteralHeader(dst, len(lits), literalsRaw)
+	return append(dst, lits...)
 }
 
 // appendLiterals writes the literals section, choosing the cheapest of storing
@@ -255,32 +289,34 @@ func appendHuffStream(dst []byte, lits []byte, t *huffTable) []byte {
 // smaller is not taken, so this can only help.
 func (z *Writer) appendLiterals(dst []byte) []byte {
 	lits := z.literals
+	counted := z.litCountsReady
+	z.litCountsReady = false
 	if len(lits) == 0 {
-		return append(dst, literalHeader(0, literalsRaw)...)
+		return appendLiteralHeader(dst, 0, literalsRaw)
 	}
 
-	z.litCounts = [256]uint32{}
-	for _, c := range lits {
-		z.litCounts[c]++
+	// The block builder histograms the literals as it gathers them; a caller
+	// that filled z.literals itself has not.
+	if !counted {
+		z.litCounts = [256]uint32{}
+		for _, c := range lits {
+			z.litCounts[c]++
+		}
 	}
 
 	// One distinct byte: the whole run is the header plus that byte.
 	if int(z.litCounts[lits[0]]) == len(lits) {
-		dst = append(dst, literalHeader(len(lits), literalsRLE)...)
+		dst = appendLiteralHeader(dst, len(lits), literalsRLE)
 		return append(dst, lits[0])
 	}
 
-	raw := func() []byte {
-		dst = append(dst, literalHeader(len(lits), literalsRaw)...)
-		return append(dst, lits...)
-	}
 	if len(lits) < minHuffLiterals {
-		return raw()
+		return appendRawLiterals(dst, lits)
 	}
-	t, ok := buildHuffTable(&z.litCounts, len(lits))
-	if !ok {
-		return raw()
+	if !buildHuffTable(&z.huffTab, &z.huffSc, &z.litCounts, len(lits)) {
+		return appendRawLiterals(dst, lits)
 	}
+	t := &z.huffTab
 
 	// Build the body -- tree description, then one or four streams -- into scratch
 	// so its size is known before the header that has to state it.
@@ -304,7 +340,7 @@ func (z *Writer) appendLiterals(dst []byte) []byte {
 			z.litBody = appendHuffStream(z.litBody, part, t)
 			size := len(z.litBody) - at
 			if size > 0xFFFF {
-				return raw() // the jump table cannot state it
+				return appendRawLiterals(dst, lits) // the jump table cannot state it
 			}
 			if i < 3 {
 				z.litBody[jump+i*2] = byte(size)
@@ -313,17 +349,19 @@ func (z *Writer) appendLiterals(dst []byte) []byte {
 		}
 	}
 
-	header, ok := compressedLiteralHeader(len(lits), len(z.litBody), single)
-	if !ok || len(header)+len(z.litBody) >= literalHeaderSize(len(lits))+len(lits) {
-		return raw()
+	var header [5]byte
+	n, ok := compressedLiteralHeader(&header, len(lits), len(z.litBody), single)
+	if !ok || n+len(z.litBody) >= literalHeaderSize(len(lits))+len(lits) {
+		return appendRawLiterals(dst, lits)
 	}
-	dst = append(dst, header...)
+	dst = append(dst, header[:n]...)
 	return append(dst, z.litBody...)
 }
 
 // compressedLiteralHeader states the decoded and encoded sizes, in the narrowest
-// of the format's three widths that holds them.
-func compressedLiteralHeader(regen, comp int, single bool) ([]byte, bool) {
+// of the format's three widths that holds them, writing into hdr and returning
+// how many of its bytes are used.
+func compressedLiteralHeader(hdr *[5]byte, regen, comp int, single bool) (int, bool) {
 	switch {
 	case regen < 1<<10 && comp < 1<<10:
 		format := uint32(1) // four streams
@@ -331,17 +369,20 @@ func compressedLiteralHeader(regen, comp int, single bool) ([]byte, bool) {
 			format = 0
 		}
 		v := uint32(literalsCompressed) | format<<2 | uint32(regen)<<4 | uint32(comp)<<14
-		return []byte{byte(v), byte(v >> 8), byte(v >> 16)}, true
+		hdr[0], hdr[1], hdr[2] = byte(v), byte(v>>8), byte(v>>16)
+		return 3, true
 	case single:
 		// The single-stream layout has nowhere to put sizes this large.
-		return nil, false
+		return 0, false
 	case regen < 1<<14 && comp < 1<<14:
 		v := uint32(literalsCompressed) | 2<<2 | uint32(regen)<<4 | uint32(comp)<<18
-		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}, true
+		hdr[0], hdr[1], hdr[2], hdr[3] = byte(v), byte(v>>8), byte(v>>16), byte(v>>24)
+		return 4, true
 	case regen < 1<<18 && comp < 1<<18:
 		v := uint64(literalsCompressed) | 3<<2 | uint64(regen)<<4 | uint64(comp)<<22
-		return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24), byte(v >> 32)}, true
+		hdr[0], hdr[1], hdr[2], hdr[3], hdr[4] = byte(v), byte(v>>8), byte(v>>16), byte(v>>24), byte(v>>32)
+		return 5, true
 	default:
-		return nil, false
+		return 0, false
 	}
 }

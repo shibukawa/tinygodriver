@@ -72,6 +72,9 @@ func resolveOptions(options []Option) writerOptions {
 // traversed a second time.
 func EncodeAll(src []byte, options ...Option) ([]byte, Result, error) {
 	var dst bytes.Buffer
+	// Web payloads land around half their size; guessing low once beats letting
+	// the buffer climb its growth chain from empty.
+	dst.Grow(len(src)/2 + 64)
 	z, err := NewWriter(&dst, options...)
 	if err != nil {
 		return nil, Result{}, err
