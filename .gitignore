@@ -25,3 +25,6 @@ coverage.html
 
 # Generated knowledge cache
 .knowledge/.cache/
+
+# Claude Code local state (worktrees, permission settings, salvage bundles)
+.claude/
