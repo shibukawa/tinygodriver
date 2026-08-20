@@ -25,7 +25,6 @@ struct sockaddr_in {
 	char sin_zero[8];
 };
 struct timeval { long tv_sec; long tv_usec; };
-struct linger { uint16_t l_onoff; uint16_t l_linger; };
 
 typedef struct fd_set {
 	unsigned int fd_count;
@@ -33,7 +32,6 @@ typedef struct fd_set {
 } fd_set;
 
 int WSAStartup(uint16_t wVersionRequested, void *lpWSAData);
-int WSACleanup(void);
 int WSAGetLastError(void);
 SOCKET socket(int af, int type, int protocol);
 int bind(SOCKET s, const void *name, int namelen);
