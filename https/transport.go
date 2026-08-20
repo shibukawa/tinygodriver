@@ -60,7 +60,9 @@ func NewTransport(opts ...Option) *Transport {
 // RoundTrip implements http.RoundTripper.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL == nil {
-		req.Body.Close()
+		if req.Body != nil {
+			req.Body.Close()
+		}
 		return nil, &Error{Op: "dial", Backend: backendName, Err: ErrHandshakeFailed}
 	}
 	if cfg := t.Config; cfg != nil && cfg.err != nil {

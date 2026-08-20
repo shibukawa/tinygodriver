@@ -18,14 +18,27 @@ them, and it is also the only one that touches `net.Resolver`, which TinyGo's
 
 Measured on the unpatched tree: three non-test files, all in `pgconn`.
 
-## 1. `pgconn/config.go`
+## 1. `pgconn/config.go` and the new `pgconn/tinygo_tls.go`
 
 - Drop the `crypto/tls`, `crypto/x509` and `encoding/pem` imports.
 - Replace `*tls.Config` with the local `TLSConfig` placeholder type, so the
   public `Config.TLSConfig` field keeps its shape without linking `crypto/tls`.
-- Replace the body of `configTLS` so `sslmode=disable` succeeds and every other
-  mode reports `ErrTLSUnsupported`. Never fall back to plaintext silently:
-  `requirement:platform-matrix` forbids it.
+  The type lives in `tinygo_tls.go`, a file patch.py writes whole, together
+  with `upgradeConn` — the bridge into the `https` package — and the
+  `ErrTLSUnsupported` sentinel its nil-config branch returns.
+- Replace the body of `configTLS` with the libpq sslmode matrix expressed as
+  `TLSConfig` values: `disable`, `allow`, `prefer`, `require`, `verify-ca` and
+  `verify-full` all work, including `sslrootcert` (a file, or `system`),
+  `sslsni` and `sslnegotiation=direct`'s prefer→require promotion. Never fall
+  back to plaintext silently: `requirement:platform-matrix` forbids it. Two
+  deliberate differences from libpq:
+  - `sslcert`/`sslkey` are rejected with an error: the native TLS backends
+    cannot offer a client certificate, and silently ignoring the settings
+    would be worse.
+  - `verify-ca` is treated as `verify-full`: libpq would skip only the
+    hostname check, which the native backends cannot express. Checking the
+    name as well is stricter, never weaker, so it is the safe direction in
+    which to differ.
 - Replace `makeDefaultResolver`, which returned `net.DefaultResolver`, with a
   resolver that defers name resolution to the dialer. TinyGo has no
   `net.Resolver`, and netdev resolves names inside `Connect` anyway.
@@ -33,12 +46,14 @@ Measured on the unpatched tree: three non-test files, all in `pgconn`.
 ## 2. `pgconn/pgconn.go`
 
 - Drop the `crypto/tls` import.
-- `tls.Client` call sites return `ErrTLSUnsupported`.
-- `startTLS` keeps its SSLRequest exchange untouched — that is protocol code,
-  not TLS code — and only its final `tls.Client` line changes.
-
-`startTLS` is the seam `api:tls-upgrade` plugs into in phase 4. Leaving its
-message exchange intact is what makes that a one-line change later.
+- `tls.Client` call sites become `upgradeConn`, which starts TLS on the
+  already-connected socket through the `https` package and the platform's
+  native TLS stack (the `api:tls-upgrade` seam, now plugged in).
+- `startTLS` gains a context parameter so the handshake is bounded like every
+  other network operation. Its SSLRequest exchange is untouched — that is
+  protocol code, not TLS code.
+- The direct-TLS cancel-request branch checks the upgrade error, which
+  upstream ignores: `upgradeConn` can fail where `tls.Client` could not.
 
 ## 3. `pgconn/auth_scram.go`
 

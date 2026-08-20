@@ -7,7 +7,7 @@ package netdev
 #include <string.h>
 
 // Socket-related syscalls are missing from TinyGo's macos-minimal-sdk libSystem
-// stubs, so we invoke them via SVC. read/write/close/fcntl/select are available
+// stubs, so we invoke them via SVC. read/write/close/select are available
 // through the normal stubs and stay on libc (scheduler-safe).
 
 // A Darwin syscall reports failure by setting the carry flag and returning the
@@ -58,16 +58,13 @@ static long svc6(long n, long a, long b, long c, long d, long e, long f) {
 
 // Darwin arm64 / amd64 share these numbers for the calls we use.
 enum {
-	SYS_recvfrom    = 29,
 	SYS_accept      = 30,
-	SYS_getpeername = 31,
 	SYS_getsockname = 32,
 	SYS_socket      = 97,
 	SYS_connect     = 98,
 	SYS_bind        = 104,
 	SYS_setsockopt  = 105,
-	SYS_listen      = 106,
-	SYS_sendto      = 133
+	SYS_listen      = 106
 };
 
 int h_socket(int d, int t, int p) { return (int)svc3(SYS_socket, d, t, p); }
@@ -79,18 +76,10 @@ int h_setsockopt(int fd, int l, int o, void *v, unsigned n) {
 	return (int)svc6(SYS_setsockopt, fd, l, o, (long)v, n, 0);
 }
 int h_getsockname(int fd, void *a, unsigned *n) { return (int)svc3(SYS_getsockname, fd, (long)a, (long)n); }
-int h_getpeername(int fd, void *a, unsigned *n) { return (int)svc3(SYS_getpeername, fd, (long)a, (long)n); }
-int h_recvfrom(int fd, void *b, int n, int flags, void *from, unsigned *fromlen) {
-	return (int)svc6(SYS_recvfrom, fd, (long)b, n, flags, (long)from, (long)fromlen);
-}
-int h_sendto(int fd, void *b, int n, int flags, void *to, unsigned tolen) {
-	return (int)svc6(SYS_sendto, fd, (long)b, n, flags, (long)to, tolen);
-}
 
 long read(int fd, void *buf, unsigned long n);
 long write(int fd, void *buf, unsigned long n);
 int close(int fd);
-int fcntl(int fd, int cmd, int arg);
 int select(int nfds, void *rfds, void *wfds, void *efds, void *timeout);
 
 // Darwin provides __error(); the linker symbol is ___error (extra underscore).
