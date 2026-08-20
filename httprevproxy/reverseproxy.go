@@ -248,6 +248,15 @@ func isEventStream(contentType string) bool {
 	return strings.EqualFold(strings.TrimSpace(mediaType), "text/event-stream")
 }
 
+// defaultCopyBuffers backs copyResponse when no BufferPool is configured, so
+// concurrent proxied responses share a small set of 32KiB buffers instead of
+// each allocating its own. The pool holds pointers because a slice stored as
+// an interface value would itself escape on every Put.
+var defaultCopyBuffers = sync.Pool{New: func() any {
+	buffer := make([]byte, 32*1024)
+	return &buffer
+}}
+
 func (p *ReverseProxy) copyResponse(dst http.ResponseWriter, src io.Reader, interval time.Duration) error {
 	var writer io.Writer = dst
 	if interval != 0 {
@@ -264,7 +273,9 @@ func (p *ReverseProxy) copyResponse(dst http.ResponseWriter, src io.Reader, inte
 		defer p.BufferPool.Put(buffer)
 	}
 	if len(buffer) == 0 {
-		buffer = make([]byte, 32*1024)
+		pooled := defaultCopyBuffers.Get().(*[]byte)
+		defer defaultCopyBuffers.Put(pooled)
+		buffer = *pooled
 	}
 	_, err := io.CopyBuffer(writer, src, buffer)
 	if err == context.Canceled {
@@ -300,23 +311,67 @@ func hasUpgrade(header http.Header) bool {
 	return header.Get("Upgrade") != "" || headerValuesContainsToken(header["Connection"], "upgrade")
 }
 
+// headerValuesContainsToken walks each comma-separated value in place with
+// IndexByte rather than splitting it, because this runs on the Connection and
+// Te headers of every proxied request.
 func headerValuesContainsToken(values []string, token string) bool {
 	for _, value := range values {
-		for _, part := range strings.Split(value, ",") {
+		for {
+			part := value
+			i := strings.IndexByte(value, ',')
+			if i >= 0 {
+				part, value = value[:i], value[i+1:]
+			}
 			if strings.EqualFold(textproto.TrimString(part), token) {
 				return true
+			}
+			if i < 0 {
+				break
 			}
 		}
 	}
 	return false
 }
 
+// copyHeader appends src into dst. The sources it copies — response headers
+// and trailers off the wire — carry keys the parser already canonicalised, so
+// a key that passes the cheap canonical-form check goes in with one map
+// operation per key. A key that fails the check (ModifyResponse can add
+// anything) falls back to Add, which canonicalises exactly as before.
 func copyHeader(dst, src http.Header) {
 	for key, values := range src {
+		if isCanonicalOrUntouchable(key) {
+			dst[key] = append(dst[key], values...)
+			continue
+		}
 		for _, value := range values {
 			dst.Add(key, value)
 		}
 	}
+}
+
+// isCanonicalOrUntouchable reports whether Add's canonicalisation would leave
+// key byte-for-byte unchanged, judging only letter case around hyphens: a key
+// that passes is either already canonical or contains a byte that makes
+// textproto return it untouched, and either way the direct map write produces
+// what Add would have.
+func isCanonicalOrUntouchable(key string) bool {
+	upper := true
+	for i := 0; i < len(key); i++ {
+		b := key[i]
+		switch {
+		case 'a' <= b && b <= 'z':
+			if upper {
+				return false
+			}
+		case 'A' <= b && b <= 'Z':
+			if !upper {
+				return false
+			}
+		}
+		upper = b == '-'
+	}
+	return true
 }
 
 var hopHeaders = []string{
@@ -333,9 +388,17 @@ var hopHeaders = []string{
 
 func removeHopByHopHeaders(header http.Header) {
 	for _, value := range header["Connection"] {
-		for _, name := range strings.Split(value, ",") {
+		for {
+			name := value
+			i := strings.IndexByte(value, ',')
+			if i >= 0 {
+				name, value = value[:i], value[i+1:]
+			}
 			if name = textproto.TrimString(name); name != "" {
 				header.Del(name)
+			}
+			if i < 0 {
+				break
 			}
 		}
 	}

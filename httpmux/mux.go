@@ -18,6 +18,12 @@ import (
 type ServeMux struct {
 	mu     sync.RWMutex
 	routes []route
+
+	// trailingSlash records whether any registered pattern can exactly match a
+	// path that ends in "/" — one ending in "/", "{name...}", or "{$}". When
+	// none can, the redirect probe that re-matches every non-exact request with
+	// a slash appended is pure waste, so matchOrRedirect skips it.
+	trailingSlash bool
 }
 
 type route struct {
@@ -71,6 +77,9 @@ func (mux *ServeMux) register(patternString string, handler http.Handler) error 
 		}
 	}
 	mux.routes = append(mux.routes, route{pattern: p, handler: handler})
+	if last := p.lastSegment(); last.multi || last.s == "/" {
+		mux.trailingSlash = true
+	}
 	return nil
 }
 
@@ -150,7 +159,7 @@ func (mux *ServeMux) matchOrRedirect(host, method, requestPath string, u *url.UR
 
 	split := splitPath(requestPath)
 	matched, values := bestMatch(mux.routes, host, method, split)
-	if !exactMatch(matched, requestPath) && u != nil && requestPath != "" && !strings.HasSuffix(requestPath, "/") {
+	if mux.trailingSlash && !exactMatch(matched, requestPath) && u != nil && requestPath != "" && !strings.HasSuffix(requestPath, "/") {
 		withSlash := requestPath + "/"
 		redirectMatch, _ := bestMatch(mux.routes, host, method, splitPath(withSlash))
 		if exactMatch(redirectMatch, withSlash) {
@@ -174,6 +183,14 @@ type splitRequestPath struct {
 
 func splitPath(requestPath string) splitRequestPath {
 	var split splitRequestPath
+	if requestPath == "" {
+		return split
+	}
+	// Each iteration consumes one "/" from the front, so counting them sizes
+	// both slices in one allocation apiece instead of growing through append.
+	n := strings.Count(requestPath, "/") + 1
+	split.segs = make([]string, 0, n)
+	split.rawTails = make([]string, 0, n)
 	rest := requestPath
 	for rest != "" {
 		split.rawTails = append(split.rawTails, rest)
@@ -186,7 +203,6 @@ func splitPath(requestPath string) splitRequestPath {
 
 func bestMatch(routes []route, host, method string, split splitRequestPath) (*route, []pathValue) {
 	var best *route
-	var bestValues []pathValue
 	for i := range routes {
 		candidate := &routes[i]
 		if candidate.pattern.host != "" && candidate.pattern.host != host {
@@ -195,16 +211,20 @@ func bestMatch(routes []route, host, method string, split splitRequestPath) (*ro
 		if !matchesMethod(candidate.pattern.method, method) {
 			continue
 		}
-		values, ok := matchPath(candidate.pattern, split)
-		if !ok {
+		if !matchesPath(candidate.pattern, split) {
 			continue
 		}
 		if best == nil || isMoreSpecific(candidate.pattern, best.pattern) {
 			best = candidate
-			bestValues = values
 		}
 	}
-	return best, bestValues
+	if best == nil {
+		return nil, nil
+	}
+	// Values are extracted only for the winner, so a candidate that matches
+	// and then loses on specificity never allocates a values slice that gets
+	// thrown away.
+	return best, pathValues(best.pattern, split)
 }
 
 func isMoreSpecific(candidate, current *pattern) bool {
@@ -218,31 +238,58 @@ func matchesMethod(patternMethod, requestMethod string) bool {
 	return patternMethod == "" || patternMethod == requestMethod || (patternMethod == "GET" && requestMethod == "HEAD")
 }
 
-func matchPath(p *pattern, split splitRequestPath) ([]pathValue, bool) {
-	var values []pathValue
+// matchesPath reports whether p matches split without extracting wildcard
+// values, so probing a candidate costs no allocation.
+func matchesPath(p *pattern, split splitRequestPath) bool {
 	i := 0
 	for _, seg := range p.segments {
 		if i >= len(split.segs) {
-			return nil, false
+			return false
 		}
 		if seg.multi {
-			if seg.s != "" {
-				values = append(values, pathValue{name: seg.s, value: pathUnescape(split.rawTails[i][1:])})
-			}
-			return values, true
+			return true
 		}
 		value := split.segs[i]
 		if seg.wild {
 			if value == "/" {
-				return nil, false
+				return false
 			}
-			values = append(values, pathValue{name: seg.s, value: value})
 		} else if value != seg.s {
-			return nil, false
+			return false
 		}
 		i++
 	}
-	return values, i == len(split.segs)
+	return i == len(split.segs)
+}
+
+// pathValues extracts the wildcard values of a pattern matchesPath already
+// accepted. The slice is sized exactly and freshly allocated, so it never
+// aliases scratch state a later match could clobber.
+func pathValues(p *pattern, split splitRequestPath) []pathValue {
+	n := 0
+	for _, seg := range p.segments {
+		if seg.wild && seg.s != "" {
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	values := make([]pathValue, 0, n)
+	i := 0
+	for _, seg := range p.segments {
+		if seg.multi {
+			if seg.s != "" {
+				values = append(values, pathValue{name: seg.s, value: pathUnescape(split.rawTails[i][1:])})
+			}
+			return values
+		}
+		if seg.wild {
+			values = append(values, pathValue{name: seg.s, value: split.segs[i]})
+		}
+		i++
+	}
+	return values
 }
 
 func firstSegment(requestPath string) (string, string) {
@@ -270,36 +317,49 @@ func exactMatch(matched *route, requestPath string) bool {
 	return len(matched.pattern.segments) == strings.Count(requestPath, "/")
 }
 
+// matchingMethods gathers the methods that could have served requestPath. It
+// runs once per would-be 405, so the handful of distinct methods deduplicates
+// through a linear scan of a small slice rather than a map built and thrown
+// away per response.
 func (mux *ServeMux) matchingMethods(host, requestPath string) []string {
 	mux.mu.RLock()
 	defer mux.mu.RUnlock()
 
-	set := map[string]bool{}
-	collectMethods(mux.routes, host, splitPath(requestPath), set)
+	var methods []string
+	methods = collectMethods(mux.routes, host, splitPath(requestPath), methods)
 	if !strings.HasSuffix(requestPath, "/") {
-		collectMethods(mux.routes, host, splitPath(requestPath+"/"), set)
+		methods = collectMethods(mux.routes, host, splitPath(requestPath+"/"), methods)
 	}
-	if set["GET"] {
-		set["HEAD"] = true
-	}
-	methods := make([]string, 0, len(set))
-	for method := range set {
-		methods = append(methods, method)
+	if containsString(methods, "GET") && !containsString(methods, "HEAD") {
+		methods = append(methods, "HEAD")
 	}
 	sort.Strings(methods)
 	return methods
 }
 
-func collectMethods(routes []route, host string, split splitRequestPath, set map[string]bool) {
+func collectMethods(routes []route, host string, split splitRequestPath, methods []string) []string {
 	for i := range routes {
 		p := routes[i].pattern
 		if p.method == "" || (p.host != "" && p.host != host) {
 			continue
 		}
-		if _, ok := matchPath(p, split); ok {
-			set[p.method] = true
+		if !matchesPath(p, split) {
+			continue
+		}
+		if !containsString(methods, p.method) {
+			methods = append(methods, p.method)
 		}
 	}
+	return methods
+}
+
+func containsString(list []string, s string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }
 
 func stripHostPort(hostPort string) string {
