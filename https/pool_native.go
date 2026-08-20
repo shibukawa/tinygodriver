@@ -54,7 +54,15 @@ const (
 type persistConn struct {
 	conn net.Conn
 	br   *bufio.Reader
-	key  string
+
+	// The bufio.Writer exists so Request.write sees an io.ByteWriter.
+	// Without one, net/http wraps the conn in a fresh 4 KiB bufio.Writer on
+	// every request; with one, the same buffer serves the connection's whole
+	// life. Request.write does not flush a writer it did not create, so the
+	// exchange flushes explicitly before reading the response.
+	bw *bufio.Writer
+
+	key string
 
 	// idleSince is set on release and read on lease. Both happen under the
 	// pool's lock, so it needs no lock of its own.
@@ -72,6 +80,7 @@ type persistConn struct {
 func newPersistConn(conn net.Conn, key string) *persistConn {
 	pc := &persistConn{conn: conn, key: key}
 	pc.br = bufio.NewReader(pc)
+	pc.bw = bufio.NewWriter(conn)
 	return pc
 }
 
@@ -88,9 +97,11 @@ func (pc *persistConn) Read(p []byte) (int, error) {
 }
 
 // begin resets the per-request state. A pooled connection carries none of the
-// previous request's accounting into the next one.
+// previous request's accounting into the next one, and the write buffer
+// carries no residue or sticky error from an exchange that failed mid-write.
 func (pc *persistConn) begin() {
 	pc.nread.Store(0)
+	pc.bw.Reset(pc.conn)
 }
 
 // untouched reports that no response byte arrived for the current request.
@@ -269,14 +280,11 @@ func (t *Transport) recycle(pc *persistConn) bool {
 // same host reached directly and through a proxy are different connections, and
 // the plaintext path even writes the request differently for each.
 //
-// The proxy is resolved from the environment here and again in the dial, so a
-// variable that changes mid-process yields a new bucket rather than reusing a
-// connection to the previous hop.
-func connKey(scheme, host, port string, secure bool) (key string, viaProxy bool, err error) {
-	p, err := proxyFor(host, port, secure)
-	if err != nil {
-		return "", false, err
-	}
+// The caller resolves the proxy from the environment once per request and
+// hands the same result here and to the dial, so a variable that changes
+// mid-process yields a new bucket rather than reusing a connection to the
+// previous hop.
+func connKey(scheme, host, port string, secure bool, p *proxy) (key string, viaProxy bool) {
 	via := "direct"
 	if p != nil {
 		via = net.JoinHostPort(p.Host, p.Port)
@@ -284,7 +292,7 @@ func connKey(scheme, host, port string, secure bool) (key string, viaProxy bool,
 		// origin through a CONNECT tunnel, which is transparent once open.
 		viaProxy = !secure
 	}
-	return scheme + "://" + net.JoinHostPort(host, port) + " via " + via, viaProxy, nil
+	return scheme + "://" + net.JoinHostPort(host, port) + " via " + via, viaProxy
 }
 
 // reusableResponse reports whether the connection can carry another request
@@ -392,15 +400,22 @@ func (b *poolBody) Close() error {
 	return err
 }
 
+// drainBufPool keeps the drain scratch off the per-body allocation path. The
+// buffer escapes through the io.Reader interface, so a local array would be
+// heap-allocated for every drained body.
+var drainBufPool = sync.Pool{New: func() any { return new([512]byte) }}
+
 // drain reads out a body the caller ignored, giving up as soon as it stops
 // looking cheap. Giving up simply means the connection is closed instead of
-// pooled, so the caps need no precision.
+// pooled, so the caps need no precision. It runs only from Close, so one
+// buffer is in use per body at a time.
 func (b *poolBody) drain() {
 	if err := b.pc.conn.SetDeadline(time.Now().Add(drainTimeout)); err != nil {
 		b.failed = true
 		return
 	}
-	var buf [512]byte
+	buf := drainBufPool.Get().(*[512]byte)
+	defer drainBufPool.Put(buf)
 	read := 0
 	for i := 0; i < maxDrainReads && read < maxDrainBytes; i++ {
 		n, err := b.rc.Read(buf[:])

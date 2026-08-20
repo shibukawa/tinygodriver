@@ -53,7 +53,10 @@ type Token struct {
 	Claims    Claims
 	Signature []byte
 
-	signingInput string
+	// signingInput is the first two segments of the compact form, the bytes
+	// every verification hashes. Bytes rather than a string so verifying does
+	// not convert (and copy) per call.
+	signingInput []byte
 }
 
 func Parse(compact string, options ParseOptions) (*Token, error) {
@@ -64,8 +67,22 @@ func Parse(compact string, options ParseOptions) (*Token, error) {
 	if len(compact) == 0 || len(compact) > options.MaxTokenBytes {
 		return nil, ErrLimitExceeded
 	}
-	segments := strings.Split(compact, ".")
-	if len(segments) != 3 || segments[0] == "" || segments[1] == "" || segments[2] == "" {
+	// Two IndexByte calls in place of strings.Split: same three segments,
+	// no slice allocated to hold them.
+	dot1 := strings.IndexByte(compact, '.')
+	if dot1 < 0 {
+		return nil, ErrMalformed
+	}
+	dot2 := strings.IndexByte(compact[dot1+1:], '.')
+	if dot2 < 0 {
+		return nil, ErrMalformed
+	}
+	dot2 += dot1 + 1
+	if strings.IndexByte(compact[dot2+1:], '.') >= 0 {
+		return nil, ErrMalformed
+	}
+	segments := [3]string{compact[:dot1], compact[dot1+1 : dot2], compact[dot2+1:]}
+	if segments[0] == "" || segments[1] == "" || segments[2] == "" {
 		return nil, ErrMalformed
 	}
 	for _, segment := range segments {
@@ -101,14 +118,17 @@ func Parse(compact string, options ParseOptions) (*Token, error) {
 	if len(header.Critical) != 0 {
 		return nil, fmt.Errorf("%w: critical headers", ErrUnsupportedAlgorithm)
 	}
-	header.Raw = append(json.RawMessage(nil), headerJSON...)
+	// headerJSON is a fresh buffer this function owns — DecodeBase64URL
+	// allocated it, and json.Unmarshal keeps no reference — so Raw can alias
+	// it instead of copying.
+	header.Raw = json.RawMessage(headerJSON)
 	claims, err := parseClaims(claimsJSON)
 	if err != nil {
 		return nil, err
 	}
 	return &Token{
 		Header: header, Claims: claims, Signature: signature,
-		signingInput: segments[0] + "." + segments[1],
+		signingInput: []byte(compact[:dot2]),
 	}, nil
 }
 

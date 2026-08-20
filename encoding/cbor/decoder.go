@@ -36,6 +36,11 @@ type Decoder struct {
 	// because a local array handed to io.ReadFull escapes, which would put an
 	// allocation on every head byte that carries an argument.
 	scratch [8]byte
+	// one backs readByte for the same reason scratch backs argument: handed to
+	// an io.Reader through the interface, a local array escapes, and readByte
+	// runs once per head. It is separate from scratch so neither read can
+	// clobber the other's bytes.
+	one [1]byte
 	// keyBuf backs duplicate map key detection. One buffer serves every depth,
 	// because a key is canonicalized and recorded before the scan descends into
 	// its value.
@@ -53,6 +58,10 @@ func NewDecoder(r io.Reader, opts DecoderOptions) (*Decoder, error) {
 }
 
 func normalizeDecoderOptions(o *DecoderOptions) error {
+	if *o == (DecoderOptions{}) {
+		*o = defaultDecoderOptions
+		return nil
+	}
 	if o.MaxInputBytes < 0 || o.MaxNestedLevels < 0 || o.MaxContainerItems < 0 || o.MaxStringBytes < 0 || o.MaxRawMessageBytes < 0 {
 		return fmt.Errorf("cbor: limits must not be negative")
 	}
@@ -84,7 +93,7 @@ func normalizeDecoderOptions(o *DecoderOptions) error {
 func errorsf(detail string) error { return fmt.Errorf("cbor: %s", detail) }
 
 func (d *Decoder) readByte() (byte, error) {
-	var b [1]byte
+	b := &d.one
 	n, err := io.ReadFull(d.r, b[:])
 	if n == 1 {
 		if d.read >= d.opts.MaxInputBytes {

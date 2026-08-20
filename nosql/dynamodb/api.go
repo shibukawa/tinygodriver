@@ -191,11 +191,26 @@ func (w WriteRequest) MarshalJSON() ([]byte, error) {
 	case w.Put != nil && w.Delete != nil:
 		return nil, errors.New("dynamodb: write request is both a put and a delete")
 	case w.Put != nil:
-		return json.Marshal(map[string]map[string]Item{"PutRequest": {"Item": w.Put}})
+		// The wrapper is written out rather than marshaled from nested
+		// one-entry maps, which allocated two maps per batch member.
+		return appendWrapped(`{"PutRequest":{"Item":`, w.Put)
 	case w.Delete != nil:
-		return json.Marshal(map[string]map[string]Key{"DeleteRequest": {"Key": w.Delete}})
+		return appendWrapped(`{"DeleteRequest":{"Key":`, w.Delete)
 	}
 	return nil, errors.New("dynamodb: write request is neither a put nor a delete")
+}
+
+// appendWrapped renders prefix + json.Marshal(inner) + "}}", the wrapper both
+// batch verbs share.
+func appendWrapped(prefix string, inner any) ([]byte, error) {
+	body, err := json.Marshal(inner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(prefix)+len(body)+2)
+	out = append(out, prefix...)
+	out = append(out, body...)
+	return append(out, '}', '}'), nil
 }
 
 // UnmarshalJSON reads the same wrapper, which is how unprocessed items come

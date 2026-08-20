@@ -3,7 +3,6 @@ package s3
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -126,11 +125,14 @@ func (c *Client) Get(ctx context.Context, bucket, key string) (*Object, error) {
 // GetRange retrieves length bytes starting at offset. A length of zero or less
 // reads to the end of the object.
 func (c *Client) GetRange(ctx context.Context, bucket, key string, offset, length int64) (*Object, error) {
-	spec := fmt.Sprintf("bytes=%d-", offset)
+	buf := make([]byte, 0, 48)
+	buf = append(buf, "bytes="...)
+	buf = strconv.AppendInt(buf, offset, 10)
+	buf = append(buf, '-')
 	if length > 0 {
-		spec = fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)
+		buf = strconv.AppendInt(buf, offset+length-1, 10)
 	}
-	return c.get(ctx, bucket, key, map[string]string{"Range": spec})
+	return c.get(ctx, bucket, key, map[string]string{"Range": string(buf)})
 }
 
 func (c *Client) get(ctx context.Context, bucket, key string, header map[string]string) (*Object, error) {
@@ -362,11 +364,12 @@ func objectInfo(key string, header http.Header) ObjectInfo {
 	}
 	for name, values := range header {
 		const prefix = "X-Amz-Meta-"
-		if len(values) > 0 && strings.HasPrefix(http.CanonicalHeaderKey(name), prefix) {
+		canonical := http.CanonicalHeaderKey(name)
+		if len(values) > 0 && strings.HasPrefix(canonical, prefix) {
 			if info.Metadata == nil {
 				info.Metadata = map[string]string{}
 			}
-			info.Metadata[strings.ToLower(http.CanonicalHeaderKey(name)[len(prefix):])] = values[0]
+			info.Metadata[strings.ToLower(canonical[len(prefix):])] = values[0]
 		}
 	}
 	return info

@@ -20,6 +20,7 @@ typedef void *dispatch_data_t;
 typedef uint64_t dispatch_time_t;
 
 #define DISPATCH_TIME_NOW 0ull
+#define DISPATCH_TIME_FOREVER (~0ull)
 #define DISPATCH_DATA_DESTRUCTOR_DEFAULT NULL
 
 extern dispatch_queue_t dispatch_queue_create(const char *label, void *attr);
@@ -248,38 +249,51 @@ int https_nw_dial(const char *host, const char *port, const char *server_name,
 	c->queue = dispatch_queue_create("tinygodriver.https", NULL);
 	nw_connection_set_queue(c->conn, c->queue);
 
+	// The handler stays installed for the life of the connection and fires on
+	// every state change, while the semaphore must die with this call. A plain
+	// C block does not retain what it captures, so signaling after a release
+	// would touch freed memory. The handler therefore settles the handshake
+	// outcome at most once, and whichever of the two sides finishes last --
+	// this call or that one settling invocation -- releases the semaphore. On
+	// the timeout path the cancel below guarantees a terminal state arrives,
+	// so the handler side always gets its turn.
 	dispatch_semaphore_t ready = dispatch_semaphore_create(0);
 	__block int state_status = 0;
 	__block int state_rc = HTTPS_NW_OK;
+	__block int settled = 0;
+	__block int ready_owners = 2;
 
 	nw_connection_set_state_changed_handler(
 		c->conn, (void *)^(int state, nw_error_t error) {
+			int rc_state;
+			int st = 0;
 			switch (state) {
 			case nw_connection_state_ready:
-				state_rc = HTTPS_NW_OK;
-				dispatch_semaphore_signal(ready);
+				rc_state = HTTPS_NW_OK;
 				break;
 			case nw_connection_state_waiting:
 				// nw_connection parks recoverable errors here and retries
 				// indefinitely. A rejected certificate lands here, so a client
 				// dial must treat waiting as terminal or it hangs until the
 				// caller's timeout.
-				state_status = error ? nw_error_get_error_code(error) : 0;
-				state_rc = HTTPS_NW_ERR_HANDSHAKE;
-				dispatch_semaphore_signal(ready);
+				st = error ? nw_error_get_error_code(error) : 0;
+				rc_state = HTTPS_NW_ERR_HANDSHAKE;
 				break;
 			case nw_connection_state_failed:
-				state_status = error ? nw_error_get_error_code(error) : 0;
-				state_rc = HTTPS_NW_ERR_HANDSHAKE;
-				dispatch_semaphore_signal(ready);
+				st = error ? nw_error_get_error_code(error) : 0;
+				rc_state = HTTPS_NW_ERR_HANDSHAKE;
 				break;
 			case nw_connection_state_cancelled:
-				state_rc = HTTPS_NW_ERR_CLOSED;
-				dispatch_semaphore_signal(ready);
+				rc_state = HTTPS_NW_ERR_CLOSED;
 				break;
 			default:
-				break;
+				return;
 			}
+			if (!__sync_bool_compare_and_swap(&settled, 0, 1)) return;
+			state_status = st;
+			state_rc = rc_state;
+			dispatch_semaphore_signal(ready);
+			if (__sync_sub_and_fetch(&ready_owners, 1) == 0) dispatch_release(ready);
 		});
 
 	nw_connection_start(c->conn);
@@ -291,6 +305,7 @@ int https_nw_dial(const char *host, const char *port, const char *server_name,
 		rc = state_rc;
 		*status = state_status;
 	}
+	if (__sync_sub_and_fetch(&ready_owners, 1) == 0) dispatch_release(ready);
 	if (rc != HTTPS_NW_OK) {
 		nw_connection_cancel(c->conn);
 		os_release(c->conn);
@@ -314,18 +329,28 @@ int https_nw_send(uintptr_t handle, const void *buf, int len,
 	                                            DISPATCH_DATA_DESTRUCTOR_DEFAULT);
 	if (data == NULL) return HTTPS_NW_ERR_ALLOC;
 
+	// The completion can run after a timed-out caller has already left, and a
+	// plain C block does not retain what it captures, so neither side may
+	// release the semaphore while the other might still signal it: whichever
+	// side finishes last releases.
 	dispatch_semaphore_t done = dispatch_semaphore_create(0);
 	__block int send_status = 0;
+	__block int done_owners = 2;
 	nw_connection_send(c->conn, data, _nw_content_context_default_message, false,
 	                   (void *)^(nw_error_t error) {
 		                   if (error) send_status = nw_error_get_error_code(error);
 		                   dispatch_semaphore_signal(done);
+		                   if (__sync_sub_and_fetch(&done_owners, 1) == 0) {
+			                   dispatch_release(done);
+		                   }
 	                   });
 	dispatch_release(data);
 
 	if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, timeout_ns)) != 0) {
+		if (__sync_sub_and_fetch(&done_owners, 1) == 0) dispatch_release(done);
 		return HTTPS_NW_ERR_TIMEOUT;
 	}
+	if (__sync_sub_and_fetch(&done_owners, 1) == 0) dispatch_release(done);
 	if (send_status != 0) {
 		*status = send_status;
 		return HTTPS_NW_ERR_IO;
@@ -358,26 +383,54 @@ int https_nw_recv(uintptr_t handle, void *buf, int len,
 	}
 	if (c->eof) return HTTPS_NW_OK;
 
+	// The completion copies straight into the caller's buffer: the caller is
+	// blocked on the semaphore, so the buffer is live for as long as the copy
+	// can be running. The one exception is a timeout, where the caller leaves
+	// while the completion is still pending, so the two sides race for the
+	// claim flag: the caller only returns HTTPS_NW_ERR_TIMEOUT after winning
+	// it, and a completion that lost the claim drops the data, which is what
+	// the timeout path effectively did before as well. The completion never
+	// touches c either -- a timed-out caller may free it via close before the
+	// data arrives.
+	//
+	// The semaphore follows the same rule as in send: a plain C block does not
+	// retain what it captures, so whichever side finishes last releases it.
 	dispatch_semaphore_t done = dispatch_semaphore_create(0);
 	__block int recv_status = 0;
-	__block uint8_t *got = NULL;
 	__block size_t got_len = 0;
+	__block uint8_t *spill = NULL;
+	__block size_t spill_len = 0;
 	__block int is_eof = 0;
+	__block int claim = 0; // 0 undecided, 1 caller timed out, 2 completion owns buf
+	__block int done_owners = 2;
 
 	nw_connection_receive(c->conn, 1, (uint32_t)len,
 	                      (void *)^(dispatch_data_t content, nw_content_context_t context,
 	                                bool complete, nw_error_t error) {
 		                      (void)context;
-		                      if (content != NULL) {
+		                      int owns_buf = __sync_bool_compare_and_swap(&claim, 0, 2);
+		                      if (owns_buf && content != NULL) {
 			                      const void *mapped = NULL;
 			                      size_t mapped_len = 0;
 			                      dispatch_data_t flat =
 				                      dispatch_data_create_map(content, &mapped, &mapped_len);
 			                      if (mapped_len > 0) {
-				                      got = (uint8_t *)malloc(mapped_len);
-				                      if (got != NULL) {
-					                      memcpy(got, mapped, mapped_len);
-					                      got_len = mapped_len;
+				                      size_t take = mapped_len < (size_t)len
+				                                            ? mapped_len
+				                                            : (size_t)len;
+				                      memcpy(buf, mapped, take);
+				                      got_len = take;
+				                      if (take < mapped_len) {
+					                      // maximum_length above caps a delivery
+					                      // at len, so this branch should be
+					                      // unreachable; it is kept so a
+					                      // misbehaving delivery loses no bytes.
+					                      spill = (uint8_t *)malloc(mapped_len - take);
+					                      if (spill != NULL) {
+						                      memcpy(spill, (const uint8_t *)mapped + take,
+						                             mapped_len - take);
+						                      spill_len = mapped_len - take;
+					                      }
 				                      }
 			                      }
 			                      if (flat != NULL) dispatch_release(flat);
@@ -385,31 +438,35 @@ int https_nw_recv(uintptr_t handle, void *buf, int len,
 		                      if (error) recv_status = nw_error_get_error_code(error);
 		                      if (complete) is_eof = 1;
 		                      dispatch_semaphore_signal(done);
+		                      if (__sync_sub_and_fetch(&done_owners, 1) == 0) {
+			                      dispatch_release(done);
+		                      }
 	                      });
 
 	if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, timeout_ns)) != 0) {
-		return HTTPS_NW_ERR_TIMEOUT;
+		if (__sync_bool_compare_and_swap(&claim, 0, 1)) {
+			if (__sync_sub_and_fetch(&done_owners, 1) == 0) dispatch_release(done);
+			return HTTPS_NW_ERR_TIMEOUT;
+		}
+		// The completion claimed the buffer between the timeout and here, so
+		// it is mid-copy and about to signal; the wait below is momentary.
+		dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
 	}
+	if (__sync_sub_and_fetch(&done_owners, 1) == 0) dispatch_release(done);
 	if (recv_status != 0) {
-		free(got);
+		free(spill);
 		*status = recv_status;
 		return HTTPS_NW_ERR_IO;
 	}
 	if (is_eof) c->eof = 1;
 
-	if (got_len > 0) {
-		size_t take = got_len < (size_t)len ? got_len : (size_t)len;
-		memcpy(buf, got, take);
-		*n = (int)take;
-		if (take < got_len) {
-			// Keep the remainder for the next call.
-			c->pending = got;
-			c->pending_len = got_len;
-			c->pending_off = take;
-			return HTTPS_NW_OK;
-		}
+	*n = (int)got_len;
+	if (spill != NULL) {
+		// Keep the overflow for the next call.
+		c->pending = spill;
+		c->pending_len = spill_len;
+		c->pending_off = 0;
 	}
-	free(got);
 	return HTTPS_NW_OK;
 }
 

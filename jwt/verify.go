@@ -84,7 +84,7 @@ func verifySignature(token *Token, key VerificationKey) error {
 			return ErrKeyNotFound
 		}
 		mac := hmac.New(sha256.New, key.HMAC)
-		_, _ = mac.Write([]byte(token.signingInput))
+		_, _ = mac.Write(token.signingInput)
 		if !hmac.Equal(mac.Sum(nil), token.Signature) {
 			return ErrInvalidSignature
 		}

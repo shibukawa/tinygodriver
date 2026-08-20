@@ -64,18 +64,66 @@ type ctable struct {
 	tableLog   uint8
 }
 
-// buildCTable turns a normalised distribution into an encoding table. It follows
-// the construction the format requires: symbols are spread across the state
-// space with a stride that visits every slot exactly once, low-probability
-// symbols are placed from the top down, and each symbol's transform records how
-// many state bits it emits.
+// ctableScratch is the backing store for one per-block fitted table, sized for
+// the largest accuracy and alphabet the format allows here, so refitting a
+// table every block allocates nothing.
+type ctableScratch struct {
+	states [1 << maxLiteralLengthLog]uint16
+	tts    [53]symbolTransform
+	ct     ctable
+}
+
+// fitted points the scratch's table at norm's shape and fills it.
+func (c *ctableScratch) fitted(norm []int16, tableLog uint8) *ctable {
+	c.ct.stateTable = c.states[:1<<tableLog]
+	c.ct.symbolTT = c.tts[:len(norm)]
+	fillCTable(&c.ct, norm, tableLog)
+	return &c.ct
+}
+
+// rle is a table with one state, for a stream that carries one symbol. Its
+// accuracy log is zero, so the state machine drives it like any other table and
+// writes nothing: no state bits, no final state.
+func (c *ctableScratch) rle(symbol int) *ctable {
+	c.states[0] = 0
+	c.ct.stateTable = c.states[:1]
+	c.ct.symbolTT = c.tts[:symbol+1]
+	for i := range c.ct.symbolTT {
+		c.ct.symbolTT[i] = symbolTransform{}
+	}
+	c.ct.tableLog = 0
+	return &c.ct
+}
+
+// buildCTable allocates a table and fills it. It is how the shared predefined
+// tables are built at startup; per-block tables go through a ctableScratch
+// instead, which reuses one allocation for the life of a Writer.
 func buildCTable(norm []int16, tableLog uint8) *ctable {
+	ct := &ctable{
+		stateTable: make([]uint16, uint32(1)<<tableLog),
+		symbolTT:   make([]symbolTransform, len(norm)),
+	}
+	fillCTable(ct, norm, tableLog)
+	return ct
+}
+
+// fillCTable turns a normalised distribution into an encoding table, writing
+// into ct's presized stateTable and symbolTT. It follows the construction the
+// format requires: symbols are spread across the state space with a stride that
+// visits every slot exactly once, low-probability symbols are placed from the
+// top down, and each symbol's transform records how many state bits it emits.
+// Every entry of both tables is written, so reused storage needs no clearing.
+func fillCTable(ct *ctable, norm []int16, tableLog uint8) {
 	tableSize := uint32(1) << tableLog
 	symbolLen := len(norm)
 
-	// Cumulative start position per symbol, and the spread order.
-	cumul := make([]int16, symbolLen+1)
-	tableSymbol := make([]byte, tableSize)
+	// Cumulative start position per symbol, and the spread order. The arrays
+	// are sized for the largest alphabet and accuracy used here, so they live
+	// on the stack.
+	var cumulArr [54]int16
+	var tableSymbolArr [1 << maxLiteralLengthLog]byte
+	cumul := cumulArr[:symbolLen+1]
+	tableSymbol := tableSymbolArr[:tableSize]
 	highThreshold := tableSize - 1
 	for i, v := range norm {
 		if v == -1 {
@@ -110,11 +158,7 @@ func buildCTable(norm []int16, tableLog uint8) *ctable {
 		panic("zstd: symbol spread did not return to its starting position")
 	}
 
-	ct := &ctable{
-		stateTable: make([]uint16, tableSize),
-		symbolTT:   make([]symbolTransform, symbolLen),
-		tableLog:   tableLog,
-	}
+	ct.tableLog = tableLog
 	for u, sym := range tableSymbol {
 		ct.stateTable[cumul[sym]] = uint16(tableSize + uint32(u))
 		cumul[sym]++
@@ -125,6 +169,7 @@ func buildCTable(norm []int16, tableLog uint8) *ctable {
 	for i, v := range norm {
 		switch v {
 		case 0:
+			ct.symbolTT[i] = symbolTransform{}
 		case -1, 1:
 			ct.symbolTT[i].deltaNbBits = tl
 			ct.symbolTT[i].deltaFindState = total - 1
@@ -140,7 +185,6 @@ func buildCTable(norm []int16, tableLog uint8) *ctable {
 	if total != int16(tableSize) {
 		panic("zstd: symbol transforms do not cover the table")
 	}
-	return ct
 }
 
 // bitWriter accumulates bits least-significant first and emits whole bytes in

@@ -14,7 +14,7 @@ import (
 // stored in one across a cgo boundary, so sessions live in a table and the
 // uintptr is an index into it.
 var (
-	sessionMu   sync.Mutex
+	sessionMu   sync.RWMutex
 	sessions            = map[uintptr]*schannel.Session{}
 	sessionNext uintptr = 1
 )
@@ -28,9 +28,10 @@ func sessionHandle(s *schannel.Session) uintptr {
 	return h
 }
 
+// The lookup runs on every Send and Recv, so it takes the read side only.
 func sessionFromHandle(h uintptr) *schannel.Session {
-	sessionMu.Lock()
-	defer sessionMu.Unlock()
+	sessionMu.RLock()
+	defer sessionMu.RUnlock()
 	return sessions[h]
 }
 

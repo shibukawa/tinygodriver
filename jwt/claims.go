@@ -18,11 +18,15 @@ type Claims struct {
 	Raw       map[string]json.RawMessage
 }
 
+// parseClaims decodes the claims object. Its input has already passed
+// authn.ValidateJSON, so it is exactly one JSON value — the property that lets
+// plain json.Unmarshal replace the Decoder here (Decode ignored trailing
+// content, Unmarshal rejects it; validation rejected it first either way).
+// UseNumber went with the Decoder: it has no effect when every value lands in
+// a json.RawMessage.
 func parseClaims(data []byte) (Claims, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
 	var raw map[string]json.RawMessage
-	if err := decoder.Decode(&raw); err != nil || raw == nil {
+	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
 		return Claims{}, ErrMalformed
 	}
 	claims := Claims{Raw: raw}

@@ -172,7 +172,10 @@ static OSStatus st_read(SSLConnectionRef connection, void *data, unsigned long *
 	unsigned long want = *dataLength, got = 0;
 
 	while (got < want) {
-		if (wait_ready(s, 0) != 0) {
+		// With no deadline the fd is blocking and read() itself waits, so the
+		// select would be a wasted syscall per record; netdev's waitFD makes
+		// the same skip.
+		if (s->deadline_ns != 0 && wait_ready(s, 0) != 0) {
 			s->timed_out = 1;
 			*dataLength = got;
 			return errSSLWouldBlock;
@@ -198,7 +201,7 @@ static OSStatus st_write(SSLConnectionRef connection, const void *data, unsigned
 	unsigned long want = *dataLength, sent = 0;
 
 	while (sent < want) {
-		if (wait_ready(s, 1) != 0) {
+		if (s->deadline_ns != 0 && wait_ready(s, 1) != 0) {
 			s->timed_out = 1;
 			*dataLength = sent;
 			return errSSLWouldBlock;

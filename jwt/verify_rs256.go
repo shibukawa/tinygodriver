@@ -16,11 +16,11 @@ var signingAlgorithms = [...]string{"HS256", "RS256"}
 // crypto/rsa and math/big reachable from Verify, which is why it sits behind
 // the jwt_no_rsa build tag: a program that only ever verifies HS256 can build
 // with -tags jwt_no_rsa and leave the whole RSA stack out of the binary.
-func verifyRS256(signingInput string, key *rsa.PublicKey, signature []byte) error {
+func verifyRS256(signingInput []byte, key *rsa.PublicKey, signature []byte) error {
 	if key == nil || key.N == nil || key.N.BitLen() < 2048 || key.E < 3 {
 		return ErrKeyNotFound
 	}
-	digest := sha256.Sum256([]byte(signingInput))
+	digest := sha256.Sum256(signingInput)
 	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], signature); err != nil {
 		return ErrInvalidSignature
 	}

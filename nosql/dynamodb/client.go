@@ -303,11 +303,26 @@ func (c *Client) do(ctx context.Context, op, table string, in, out any) error {
 // send performs one attempt. It returns the reply body, and whether a failure
 // is worth another attempt.
 func (c *Client) send(ctx context.Context, op, table string, payload []byte, hash string) (body []byte, retryable bool, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint.String(), bytes.NewReader(payload))
-	if err != nil {
-		return nil, false, err
-	}
-	req.ContentLength = int64(len(payload))
+	// Assembled directly rather than through http.NewRequestWithContext,
+	// which would render the endpoint URL to a string and parse it back on
+	// every attempt. The fields mirror what NewRequest sets for a
+	// *bytes.Reader body — GetBody included, because the transport's replay
+	// of a request on a dead pooled connection depends on it.
+	target := *c.endpoint
+	req := (&http.Request{
+		Method:     http.MethodPost,
+		URL:        &target,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     make(http.Header, 8),
+		Body:       io.NopCloser(bytes.NewReader(payload)),
+		GetBody: func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(payload)), nil
+		},
+		ContentLength: int64(len(payload)),
+		Host:          target.Host,
+	}).WithContext(ctx)
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("X-Amz-Target", apiVersion+op)
 	// Ask for no encoding: the checksum below covers the bytes as sent, and

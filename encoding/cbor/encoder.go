@@ -19,6 +19,12 @@ import (
 type Encoder struct {
 	w    io.Writer
 	opts EncoderOptions
+	// buf backs every write. Building each item into a buffer the Encoder owns
+	// keeps the per-item allocation out of the steady state: the buffer grows to
+	// the largest item this encoder has written and stays there. io.Writer
+	// forbids retaining the slice, so handing it out again on the next call is
+	// legal.
+	buf []byte
 }
 
 func NewEncoder(w io.Writer, opts EncoderOptions) (*Encoder, error) {
@@ -56,6 +62,13 @@ func (e *Encoder) write(p []byte) error {
 	return nil
 }
 
+// flush writes the item just built in e.buf and keeps the grown buffer for the
+// next one.
+func (e *Encoder) flush(b []byte) error {
+	e.buf = b[:0]
+	return e.write(b)
+}
+
 func appendHead(dst []byte, major byte, n uint64) []byte {
 	switch {
 	case n < 24:
@@ -77,20 +90,20 @@ func appendHead(dst []byte, major byte, n uint64) []byte {
 	}
 }
 
-func (e *Encoder) WriteUint(v uint64) error { return e.write(appendHead(nil, 0, v)) }
+func (e *Encoder) WriteUint(v uint64) error { return e.flush(appendHead(e.buf[:0], 0, v)) }
 func (e *Encoder) WriteInt(v int64) error {
 	if v >= 0 {
 		return e.WriteUint(uint64(v))
 	}
-	return e.write(appendHead(nil, 1, uint64(-(v + 1))))
+	return e.flush(appendHead(e.buf[:0], 1, uint64(-(v + 1))))
 }
 func (e *Encoder) WriteBytes(v []byte) error {
 	if len(v) > e.opts.MaxStringBytes {
 		return fmt.Errorf("%w: byte string", ErrLimitExceeded)
 	}
-	b := appendHead(nil, 2, uint64(len(v)))
+	b := appendHead(e.buf[:0], 2, uint64(len(v)))
 	b = append(b, v...)
-	return e.write(b)
+	return e.flush(b)
 }
 func (e *Encoder) WriteText(v string) error {
 	if !utf8.ValidString(v) {
@@ -99,26 +112,26 @@ func (e *Encoder) WriteText(v string) error {
 	if len(v) > e.opts.MaxStringBytes {
 		return fmt.Errorf("%w: text string", ErrLimitExceeded)
 	}
-	b := appendHead(nil, 3, uint64(len(v)))
+	b := appendHead(e.buf[:0], 3, uint64(len(v)))
 	b = append(b, v...)
-	return e.write(b)
+	return e.flush(b)
 }
 func (e *Encoder) WriteBool(v bool) error {
 	if v {
-		return e.write([]byte{0xf5})
+		return e.flush(append(e.buf[:0], 0xf5))
 	}
-	return e.write([]byte{0xf4})
+	return e.flush(append(e.buf[:0], 0xf4))
 }
-func (e *Encoder) WriteNull() error           { return e.write([]byte{0xf6}) }
-func (e *Encoder) WriteFloat(v float64) error { return e.write(marshalFloat(v)) }
+func (e *Encoder) WriteNull() error           { return e.flush(append(e.buf[:0], 0xf6)) }
+func (e *Encoder) WriteFloat(v float64) error { return e.flush(appendFloat(e.buf[:0], v)) }
 
 func (e *Encoder) WriteTag(tag uint64, content RawMessage) error {
 	if err := e.validateRaw(content); err != nil {
 		return err
 	}
-	b := appendHead(nil, 6, tag)
+	b := appendHead(e.buf[:0], 6, tag)
 	b = append(b, content...)
-	return e.write(b)
+	return e.flush(b)
 }
 
 // WriteRaw writes one already deterministic item after validating it.
@@ -147,14 +160,14 @@ func (e *Encoder) WriteArray(items []RawMessage) error {
 	if len(items) > e.opts.MaxContainerItems {
 		return fmt.Errorf("%w: array items", ErrLimitExceeded)
 	}
-	b := appendHead(nil, 4, uint64(len(items)))
+	b := appendHead(e.buf[:0], 4, uint64(len(items)))
 	for _, item := range items {
 		if err := e.validateRaw(item); err != nil {
 			return err
 		}
 		b = append(b, item...)
 	}
-	return e.write(b)
+	return e.flush(b)
 }
 
 func (e *Encoder) WriteMap(entries []MapEntry) error {
@@ -177,32 +190,32 @@ func (e *Encoder) WriteMap(entries []MapEntry) error {
 			return ErrDuplicateMapKey
 		}
 	}
-	b := appendHead(nil, 5, uint64(len(ordered)))
+	b := appendHead(e.buf[:0], 5, uint64(len(ordered)))
 	for _, entry := range ordered {
 		b = append(b, entry.Key...)
 		b = append(b, entry.Value...)
 	}
-	return e.write(b)
+	return e.flush(b)
 }
 
-func marshalFloat(v float64) []byte {
+func marshalFloat(v float64) []byte { return appendFloat(nil, v) }
+
+// appendFloat appends a float in the shortest form that round-trips, into the
+// caller's buffer, so the streaming and append paths share one encoding.
+func appendFloat(dst []byte, v float64) []byte {
 	if math.IsNaN(v) {
-		return []byte{0xf9, 0x7e, 0x00}
+		return append(dst, 0xf9, 0x7e, 0x00)
 	}
 	if h, ok := exactHalf(v); ok {
-		b := []byte{0xf9, 0, 0}
-		binary.BigEndian.PutUint16(b[1:], h)
-		return b
+		return append(dst, 0xf9, byte(h>>8), byte(h))
 	}
 	f := float32(v)
 	if float64(f) == v {
-		b := []byte{0xfa, 0, 0, 0, 0}
-		binary.BigEndian.PutUint32(b[1:], math.Float32bits(f))
-		return b
+		b := math.Float32bits(f)
+		return append(dst, 0xfa, byte(b>>24), byte(b>>16), byte(b>>8), byte(b))
 	}
-	b := []byte{0xfb, 0, 0, 0, 0, 0, 0, 0, 0}
-	binary.BigEndian.PutUint64(b[1:], math.Float64bits(v))
-	return b
+	b := math.Float64bits(v)
+	return append(dst, 0xfb, byte(b>>56), byte(b>>48), byte(b>>40), byte(b>>32), byte(b>>24), byte(b>>16), byte(b>>8), byte(b))
 }
 
 func exactHalf(v float64) (uint16, bool) {

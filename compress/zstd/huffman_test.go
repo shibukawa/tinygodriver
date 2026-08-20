@@ -105,8 +105,9 @@ func TestHuffTableDepthWithinLimit(t *testing.T) {
 		if used < 2 {
 			continue
 		}
-		tbl, ok := buildHuffTable(&counts, total)
-		if !ok {
+		var tbl huffTable
+		var sc huffScratch
+		if !buildHuffTable(&tbl, &sc, &counts, total) {
 			continue
 		}
 		if tbl.maxBit > maxHuffBits {

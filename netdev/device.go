@@ -215,10 +215,10 @@ func (d *Device) Send(sockfd int, buf []byte, flags int, deadline time.Time) (in
 		// stack cannot stall this Send; see the lock comment on socket.
 		s.writeMu.Lock()
 		defer s.writeMu.Unlock()
-		s.mu.Lock()
-		tls := s.tls
-		s.mu.Unlock()
-		return sysTLSSend(tls, buf)
+		// s.tls is stable under writeMu: Connect stores it before the caller
+		// can Send, and Close cannot clear it mid-operation because it takes
+		// both I/O locks before touching the session.
+		return sysTLSSend(s.tls, buf)
 	}
 	n, err := sysSend(s.fd, buf, flags)
 	if n < 0 {
@@ -241,10 +241,9 @@ func (d *Device) Recv(sockfd int, buf []byte, flags int, deadline time.Time) (in
 	if s.protocol == IPPROTO_TLS {
 		s.readMu.Lock()
 		defer s.readMu.Unlock()
-		s.mu.Lock()
-		tls := s.tls
-		s.mu.Unlock()
-		n, err := sysTLSRecv(tls, buf)
+		// s.tls is stable under readMu for the same reason Send relies on
+		// writeMu: Close takes both I/O locks before clearing it.
+		n, err := sysTLSRecv(s.tls, buf)
 		if n == 0 && err == nil {
 			return 0, io.EOF
 		}
@@ -297,8 +296,8 @@ func (d *Device) SetSockOpt(sockfd int, level int, opt int, value interface{}) e
 }
 
 func (d *Device) get(fd int) (*socket, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	s, ok := d.sockets[fd]
 	if !ok {
 		return nil, ErrInvalidSocketFd

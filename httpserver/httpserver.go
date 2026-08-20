@@ -29,6 +29,12 @@ type Config struct {
 	// http.Server.ReadHeaderTimeout, and if that is zero too,
 	// DefaultReadHeaderTimeout. A negative value means no limit.
 	ReadHeaderTimeout time.Duration
+
+	// defaultBypass records that ShouldBypass was filled in by resolve rather
+	// than set by the caller. The TinyGo path uses this to answer the default
+	// question — does the head carry a Connection: upgrade token — from the raw
+	// bytes, without building a Request that the ordinary path would throw away.
+	defaultBypass bool
 }
 
 // IsUpgrade reports whether r asks to switch protocols, which is the default
@@ -39,16 +45,35 @@ func IsUpgrade(r *http.Request) bool {
 }
 
 // headerHasToken reports whether a comma-separated header field carries token.
-// Comparison is case-insensitive, per RFC 9110.
+// Comparison is case-insensitive, per RFC 9110. It runs at least twice per
+// request on the TinyGo path, so it slices the value in place rather than
+// splitting it into freshly allocated parts.
 func headerHasToken(h http.Header, name, token string) bool {
 	for _, value := range h.Values(name) {
-		for _, part := range strings.Split(value, ",") {
-			if strings.EqualFold(strings.TrimSpace(part), token) {
-				return true
-			}
+		if commaListHasToken(value, token) {
+			return true
 		}
 	}
 	return false
+}
+
+// commaListHasToken reports whether the comma-separated list value carries
+// token, trimming surrounding whitespace from each element the way
+// strings.TrimSpace would.
+func commaListHasToken(value, token string) bool {
+	for {
+		part := value
+		i := strings.IndexByte(value, ',')
+		if i >= 0 {
+			part, value = value[:i], value[i+1:]
+		}
+		if strings.EqualFold(strings.TrimSpace(part), token) {
+			return true
+		}
+		if i < 0 {
+			return false
+		}
+	}
 }
 
 // ErrNilServer reports a Serve call with no server to serve.
@@ -89,6 +114,7 @@ func ListenAndServe(addr string, h http.Handler) error {
 func (c Config) resolve(srv *http.Server) Config {
 	if c.ShouldBypass == nil {
 		c.ShouldBypass = IsUpgrade
+		c.defaultBypass = true
 	}
 	if c.ReadHeaderTimeout == 0 {
 		c.ReadHeaderTimeout = srv.ReadHeaderTimeout

@@ -27,11 +27,15 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 	secure := req.URL.Scheme == "https"
 	host, port := hostPort(req.URL)
 
-	key, viaProxy, err := connKey(req.URL.Scheme, host, port, secure)
+	// The proxy is resolved from the environment once per request, so the
+	// pool key and the dial always agree on the hop, and a variable that
+	// changes mid-process still takes effect on the next request.
+	pxy, err := proxyFor(host, port, secure)
 	if err != nil {
 		closeRequestBody(req)
 		return nil, &Error{Op: "dial", Host: host, Backend: backendName, Err: err}
 	}
+	key, viaProxy := connKey(req.URL.Scheme, host, port, secure, pxy)
 
 	for attempt := 0; ; attempt++ {
 		// On a retry the original body is already spent, so it is rebuilt from
@@ -44,7 +48,7 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 		pc := t.lease(key)
 		reused := pc != nil
 		if !reused {
-			conn, err := t.dial(req.Context(), secure, host, port)
+			conn, err := t.dial(req.Context(), secure, host, port, pxy)
 			if err != nil {
 				if body != nil {
 					body.Close()
@@ -67,16 +71,15 @@ func (t *Transport) roundTrip(req *http.Request) (*http.Response, error) {
 	}
 }
 
-// dial opens a connection to the origin, through a proxy when the environment
-// names one.
-func (t *Transport) dial(ctx context.Context, secure bool, host, port string) (net.Conn, error) {
+// dial opens a connection to the origin, through p when the environment named
+// a proxy.
+func (t *Transport) dial(ctx context.Context, secure bool, host, port string, p *proxy) (net.Conn, error) {
 	if secure {
-		return dialTLSMaybeProxy(ctx, host, port, t.Config, t.dialTimeout())
+		return dialTLSMaybeProxy(ctx, host, port, t.Config, t.dialTimeout(), p)
 	}
 	// http:// is reachable because a redirect from https may land there. The
 	// proxied form is already reflected in the pool key.
-	conn, _, err := dialPlainMaybeProxy(ctx, host, port, t.dialTimeout())
-	return conn, err
+	return dialPlainMaybeProxy(ctx, host, port, t.dialTimeout(), p)
 }
 
 func (t *Transport) exchange(req *http.Request, body io.ReadCloser, pc *persistConn, host string, viaProxy bool) (*http.Response, error) {
@@ -101,13 +104,18 @@ func (t *Transport) exchange(req *http.Request, body io.ReadCloser, pc *persistC
 	// Watching both signals and closing the connection covers either case.
 	stop := watchCancel(req, pc)
 
-	// RoundTrip must not mutate req, hence the clone.
-	out := req.Clone(req.Context())
-	if body != nil {
-		out.Body = body
-	}
-	if t.DisableKeepAlives {
-		out.Close = true
+	// RoundTrip must not mutate req. Request.write only reads the request, so
+	// the plain path sends req itself; a clone is needed only when this
+	// attempt swaps in a rebuilt retry body or forces Connection: close.
+	out := req
+	if body != nil || t.DisableKeepAlives {
+		out = req.Clone(req.Context())
+		if body != nil {
+			out.Body = body
+		}
+		if t.DisableKeepAlives {
+			out.Close = true
+		}
 	}
 	// An http:// request sent to a proxy takes the absolute form,
 	// "GET http://host/path", rather than the origin form. WriteProxy is the
@@ -116,7 +124,14 @@ func (t *Transport) exchange(req *http.Request, body io.ReadCloser, pc *persistC
 	if viaProxy {
 		write = out.WriteProxy
 	}
-	if err := write(pc.conn); err != nil {
+	// The write goes through the connection's own buffered writer, whose
+	// WriteByte keeps Request.write from allocating a wrapper per request;
+	// see the field comment on persistConn for why the flush is explicit.
+	err := write(pc.bw)
+	if err == nil {
+		err = pc.bw.Flush()
+	}
+	if err != nil {
 		stop()
 		pc.close()
 		return nil, cancelledOr(req, &Error{Op: "write", Host: host, Backend: backendName, Err: err})

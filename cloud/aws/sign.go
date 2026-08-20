@@ -161,32 +161,29 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 		req.Header.Set("X-Amz-Security-Token", creds.SessionToken)
 	}
 
-	values := map[string]string{"host": host(req)}
+	// The signed headers, sorted by lowercase name. A small sorted slice
+	// instead of a map plus sort.Strings: signing runs on every request, and
+	// the map, the key slice, and the per-key ToLower were its allocations.
+	headers := make([]signedHeader, 0, 8)
+	headers = insertHeader(headers, "host", host(req))
 	for _, name := range signedHeaderNames {
 		if v := req.Header.Get(name); v != "" {
-			values[name] = v
+			headers = insertHeader(headers, name, v)
 		}
 	}
 	for name, vs := range req.Header {
-		lower := strings.ToLower(name)
-		if strings.HasPrefix(lower, "x-amz-") && len(vs) > 0 {
-			values[lower] = vs[0]
+		if hasXAmzPrefix(name) && len(vs) > 0 {
+			headers = insertHeader(headers, lowerHeaderName(name), vs[0])
 		}
 	}
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 
-	var canonHeaders strings.Builder
-	for _, name := range names {
-		canonHeaders.WriteString(name)
-		canonHeaders.WriteByte(':')
-		canonHeaders.WriteString(strings.TrimSpace(values[name]))
-		canonHeaders.WriteByte('\n')
+	signedHeaders := make([]byte, 0, 96)
+	for i, h := range headers {
+		if i > 0 {
+			signedHeaders = append(signedHeaders, ';')
+		}
+		signedHeaders = append(signedHeaders, h.name...)
 	}
-	signedHeaders := strings.Join(names, ";")
 
 	canonicalURI := req.URL.EscapedPath()
 	if canonicalURI == "" {
@@ -196,28 +193,107 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 		canonicalURI = URIEncode(canonicalURI, false)
 	}
 
-	canonicalRequest := strings.Join([]string{
-		req.Method,
-		canonicalURI,
-		req.URL.RawQuery,
-		canonHeaders.String(),
-		signedHeaders,
-		sr.PayloadHash,
-	}, "\n")
+	// The canonical request exists only to be hashed, so it is assembled in
+	// one buffer and never becomes a string.
+	canonical := make([]byte, 0, 512)
+	canonical = append(canonical, req.Method...)
+	canonical = append(canonical, '\n')
+	canonical = append(canonical, canonicalURI...)
+	canonical = append(canonical, '\n')
+	canonical = append(canonical, req.URL.RawQuery...)
+	canonical = append(canonical, '\n')
+	for _, h := range headers {
+		canonical = append(canonical, h.name...)
+		canonical = append(canonical, ':')
+		canonical = append(canonical, strings.TrimSpace(h.value)...)
+		canonical = append(canonical, '\n')
+	}
+	canonical = append(canonical, '\n')
+	canonical = append(canonical, signedHeaders...)
+	canonical = append(canonical, '\n')
+	canonical = append(canonical, sr.PayloadHash...)
+	canonicalSum := sha256.Sum256(canonical)
+	var canonicalHex [sha256.Size * 2]byte
+	hex.Encode(canonicalHex[:], canonicalSum[:])
 
 	scope := dateStamp + "/" + sr.Region + "/" + sr.Service + "/aws4_request"
-	stringToSign := strings.Join([]string{
-		algorithm,
-		amzDate,
-		scope,
-		SHA256Hex([]byte(canonicalRequest)),
-	}, "\n")
+	stringToSign := make([]byte, 0, len(algorithm)+len(amzDate)+len(scope)+len(canonicalHex)+3)
+	stringToSign = append(stringToSign, algorithm...)
+	stringToSign = append(stringToSign, '\n')
+	stringToSign = append(stringToSign, amzDate...)
+	stringToSign = append(stringToSign, '\n')
+	stringToSign = append(stringToSign, scope...)
+	stringToSign = append(stringToSign, '\n')
+	stringToSign = append(stringToSign, canonicalHex[:]...)
 
 	key := signingKey(creds.SecretAccessKey, dateStamp, sr.Region, sr.Service)
-	signature := hex.EncodeToString(hmacSHA256(key, stringToSign))
+	mac := hmac.New(sha256.New, key)
+	mac.Write(stringToSign)
+	var signature [sha256.Size * 2]byte
+	hex.Encode(signature[:], mac.Sum(nil))
 
 	req.Header.Set("Authorization", algorithm+" Credential="+creds.AccessKeyID+"/"+scope+
-		", SignedHeaders="+signedHeaders+", Signature="+signature)
+		", SignedHeaders="+string(signedHeaders)+", Signature="+string(signature[:]))
+}
+
+// signedHeader is one canonical header: a lowercase name and its raw value.
+type signedHeader struct {
+	name  string
+	value string
+}
+
+// insertHeader keeps hs sorted by name, replacing the value when the name is
+// already present — which is what the map this replaces did. The slice never
+// holds more than a handful of entries, so insertion sort is the whole
+// algorithm.
+func insertHeader(hs []signedHeader, name, value string) []signedHeader {
+	i := 0
+	for i < len(hs) && hs[i].name < name {
+		i++
+	}
+	if i < len(hs) && hs[i].name == name {
+		hs[i].value = value
+		return hs
+	}
+	hs = append(hs, signedHeader{})
+	copy(hs[i+1:], hs[i:])
+	hs[i] = signedHeader{name: name, value: value}
+	return hs
+}
+
+// hasXAmzPrefix reports whether name starts with "x-amz-" in any case, without
+// lowering the whole name first.
+func hasXAmzPrefix(name string) bool {
+	const prefix = "x-amz-"
+	if len(name) < len(prefix) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		c := name[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != prefix[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// lowerHeaderName lowercases a header name, answering the names this package
+// itself sets from constants so the ordinary request allocates nothing here.
+func lowerHeaderName(name string) string {
+	switch name {
+	case "X-Amz-Date":
+		return "x-amz-date"
+	case "X-Amz-Content-Sha256":
+		return "x-amz-content-sha256"
+	case "X-Amz-Security-Token":
+		return "x-amz-security-token"
+	case "X-Amz-Target":
+		return "x-amz-target"
+	}
+	return strings.ToLower(name)
 }
 
 // signingKeyCache holds derived signing keys. The derivation is four chained
@@ -226,12 +302,19 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 // key on every one of them without this.
 var signingKeyCache struct {
 	sync.Mutex
-	entries map[string][]byte
+	entries map[signingScope][]byte
+}
+
+// signingScope identifies one derived key. A comparable struct rather than a
+// concatenated string: the concatenation allocated per call, and it spliced
+// the secret into a new string on every signature.
+type signingScope struct {
+	dateStamp, region, service, secret string
 }
 
 // signingKey derives (or recalls) the SigV4 signing key for one scope.
 func signingKey(secret, dateStamp, region, service string) []byte {
-	cacheKey := dateStamp + "/" + region + "/" + service + "/" + secret
+	cacheKey := signingScope{dateStamp: dateStamp, region: region, service: service, secret: secret}
 
 	c := &signingKeyCache
 	c.Lock()
@@ -251,7 +334,7 @@ func signingKey(secret, dateStamp, region, service string) []byte {
 		c.entries = nil
 	}
 	if c.entries == nil {
-		c.entries = make(map[string][]byte, 4)
+		c.entries = make(map[signingScope][]byte, 4)
 	}
 	c.entries[cacheKey] = key
 	c.Unlock()

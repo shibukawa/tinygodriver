@@ -83,13 +83,16 @@ func writeStatusLine(bw *bufio.Writer, code int) {
 
 // writeHeaders emits hdr with an accurate Content-Length, and closes the
 // connection afterwards: this path serves one request and then stops, so
-// announcing anything else would strand the client.
+// announcing anything else would strand the client. The two fields this
+// function owns go straight to the writer rather than through the map, which
+// keeps the pre-handler error responses from building a header map at all.
 func writeHeaders(bw *bufio.Writer, bodyLen int, hdr http.Header) {
-	if hdr == nil {
-		hdr = make(http.Header)
+	if hdr != nil {
+		hdr.Del("Content-Length")
+		hdr.Del("Connection")
+		hdr.Write(bw)
 	}
-	hdr.Set("Content-Length", strconv.Itoa(bodyLen))
-	hdr.Set("Connection", "close")
-	hdr.Write(bw)
-	bw.WriteString("\r\n")
+	bw.WriteString("Content-Length: ")
+	bw.WriteString(strconv.Itoa(bodyLen))
+	bw.WriteString("\r\nConnection: close\r\n\r\n")
 }

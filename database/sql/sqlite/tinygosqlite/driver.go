@@ -319,6 +319,10 @@ func (c *conn) bindLocked(stmt *C.pw_sqlite3_stmt, args []driver.NamedValue) err
 	return nil
 }
 
+// stepLocked runs a single step for the one-shot Exec paths, spawning a
+// watcher for the duration of that step when the context can fire. Result
+// sets step many times, so rows carries its own watcher for the lifetime of
+// the query instead of paying this setup per row (see newRows).
 func (c *conn) stepLocked(ctx context.Context, stmt *C.pw_sqlite3_stmt) int {
 	if err := ctx.Err(); err != nil {
 		return int(C.PW_SQLITE_INTERRUPT)
@@ -432,21 +436,62 @@ type rows struct {
 	ctx     context.Context
 	columns []string
 	decl    []string
+	isTime  []bool
 	owned   bool
 	closed  bool
+	// watchDone and watchStopped bracket the single interrupt watcher that
+	// covers the whole result set. They are nil when the context can never
+	// fire, so plain queries pay nothing for cancellation support.
+	watchDone    chan struct{}
+	watchStopped chan struct{}
 }
 
 func newRows(c *conn, stmt *C.pw_sqlite3_stmt, ctx context.Context, owned bool) *rows {
 	count := int(C.pw_sqlite_column_count(stmt))
-	r := &rows{conn: c, stmt: stmt, ctx: ctx, owned: owned, columns: make([]string, count), decl: make([]string, count)}
+	r := &rows{conn: c, stmt: stmt, ctx: ctx, owned: owned, columns: make([]string, count), decl: make([]string, count), isTime: make([]bool, count)}
 	for i := 0; i < count; i++ {
 		r.columns[i] = C.GoString(C.pw_sqlite_column_name(stmt, C.int(i)))
 		decl := C.pw_sqlite_column_decltype(stmt, C.int(i))
 		if decl != nil {
 			r.decl[i] = strings.ToUpper(C.GoString(decl))
 		}
+		// The declared type is fixed for the life of the result set, so decide
+		// once per column whether TEXT values should be tried as timestamps
+		// instead of rescanning the declaration on every row in Next.
+		r.isTime[i] = strings.Contains(r.decl[i], "DATE") || strings.Contains(r.decl[i], "TIME")
+	}
+	if ctx.Done() != nil {
+		// One watcher goroutine covers every step of this result set. Spawning
+		// it per step (as conn.stepLocked does for one-shot Exec calls) would
+		// cost two channels and a goroutine on every row. The watcher holds no
+		// locks, so it can interrupt a step that is running under conn.mu, and
+		// closeLocked joins it before the statement is finalized so the
+		// interrupt can never race with statement teardown or leak.
+		r.watchDone = make(chan struct{})
+		r.watchStopped = make(chan struct{})
+		go func(db *C.pw_sqlite3) {
+			select {
+			case <-ctx.Done():
+				C.pw_sqlite_interrupt(db)
+			case <-r.watchDone:
+			}
+			close(r.watchStopped)
+		}(c.db)
 	}
 	return r
+}
+
+// stepLocked advances the statement while conn.mu is held. Cancellation is
+// observed the same way conn.stepLocked reports it: a context that has already
+// fired short-circuits to PW_SQLITE_INTERRUPT, and a context that fires during
+// the step makes the result-set watcher call sqlite3_interrupt so the step
+// itself returns PW_SQLITE_INTERRUPT. Either way resultError translates the
+// code back into the context's error.
+func (r *rows) stepLocked() int {
+	if err := r.ctx.Err(); err != nil {
+		return int(C.PW_SQLITE_INTERRUPT)
+	}
+	return int(C.pw_sqlite_step(r.stmt))
 }
 
 func (r *rows) Columns() []string { return append([]string(nil), r.columns...) }
@@ -460,6 +505,15 @@ func (r *rows) closeLocked() error {
 		return nil
 	}
 	r.closed = true
+	if r.watchDone != nil {
+		// Join the watcher before touching the statement. If the context fired
+		// just now the watcher may be inside sqlite3_interrupt, and waiting for
+		// watchStopped guarantees that call has finished before the statement
+		// is finalized or reset below.
+		close(r.watchDone)
+		<-r.watchStopped
+		r.watchDone = nil
+	}
 	if r.owned {
 		rc := C.pw_sqlite_finalize(r.stmt)
 		r.stmt = nil
@@ -478,7 +532,7 @@ func (r *rows) Next(dest []driver.Value) error {
 	if r.closed || r.stmt == nil {
 		return io.EOF
 	}
-	rc := r.conn.stepLocked(r.ctx, r.stmt)
+	rc := r.stepLocked()
 	if rc == int(C.PW_SQLITE_DONE) {
 		_ = r.closeLocked()
 		return io.EOF
@@ -500,8 +554,12 @@ func (r *rows) Next(dest []driver.Value) error {
 			p := C.pw_sqlite_column_text(r.stmt, C.int(i))
 			n := C.pw_sqlite_column_bytes(r.stmt, C.int(i))
 			value := C.GoStringN((*C.char)(unsafe.Pointer(p)), n)
-			if parsed, ok := parseTime(r.decl[i], value); ok {
-				dest[i] = parsed
+			if r.isTime[i] {
+				if parsed, ok := parseTime(value); ok {
+					dest[i] = parsed
+				} else {
+					dest[i] = value
+				}
 			} else {
 				dest[i] = value
 			}
@@ -516,11 +574,16 @@ func (r *rows) Next(dest []driver.Value) error {
 	return nil
 }
 
-func parseTime(decl, value string) (time.Time, bool) {
-	if !strings.Contains(decl, "DATE") && !strings.Contains(decl, "TIME") {
-		return time.Time{}, false
-	}
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05", "2006-01-02"} {
+// timeLayouts lists the accepted timestamp encodings, most specific first.
+// It lives at package level so Next does not rebuild the slice for every TEXT
+// value it converts.
+var timeLayouts = []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05", "2006-01-02"}
+
+// parseTime converts a TEXT value into a time.Time. Whether a column should be
+// converted at all is decided once per result set in newRows (rows.isTime), so
+// callers only reach here for columns declared as dates or timestamps.
+func parseTime(value string) (time.Time, bool) {
+	for _, layout := range timeLayouts {
 		if parsed, err := time.Parse(layout, value); err == nil {
 			return parsed, true
 		}

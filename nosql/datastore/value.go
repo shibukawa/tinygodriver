@@ -196,41 +196,38 @@ func (v Value) Kind() Kind {
 
 func (v Value) kind() (Kind, int) {
 	kind, n := KindInvalid, 0
-	set := func(k Kind) {
-		kind, n = k, n+1
-	}
 	if v.Null {
-		set(KindNull)
+		kind, n = KindNull, n+1
 	}
 	if v.Bool != nil {
-		set(KindBool)
+		kind, n = KindBool, n+1
 	}
 	if v.Integer != nil {
-		set(KindInteger)
+		kind, n = KindInteger, n+1
 	}
 	if v.Double != nil {
-		set(KindDouble)
+		kind, n = KindDouble, n+1
 	}
 	if v.Timestamp != nil {
-		set(KindTimestamp)
+		kind, n = KindTimestamp, n+1
 	}
 	if v.Key != nil {
-		set(KindKey)
+		kind, n = KindKey, n+1
 	}
 	if v.String != nil {
-		set(KindString)
+		kind, n = KindString, n+1
 	}
 	if v.Blob != nil {
-		set(KindBlob)
+		kind, n = KindBlob, n+1
 	}
 	if v.GeoPoint != nil {
-		set(KindGeoPoint)
+		kind, n = KindGeoPoint, n+1
 	}
 	if v.Entity != nil {
-		set(KindEntity)
+		kind, n = KindEntity, n+1
 	}
 	if v.Array != nil {
-		set(KindArray)
+		kind, n = KindArray, n+1
 	}
 	return kind, n
 }
@@ -245,13 +242,12 @@ func (v Value) MarshalJSON() ([]byte, error) {
 		return nil, ErrAmbiguousValue
 	}
 
-	member, err := v.marshalMember(kind)
+	out := make([]byte, 0, 48)
+	out = append(out, '{')
+	out, err := v.appendMember(out, kind)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, len(member)+40)
-	out = append(out, '{')
-	out = append(out, member...)
 	if v.ExcludeFromIndexes {
 		out = append(out, `,"excludeFromIndexes":true`...)
 	}
@@ -259,21 +255,23 @@ func (v Value) MarshalJSON() ([]byte, error) {
 	return out, nil
 }
 
-func (v Value) marshalMember(kind Kind) ([]byte, error) {
+// appendMember renders the union member into dst. Appending into the caller's
+// buffer keeps each encoded property to one allocation beyond json.Marshal's
+// own, where the member used to pass through two intermediates on the way out.
+func (v Value) appendMember(dst []byte, kind Kind) ([]byte, error) {
 	encode := func(name string, value any) ([]byte, error) {
 		body, err := json.Marshal(value)
 		if err != nil {
 			return nil, err
 		}
-		out := make([]byte, 0, len(name)+len(body)+4)
-		out = append(out, '"')
-		out = append(out, name...)
-		out = append(out, `":`...)
-		return append(out, body...), nil
+		dst = append(dst, '"')
+		dst = append(dst, name...)
+		dst = append(dst, `":`...)
+		return append(dst, body...), nil
 	}
 	switch kind {
 	case KindNull:
-		return []byte(`"nullValue":null`), nil
+		return append(dst, `"nullValue":null`...), nil
 	case KindBool:
 		return encode("booleanValue", *v.Bool)
 	case KindInteger:
@@ -307,7 +305,8 @@ func (v Value) marshalMember(kind Kind) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return append([]byte(`"arrayValue":`), body...), nil
+		dst = append(dst, `"arrayValue":`...)
+		return append(dst, body...), nil
 	}
 	return nil, ErrEmptyValue
 }
@@ -324,32 +323,124 @@ var nonUnionMembers = map[string]bool{
 	"meaning":            true,
 }
 
-// UnmarshalJSON reads exactly one union member.
+// valueMember is one member located by the scanning fast path.
+type valueMember struct {
+	name  []byte
+	value []byte
+}
+
+// scanValueMembers locates the members of a small JSON object without
+// decoding it into a map. It reports ok only for the shape it is certain of:
+// plain (escape-free) member names, well-formed values, no duplicates, and no
+// more members than a Value object can legitimately carry. Anything else goes
+// back through the map path, which reports it exactly as before.
+func scanValueMembers(b []byte, members []valueMember) ([]valueMember, bool) {
+	i := skipJSONSpace(b, 0)
+	if i >= len(b) || b[i] != '{' {
+		return nil, false
+	}
+	i = skipJSONSpace(b, i+1)
+	if i < len(b) && b[i] == '}' {
+		return members, skipJSONSpace(b, i+1) == len(b)
+	}
+	for {
+		if i >= len(b) || b[i] != '"' {
+			return nil, false
+		}
+		j := i + 1
+		for j < len(b) && b[j] != '"' {
+			if b[j] == '\\' {
+				return nil, false
+			}
+			j++
+		}
+		if j >= len(b) {
+			return nil, false
+		}
+		name := b[i+1 : j]
+		for _, m := range members {
+			if string(m.name) == string(name) {
+				// A duplicate collapses under map semantics; let the map do it.
+				return nil, false
+			}
+		}
+		if len(members) == cap(members) {
+			return nil, false
+		}
+		i = skipJSONSpace(b, j+1)
+		if i >= len(b) || b[i] != ':' {
+			return nil, false
+		}
+		i = skipJSONSpace(b, i+1)
+		end := scanJSONValue(b, i)
+		if end < 0 {
+			return nil, false
+		}
+		members = append(members, valueMember{name: name, value: b[i:end]})
+		i = skipJSONSpace(b, end)
+		if i >= len(b) {
+			return nil, false
+		}
+		switch b[i] {
+		case ',':
+			i = skipJSONSpace(b, i+1)
+		case '}':
+			return members, skipJSONSpace(b, i+1) == len(b)
+		default:
+			return nil, false
+		}
+	}
+}
+
+// UnmarshalJSON reads exactly one union member, plus the non-union members
+// that ride alongside it.
 //
-// It decodes to a member map first rather than to a struct of pointers. A
-// struct cannot see nullValue at all: encoding/json resolves a JSON null by
-// setting the pointer field to nil, so the one member whose value is literally
-// null becomes indistinguishable from an absent one. Counting keys also makes
-// an unknown member an error instead of silently nothing.
+// The members are located by a direct scan when the object is plainly
+// well-formed, and by decoding to a member map otherwise. The map alone was
+// the allocation hot spot of reading any entity; the map path remains both
+// the arbiter of anything the scanner is unsure about and the reason a struct
+// of pointers cannot replace either: a struct cannot see nullValue at all,
+// since encoding/json resolves a JSON null by setting the pointer field to
+// nil, so the one member whose value is literally null becomes
+// indistinguishable from an absent one. Counting keys also makes an unknown
+// member an error instead of silently nothing.
 func (v *Value) UnmarshalJSON(b []byte) error {
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(b, &members); err != nil {
-		return fmt.Errorf("%w: %s", ErrBadValue, err)
+	var scratch [3]valueMember
+	scanned, ok := scanValueMembers(b, scratch[:0])
+
+	var efiRaw, nameBytes, raw []byte
+	count := 0
+	if ok {
+		for _, m := range scanned {
+			switch {
+			case string(m.name) == "excludeFromIndexes":
+				efiRaw = m.value
+			case string(m.name) == "meaning":
+			default:
+				nameBytes, raw = m.name, m.value
+				count++
+			}
+		}
+	} else {
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(b, &members); err != nil {
+			return fmt.Errorf("%w: %s", ErrBadValue, err)
+		}
+		efiRaw = members["excludeFromIndexes"]
+		for key := range members {
+			if nonUnionMembers[key] {
+				continue
+			}
+			nameBytes, raw = []byte(key), members[key]
+			count++
+		}
 	}
 
 	out := Value{}
-	if raw, ok := members["excludeFromIndexes"]; ok {
-		if err := json.Unmarshal(raw, &out.ExcludeFromIndexes); err != nil {
+	if efiRaw != nil {
+		if err := json.Unmarshal(efiRaw, &out.ExcludeFromIndexes); err != nil {
 			return fmt.Errorf("%w: excludeFromIndexes", ErrBadValue)
 		}
-	}
-
-	name, count := "", 0
-	for key := range members {
-		if nonUnionMembers[key] {
-			continue
-		}
-		name, count = key, count+1
 	}
 	switch {
 	case count == 0:
@@ -358,8 +449,7 @@ func (v *Value) UnmarshalJSON(b []byte) error {
 		return ErrAmbiguousValue
 	}
 
-	raw := members[name]
-	switch name {
+	switch string(nameBytes) {
 	case "nullValue":
 		// The proto NullValue enum has exactly one JSON form. Anything else
 		// under this name is not a value Datastore sends.
@@ -442,7 +532,7 @@ func (v *Value) UnmarshalJSON(b []byte) error {
 		}
 		out.Array = array.Values
 	default:
-		return fmt.Errorf("%w: unknown member %q", ErrBadValue, name)
+		return fmt.Errorf("%w: unknown member %q", ErrBadValue, nameBytes)
 	}
 
 	*v = out
@@ -544,3 +634,87 @@ func (v Value) AsArray() ([]Value, bool) {
 // IsNull reports whether this is the null value, which is not the same as an
 // absent property.
 func (v Value) IsNull() bool { return v.Null }
+
+// The three scanners below mirror the ones in nosql/dynamodb: enough JSON
+// awareness to find a member's extent, no more. The value itself is judged by
+// encoding/json when it is decoded, and a mis-scan surfaces there or in the
+// framing checks of scanValueMembers, never silently.
+
+func skipJSONSpace(data []byte, i int) int {
+	for i < len(data) {
+		switch data[i] {
+		case ' ', '\t', '\r', '\n':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// scanJSONString returns the index just past the closing quote of the string
+// starting at i, or -1 when it never closes.
+func scanJSONString(data []byte, i int) int {
+	i++ // opening quote
+	for i < len(data) {
+		switch data[i] {
+		case '\\':
+			i += 2
+		case '"':
+			return i + 1
+		default:
+			i++
+		}
+	}
+	return -1
+}
+
+// scanJSONValue returns the index just past the JSON value starting at i, or
+// -1 when no well-formed extent is found.
+func scanJSONValue(data []byte, i int) int {
+	if i >= len(data) {
+		return -1
+	}
+	switch data[i] {
+	case '"':
+		return scanJSONString(data, i)
+	case '{', '[':
+		depth := 0
+		for i < len(data) {
+			switch data[i] {
+			case '"':
+				i = scanJSONString(data, i)
+				if i < 0 {
+					return -1
+				}
+			case '{', '[':
+				depth++
+				i++
+			case '}', ']':
+				depth--
+				i++
+				if depth == 0 {
+					return i
+				}
+			default:
+				i++
+			}
+		}
+		return -1
+	default:
+		// A number, true, false, or null: it extends to the next structural
+		// byte. An empty extent is not a value.
+		start := i
+		for i < len(data) {
+			switch data[i] {
+			case ',', '}', ']', ' ', '\t', '\r', '\n':
+				if i == start {
+					return -1
+				}
+				return i
+			}
+			i++
+		}
+		return i
+	}
+}
