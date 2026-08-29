@@ -98,8 +98,16 @@ func newPoolServer(t *testing.T, idleTimeout time.Duration) *poolServer {
 		w.Header().Set("Connection", "close")
 		fmt.Fprint(w, "bye")
 	})
+	// This body is deliberately larger than any budget an implementation will
+	// spend draining one the caller walked away from: net/http reads at most
+	// 256 KiB (maxPostCloseReadBytes, since Go 1.27) and this package's pool at
+	// most maxDrainBytes, and both then close the connection instead. A body
+	// under whichever budget applies is drained and the connection kept, which
+	// is the opposite answer, so the size is what keeps
+	// TestAbandonedBodyNotReused meaning the same thing on both paths and on
+	// either toolchain.
 	mux.HandleFunc("/big", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(strings.Repeat("x", 200_000)))
+		w.Write([]byte(strings.Repeat("x", 512<<10)))
 	})
 	mux.HandleFunc("/nocontent", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -216,7 +224,8 @@ func TestAbandonedBodyNotReused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	// Read a token amount and walk away, leaving the connection mid-body.
+	// Read a token amount and walk away, leaving the connection mid-body. The
+	// body is too large to drain, so no implementation can keep the connection.
 	if _, err := io.CopyN(io.Discard, resp.Body, 16); err != nil {
 		t.Fatalf("partial read: %v", err)
 	}
