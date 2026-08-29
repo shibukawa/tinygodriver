@@ -133,7 +133,7 @@ func (mux *ServeMux) findHandler(r *http.Request) (http.Handler, string, *patter
 		if matched != nil {
 			patternString = matched.pattern.str
 		}
-		redirectTo := &url.URL{Path: requestPath, RawQuery: r.URL.RawQuery}
+		redirectTo := urlFromEscaped(requestPath, r.URL.RawQuery)
 		return http.RedirectHandler(redirectTo.String(), http.StatusTemporaryRedirect), patternString, nil, nil
 	}
 	return mux.finishMatch(matched, values, host, requestPath)
@@ -163,7 +163,7 @@ func (mux *ServeMux) matchOrRedirect(host, method, requestPath string, u *url.UR
 		withSlash := requestPath + "/"
 		redirectMatch, _ := bestMatch(mux.routes, host, method, splitPath(withSlash))
 		if exactMatch(redirectMatch, withSlash) {
-			return redirectMatch, nil, &url.URL{Path: cleanPath(u.Path) + "/", RawQuery: u.RawQuery}
+			return redirectMatch, nil, urlFromEscaped(withSlash, u.RawQuery)
 		}
 	}
 	return matched, values, nil
@@ -360,6 +360,19 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// urlFromEscaped builds a redirect target from an escaped path, keeping Path
+// and RawPath in sync the way net/http does. Filling in Path alone makes
+// URL.String either escape an already escaped path a second time ("%2f" ->
+// "%252f") or drop the escaping altogether, and either one sends the client to
+// a path that is no longer the one it asked for.
+func urlFromEscaped(escaped, rawQuery string) *url.URL {
+	unescaped, err := url.PathUnescape(escaped)
+	if err != nil {
+		unescaped = escaped
+	}
+	return &url.URL{Path: unescaped, RawPath: escaped, RawQuery: rawQuery}
 }
 
 func stripHostPort(hostPort string) string {
