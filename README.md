@@ -170,7 +170,11 @@ go get github.com/shibukawa/tinygodriver/storage/s3@latest
 go get github.com/shibukawa/tinygodriver/nosql/dynamodb@latest
 ```
 
-Requires [TinyGo](https://tinygo.org/getting-started/install/) for TinyGo builds. Compatible with the Netdever interface in [tinygo-org/drivers/netdev](https://github.com/tinygo-org/drivers/tree/dev/netdev).
+Requires **Go 1.27 or later**, which is the module's `go` directive, and
+**TinyGo 0.42 or later** for TinyGo builds. TinyGo 0.41 refuses a Go 1.27
+toolchain outright — `requires go version 1.19 through 1.26` — so the two
+floors move together. Compatible with the Netdever interface in
+[tinygo-org/drivers/netdev](https://github.com/tinygo-org/drivers/tree/dev/netdev).
 
 ## License
 

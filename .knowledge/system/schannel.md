@@ -19,10 +19,11 @@ language: c, called from go via cgo
 cgo: true
 cgo_note: >
   the original design said pure Go via syscall.NewLazyDLL. That is not
-  available: tinygo 0.41 ships no windows syscall implementation at all, so
-  there is no NewLazyDLL, no Syscall and no LoadLibrary. TinyGo reaches win32
-  through cgo and //export declarations, which is what netdev/sys_windows.go
-  already does for winsock, so this backend does the same.
+  available: tinygo ships no windows syscall implementation at all, still true
+  at 0.42, so there is no NewLazyDLL, no Syscall and no LoadLibrary. TinyGo
+  reaches win32 through cgo and //export declarations, which is what
+  netdev/sys_windows.go already does for winsock, so this backend does the
+  same.
 availability: secur32.dll, crypt32.dll and ncrypt.dll ship with the OS; no install step
 toolchain: mingw-w64, already required by system:tinygo-netdev on this platform
 files:

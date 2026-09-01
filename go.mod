@@ -1,6 +1,6 @@
 module github.com/shibukawa/tinygodriver
 
-go 1.26
+go 1.27
 
 require (
 	filippo.io/edwards25519 v1.2.0

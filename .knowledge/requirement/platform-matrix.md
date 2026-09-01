@@ -7,6 +7,34 @@ Support state per compiler and OS; unsupported combinations must fail at build t
 
 ```yaml
 priority: must
+toolchain:
+  go: ">=1.27, the module's go directive"
+  tinygo: ">=0.42"
+  coupling: >
+    the two floors move together and cannot be split. tinygo 0.41 refuses a go
+    1.27 toolchain outright with "requires go version 1.19 through 1.26", so a
+    module on go 1.27 is unbuildable by every tinygo before 0.42
+  bundled_llvm: 22.1.4 at tinygo 0.42, against 20.1.1 at 0.41
+  verified_2026_09_02:
+    host: >
+      darwin/arm64. go test ./... and go test -tags force_tinygo_logic ./...
+      both green on go1.27.0, as is -tags darwinstarttlswith13 on ./https
+    tinygo_darwin: >
+      all 11 examples/ programs build; fasthttp, fasthttpwebsocket (54 pass, 0
+      fail) and tinygosqlite pass under tinygo test; the system:mbedtls
+      known-answer vectors pass in a tinygo binary built with -tags
+      darwinstarttlswith13
+    tinygo_cross: >
+      netdev + https + sqlite + pgx/stdlib links for linux/arm64 and
+      linux/amd64, and builds for -target wasip1 and wasip2. tinygo
+      cross-compiles cgo to linux from darwin, which host go cannot
+    not_rerun: >
+      the linux and wasm runtimes, and every backend needing a server —
+      postgres, mysql, s3, dynamodb, datastore. Only compile and link were
+      checked off-darwin
+  regression_found: >
+    the LLVM 20 to 22 jump broke the darwin mbedtls link; see
+    rule:tinygo-darwin-toolchain, minimal_sdk
 matrix:
   std_go_all_os:
     state: shipped

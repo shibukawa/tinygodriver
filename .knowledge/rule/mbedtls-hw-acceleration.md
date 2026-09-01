@@ -36,8 +36,9 @@ arm64:
     arm_neon.h is generated during an LLVM build rather than checked into the
     clang source tree, so tinygo's trimmed resource dir omits it. It also
     cannot be copied from another clang: the header is written against one
-    exact version's __builtin_neon_* signatures, and clang 21's copy fails to
-    compile under the clang 20.1.1 tinygo 0.41 bundles.
+    exact version's __builtin_neon_* signatures, and clang 21's copy failed to
+    compile under the clang 20.1.1 tinygo 0.41 bundled. The bundled compiler
+    moves with every tinygo release; 0.42 is on LLVM 22.1.4.
   solution: >
     ship a minimal arm_neon.h covering only what library/aesce.c uses, with the
     crypto operations written as inline assembly rather than compiler builtins
@@ -51,7 +52,8 @@ arm64:
     other: loads, stores, add, xor, dup, ext, shift, lane extraction, reinterprets
   sha512_note: >
     sha512.c ships inline-asm fallbacks for these four intrinsics, but they are
-    gated on __clang_major__ < 13, so clang 20 needs them from the header
+    gated on __clang_major__ < 13, so every clang tinygo has bundled needs them
+    from the header
   runtime_detection: >
     aesce.c calls getauxval(AT_HWCAP), and tinygo's musl provides both
     sys/auxv.h and getauxval.c, so detection works unmodified

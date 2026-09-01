@@ -6,9 +6,9 @@ title: TinyGo cgo Flag and Header Limits
 Cross-platform constraints on how TinyGo compiles cgo C code; every native backend in this repository is shaped by them.
 
 ```yaml
-measured_on: tinygo 0.41.1, darwin/arm64 and linux/{arm64,amd64}
+measured_on: tinygo 0.41.1, darwin/arm64 and linux/{arm64,amd64}; 0.42.0 adds the -fno-builtin-* row
 flag_whitelist:
-  accepted_cflags: [-I, -isystem, -isysroot, -D, -fblocks]
+  accepted_cflags: [-I, -isystem, -isysroot, -D, -fblocks, -fno-builtin-*]
   rejected_cflags: [-F, -iframework, -U]
   accepted_ldflags: [-L, -l, -F, -framework]
   rejected_ldflags: bare file paths, such as passing a .tbd or .a directly
@@ -36,6 +36,11 @@ predefined_macros:
     that keys optional code off them will try to include headers that are not
     reachable, and -U cannot switch them off
   workaround: patch the vendored source to honor a -D flag instead
+builtin_suppression:
+  detail: >
+    -fno-builtin-<name> passes the whitelist, so an idiom LLVM synthesises into
+    a libc call can be switched off one function at a time without -fno-builtin
+  used_by: internal/mbedtls on darwin, for wcslen; see rule:tinygo-darwin-toolchain
 linux_libc:
   detail: tinygo ships musl and its build omits the entire BSD socket API
   evidence: netdev/sys_linux.go already issues raw syscalls for this reason

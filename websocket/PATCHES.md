@@ -95,7 +95,7 @@ prepared one byte for byte and calls `rand.Seed(1234)` to make the client's
 frame mask reproducible. `math/rand.Seed` became a no-op in Go 1.24. Upstream's
 own test run escapes that only because its `go.mod` says `go 1.12` and GODEBUG
 defaults follow the module's Go version; vendored into a module that says
-`go 1.26`, the seed does nothing and all five client cases fail.
+`go 1.27`, the seed does nothing and all five client cases fail.
 
 A `//go:debug randseednop=0` directive fixes the host build and does nothing
 under TinyGo, which does not implement godebug. Replacing the source outright
