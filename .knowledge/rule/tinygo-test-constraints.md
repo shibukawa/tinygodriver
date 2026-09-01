@@ -32,9 +32,11 @@ known_intermittent:
       intermittently, under `tinygo test ./websocket` on darwin/arm64 with
       tinygo 0.42.0 (scheduler threads, the host default)
     rate: >
-      measured 2026-09-02 with a 150 s watchdog: 2 of 6 runs on a pristine
-      checkout, 4 of 6 on a tree whose websocket change touched no code this
-      test executes. Treat the two as the same rate at that sample size
+      measured 2026-09-02 over 16 bounded runs per tree, run one at a time: 5
+      of 16 on a pristine checkout, 5 of 16 on the tree whose websocket change
+      touched no code this test executes. Same rate, roughly one run in three.
+      The pristine tree also failed TestLargeMessage once in those 16, so the
+      flakiness is not confined to the concurrent case
     stack: >
       `sample` of a hung binary shows every thread either parked in
       internal/task.Pause (__ulock_wait) or blocked in the listener's Accept;
