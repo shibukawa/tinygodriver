@@ -23,3 +23,8 @@ rules:
 verify: >
   build the driver test program with -scheduler=tasks and confirm it is a known
   unsupported configuration rather than a silent regression
+measured_2026_09_02: >
+  on tinygo 0.42.0 darwin/arm64, -scheduler=tasks no longer even links a host
+  test binary: ld.lld reports "duplicate symbol: _tinygo_task_exit". So the
+  configuration is unsupported at link time now, which is the loud failure
+  this rule asked for

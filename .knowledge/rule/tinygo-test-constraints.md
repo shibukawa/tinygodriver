@@ -25,6 +25,35 @@ constraints:
     rule: >
       choose the port in the test, from a counter, and retry on conflict; return
       the chosen address rather than reading it back
+known_intermittent:
+  websocket_TestConcurrentClients:
+    what: >
+      16 clients x 50 echo round trips over real netdev sockets hangs forever,
+      intermittently, under `tinygo test ./websocket` on darwin/arm64 with
+      tinygo 0.42.0 (scheduler threads, the host default)
+    rate: >
+      measured 2026-09-02 with a 150 s watchdog: 2 of 6 runs on a pristine
+      checkout, 4 of 6 on a tree whose websocket change touched no code this
+      test executes. Treat the two as the same rate at that sample size
+    stack: >
+      `sample` of a hung binary shows every thread either parked in
+      internal/task.Pause (__ulock_wait) or blocked in the listener's Accept;
+      nothing is runnable. A lost wakeup between netdev and the threads
+      scheduler, not a test bug: no deadline is missing, the goroutines are
+      simply never resumed
+    not_a_regression_of: the fork's patch retirement, decision:websocket-fork
+    scheduler_tasks_is_not_an_escape: >
+      -scheduler=tasks fails to link on the darwin host at 0.42 with
+      "duplicate symbol: _tinygo_task_exit", and rule:tinygo-threads-scheduler
+      already rules it out for netdev work
+    how_to_recognise: >
+      `tinygo test ./websocket` that never prints a result; the last
+      "=== RUN" line is TestConcurrentClients. Go ignores SIGALRM, so a
+      perl/alarm deadline does not stop it; kill the test binary itself
+    watch_out: >
+      two concurrent `tinygo test` runs of any package here collide on the
+      fixed port ranges (19700, 19800, 19900) and fail spuriously. Run them one
+      at a time
 supported: t.Helper, t.Cleanup, t.Skip and subtests all work
 verify: >
   a suite that passes under `go test` and `go test -tags force_tinygo_logic`
