@@ -139,7 +139,7 @@ func hostPortNoPort(u *url.URL) (hostPort, hostNoPort string) {
 
 // DefaultDialer is a dialer with all fields set to the default values.
 var DefaultDialer = &Dialer{
-	Proxy:            proxyFromEnvironment,
+	Proxy:            http.ProxyFromEnvironment,
 	HandshakeTimeout: 45 * time.Second,
 }
 
@@ -423,4 +423,11 @@ func (d *Dialer) DialContext(ctx context.Context, urlStr string, requestHeader h
 	netConn.SetDeadline(time.Time{})
 	netConn = nil // to avoid close in defer.
 	return conn, resp, nil
+}
+
+func cloneTLSConfig(cfg *tls.Config) *tls.Config {
+	if cfg == nil {
+		return &tls.Config{}
+	}
+	return cfg.Clone()
 }

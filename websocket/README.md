@@ -11,9 +11,12 @@ The API is upstream's, unchanged. Under standard Go the behaviour is upstream's
 too; the divergences are gated on the `tinygo` build tag and listed in
 [PATCHES.md](./PATCHES.md).
 
-Upstream needed four edits, all in the client's TLS path, all missing symbols
-rather than design conflicts. There is no assembly, so no `noasm` tag, and no
-external dependencies: upstream vendors its own SOCKS5 support.
+Upstream needs two edits: one because TinyGo's `tls.Client` returns the
+plaintext connection instead of handshaking, and one seam so a test can fix the
+frame mask. Two more were needed until TinyGo 0.42, which now defines
+`http.ProxyFromEnvironment` and `(*tls.Config).Clone`. There is no assembly, so
+no `noasm` tag, and no external dependencies: upstream vendors its own SOCKS5
+support.
 
 ## The server needs `httpserver`
 
@@ -60,8 +63,10 @@ package works around the deadlock, because the defect is not in this library.
 `ws://` needs nothing special.
 
 `wss://` needs a dialer that returns a connection already through the
-handshake, because TinyGo's `crypto/tls.Client` panics: the handshake belongs
-to the OS.
+handshake, because the handshake belongs to the OS. TinyGo's
+`crypto/tls.Client` does not perform one — it returns the connection you gave
+it and reports success — so this fork refuses rather than letting a `wss://`
+dial succeed in cleartext.
 
 ```go
 d := websocket.Dialer{
