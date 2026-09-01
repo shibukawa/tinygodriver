@@ -26,6 +26,20 @@ per_backend_files:
   vendored_c: >
     the mbedTLS sources in rule:mbedtls-vendoring carry the linux native tag
     too, so a std-go build never compiles them
+test_tags:
+  rule: >
+    a _test.go file gates the code it tests, so its constraint must match that
+    package's, not a subset of it. A narrower tag compiles under some other
+    configuration and silently proves nothing about the one it names
+  observed: >
+    https/mbedtls_test.go said `force_tinygo_logic && !tinygo && ...` while
+    internal/mbedtls says `(tinygo || force_tinygo_logic) && ...`. The host half
+    of that pair does not define MBEDTLS_TINYGO_NEON, so the vendored
+    arm_neon.h the test claimed to gate was never compiled by any committed
+    test. Fixed 2026-09-02 by widening the tag to the package's own
+  check: >
+    `tinygo test <pkg>` reporting "no tests to run" where a test is supposed to
+    gate a tinygo-only path is this defect, not an empty package
 rules:
   - exactly one dialTLS definition per build configuration
   - a catch-all file returns ErrPlatformNotSupported for unmatched GOOS

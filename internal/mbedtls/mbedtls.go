@@ -155,8 +155,9 @@ func (s *Session) Close() {
 }
 
 // SelfTest runs the mbedTLS known-answer vectors for AES, GCM, SHA-256 and
-// SHA-512. It is what validates the bundled arm_neon.h, so the test suite runs
-// it on every build.
+// SHA-512. Under TinyGo it is what validates the bundled arm_neon.h, which no
+// other test reaches; https/mbedtls_test.go calls it everywhere this package
+// builds.
 func SelfTest() error {
 	if rc := int(C.https_mbed_self_test()); rc != 0 {
 		switch rc {

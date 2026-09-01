@@ -64,9 +64,18 @@ clang 20.1.1 that TinyGo 0.41 bundled. The bundle keeps moving — TinyGo 0.42 i
 on LLVM 22.1.4 — and the header rode that upgrade with no change, which is the
 whole point of writing it in inline assembly.
 
-Its correctness is not assumed. `MBEDTLS_SELF_TEST` is enabled and the package
-test runs the AES, GCM, SHA-256 and SHA-512 known-answer vectors against it.
-**If you touch that header, those tests are the gate.**
+Its correctness is not assumed. `MBEDTLS_SELF_TEST` is enabled and
+`https/mbedtls_test.go` runs the AES, GCM, SHA-256 and SHA-512 known-answer
+vectors. **If you touch that header, those tests are the gate — but only a
+TinyGo run is.** `MBEDTLS_TINYGO_NEON` is set by `cgoflags_tinygo.go` alone, so
+a host build compiles the real `<arm_neon.h>` and `go test -tags
+force_tinygo_logic` passes without ever reading this file. The runs that do
+reach it:
+
+```bash
+tinygo test -tags darwinstarttlswith13 ./https   # darwin/arm64
+tinygo test ./https                              # linux
+```
 
 ## Config hazard
 
