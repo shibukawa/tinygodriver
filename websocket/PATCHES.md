@@ -9,12 +9,18 @@ patch. Keep this file and that script in sync.
 
 ## What the fork is for
 
-Upstream does not compile under TinyGo. Four sites name symbols TinyGo's
-`crypto/tls` stub and its `net/http` do not define, and one of them,
-`tls.Client`, panics rather than returning an error. Applications name
-`websocket.Conn`, `websocket.Upgrader` and `websocket.Dialer` directly, so a
-re-export wrapper would break at every release; the fork is the drop-in itself,
-as in `../fasthttp`.
+Upstream cannot be used under TinyGo as it stands. Its client TLS path calls
+`tls.Client` and expects a handshake; TinyGo 0.42 compiles that call and hands
+back the **plaintext** connection, so an unpatched build would send the request
+in the clear rather than fail. Applications name `websocket.Conn`,
+`websocket.Upgrader` and `websocket.Dialer` directly, so a re-export wrapper
+would break at every release; the fork is the drop-in itself, as in
+`../fasthttp`.
+
+Two further sites were patched until TinyGo 0.42, which now defines
+`http.ProxyFromEnvironment` — returning "no proxy", which is exactly what the
+shim returned — and `(*tls.Config).Clone`. Both call sites are back on
+upstream's own code, and the shims are gone.
 
 Nothing else needed touching. There is no assembly, so no `noasm` tag, and no
 external dependencies to fork: the SOCKS5 support in `x_net_proxy.go` is
@@ -36,20 +42,18 @@ Serve through `github.com/shibukawa/tinygodriver/httpserver` instead of
 `http.Server.Serve`. Nothing in this directory works around it, because the
 defect is not in this library.
 
-## 1. `client.go` — `http.ProxyFromEnvironment`
+## 1. `client.go` — the TLS handshake
 
-`DefaultDialer` names it. TinyGo's `http.Transport` is an empty struct and the
-function does not exist. Replaced with `proxyFromEnvironment`, which is the
-upstream function on the standard build and reports no proxy on TinyGo, where
-there is no environment to read one from. A caller that needs a proxy sets
-`Dialer.Proxy` explicitly, which is unaffected.
+One block, replaced by a single call to `clientTLS`, which returns the
+connection, the negotiated state and the error.
 
-## 2. `client.go` — the TLS handshake
-
-Three missing symbols in one block: `tls.Client` (panics on TinyGo), `tls.Conn`
-as a type, and `ConnectionState` as a method on what a dial returns. The block
-is replaced by a single call to `clientTLS`, which returns the connection, the
-negotiated state and the error.
+The reason changed with TinyGo 0.42 and got worse. Before, `tls.Client` panicked
+and `ConnectionState` was not a method on what a dial returns, so upstream did
+not build. Now it builds: `tls.Client` is `return &Conn{Conn: conn}`, and
+`Handshake` reports success. Unpatched upstream would therefore complete a
+`wss://` dial over a **plaintext** socket and send the request in the clear.
+`clientTLS` returns `ErrTLSUnsupported` instead, which is the only safe answer
+when the handshake belongs to the device.
 
 The connection is returned even on failure, because upstream assigned
 `tls.Client`'s result to `netConn` before handshaking so that `DialContext`'s
@@ -76,15 +80,7 @@ A `wss://` server is not possible at all: TinyGo defines neither `tls.Server`
 nor `X509KeyPair`, and its `http.Server` has no `ServeTLS`. Terminate TLS in
 front of the process.
 
-## 3. `client.go` — `cloneTLSConfig`
-
-Upstream's helper calls `(*tls.Config).Clone`, which TinyGo does not define.
-The function is deleted here and defined in the compat files instead. The
-TinyGo version lists the fields rather than copying the struct, because
-`tls.Config` carries a `sync.RWMutex` and a struct assignment would copy the
-lock.
-
-## 4. `conn.go` — a seam for the frame mask
+## 2. `conn.go` — a seam for the frame mask
 
 `newMaskKey` calls `rand.Uint32` directly. It now calls `maskKeySource`, a
 package variable initialised to `rand.Uint32`. Behaviour is unchanged and only

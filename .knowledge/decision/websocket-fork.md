@@ -15,14 +15,21 @@ mechanism: >
 divergence: TinyGo-only, gated per rule:build-tag-selection; host Go stays upstream behaviour
 license: directory is BSD-2-Clause (upstream's), repo is Apache-2.0
 patch_sites: >
-  four in the client TLS path, all missing symbols not design conflicts, plus
-  one seam in conn.go forced by rule:vendored-godebug-drift
+  one in the client TLS path, plus one seam in conn.go forced by
+  rule:vendored-godebug-drift
+retired_2026_09_02: >
+  two of the original four went away with tinygo 0.42, which defines
+  http.ProxyFromEnvironment -- returning "no proxy", exactly what the shim
+  returned -- and (*tls.Config).Clone. Both call sites are back on upstream's
+  own code and the shims are deleted
 shim_shape:
-  compat_std.go: proxyFromEnvironment, clientTLS, cloneTLSConfig over crypto/tls
+  compat_std.go: clientTLS over crypto/tls
   compat_tinygo.go: >
-    same three, plus ErrTLSUnsupported. clientTLS refuses instead of calling
-    tls.Client, which panics on tinygo. cloneTLSConfig lists fields rather than
-    copying the struct, because Config carries a sync.RWMutex
+    the same, plus ErrTLSUnsupported. clientTLS refuses rather than calling
+    tls.Client, which no longer panics on tinygo 0.42 but returns the plaintext
+    connection instead -- see requirement:no-crypto-tls-on-tinygo. That change
+    made this patch more necessary, not less: unpatched upstream would now
+    build and send the handshake in the clear
   deleted: tls_handshake.go and tls_handshake_116.go, folded into clientTLS
 size_tag_candidate: >
   compress/flate is linked unconditionally even when compression is never

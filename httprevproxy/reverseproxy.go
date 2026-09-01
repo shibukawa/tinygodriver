@@ -87,6 +87,12 @@ type ReverseProxy struct {
 // NewSingleHostReverseProxy returns a proxy that routes requests to target.
 // Like net/http/httputil, it uses the deprecated Director field for backwards
 // compatibility and preserves the inbound Host header.
+//
+// That last part is why this constructor does not work under TinyGo, whose
+// transport dials Request.Host rather than Request.URL.Host: preserving the
+// inbound Host means dialing it, which sends the proxy back to its own address.
+// It reports an error there rather than looping. Use Rewrite with
+// ProxyRequest.SetURL instead, which every other example in this package does.
 func NewSingleHostReverseProxy(target *url.URL) *ReverseProxy {
 	return &ReverseProxy{Director: func(req *http.Request) {
 		rewriteRequestURL(req, target)
@@ -157,6 +163,11 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	if _, ok := outreq.Header["User-Agent"]; !ok {
 		outreq.Header.Set("User-Agent", "")
+	}
+
+	if err := fixOutboundHost(outreq); err != nil {
+		p.errorHandler()(rw, outreq, err)
+		return
 	}
 
 	res, err := transport.RoundTrip(outreq)

@@ -10,8 +10,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
-	"net/http"
-	"net/url"
 )
 
 // Backend identifies the implementation selected by build constraints.
@@ -26,16 +24,10 @@ const Backend = "std"
 // Dialer.NetDialTLSContext; see compat_tinygo.go for what to set.
 var ErrTLSUnsupported = errors.New("websocket: in-process TLS is unavailable on TinyGo; set Dialer.NetDialTLSContext")
 
-// proxyFromEnvironment is http.ProxyFromEnvironment. TinyGo's net/http defines
-// neither it nor a real Transport, so DefaultDialer cannot name it directly.
-func proxyFromEnvironment(req *http.Request) (*url.URL, error) {
-	return http.ProxyFromEnvironment(req)
-}
-
 // clientTLS wraps netConn in a client-side TLS connection and completes the
 // handshake, returning the connection and the negotiated state. It replaces
-// upstream's tls.Client plus doHandshake, which named three symbols TinyGo does
-// not have.
+// upstream's tls.Client plus doHandshake, whose TinyGo counterparts perform no
+// handshake at all.
 //
 // The returned connection is meaningful even when the error is not nil:
 // upstream assigned tls.Client's result to netConn before handshaking, so that
@@ -51,13 +43,4 @@ func clientTLS(ctx context.Context, netConn net.Conn, cfg *tls.Config) (net.Conn
 		}
 	}
 	return tlsConn, tlsConn.ConnectionState(), nil
-}
-
-// cloneTLSConfig is upstream's own, moved here because TinyGo's tls.Config has
-// no Clone method.
-func cloneTLSConfig(cfg *tls.Config) *tls.Config {
-	if cfg == nil {
-		return &tls.Config{}
-	}
-	return cfg.Clone()
 }

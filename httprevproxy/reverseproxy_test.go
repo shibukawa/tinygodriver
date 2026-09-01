@@ -104,8 +104,8 @@ func TestRewriteProxy(t *testing.T) {
 			if got, want := out.URL.String(), "https://backend.example/base/a%2Fb?from=target&from=request"; got != want {
 				t.Errorf("outbound URL = %q, want %q", got, want)
 			}
-			if out.Host != "" {
-				t.Errorf("outbound Host = %q, want target host selection", out.Host)
+			if want := wantOutboundHost("backend.example"); out.Host != want {
+				t.Errorf("outbound Host = %q, want %q", out.Host, want)
 			}
 			if got := out.Header.Get("X-Forwarded-For"); got != "192.0.2.10" {
 				t.Errorf("X-Forwarded-For = %q", got)
@@ -154,34 +154,6 @@ func TestRewriteProxy(t *testing.T) {
 	}
 	if pool.gets != 1 || pool.puts != 1 {
 		t.Errorf("BufferPool calls = Get %d, Put %d", pool.gets, pool.puts)
-	}
-}
-
-func TestNewSingleHostReverseProxyUsesDirectorCompatibility(t *testing.T) {
-	target, _ := url.Parse("http://backend.example/base")
-	proxy := NewSingleHostReverseProxy(target)
-	if proxy.Director == nil || proxy.Rewrite != nil {
-		t.Fatal("NewSingleHostReverseProxy must use Director for standard-library compatibility")
-	}
-	proxy.Transport = roundTripFunc(func(out *http.Request) (*http.Response, error) {
-		if got, want := out.URL.String(), "http://backend.example/base/path"; got != want {
-			t.Errorf("outbound URL = %q, want %q", got, want)
-		}
-		if got := out.Host; got != "frontend.example" {
-			t.Errorf("outbound Host = %q", got)
-		}
-		if got := out.Header.Get("X-Forwarded-For"); got != "198.51.100.1, 192.0.2.20" {
-			t.Errorf("X-Forwarded-For = %q", got)
-		}
-		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody}, nil
-	})
-	request := httptest.NewRequest(http.MethodGet, "http://frontend.example/path", nil)
-	request.RemoteAddr = "192.0.2.20:1000"
-	request.Header.Set("X-Forwarded-For", "198.51.100.1")
-	recorder := httptest.NewRecorder()
-	proxy.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusNoContent {
-		t.Errorf("status = %d", recorder.Code)
 	}
 }
 

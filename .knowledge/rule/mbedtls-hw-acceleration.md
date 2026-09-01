@@ -22,7 +22,8 @@ rules:
   - keep MBEDTLS_SHA256_USE_ARMV8_A_CRYPTO_IF_PRESENT and
     MBEDTLS_SHA512_USE_A64_CRYPTO_IF_PRESENT enabled on arm64
   - keep MBEDTLS_SELF_TEST enabled and run the AES, GCM, SHA-256 and SHA-512
-    known-answer vectors; they are what validate the vendored arm_neon.h
+    known-answer vectors under `tinygo test`; they are what validate the
+    vendored arm_neon.h, and only a tinygo build selects it
   - CPU support is detected at runtime, so a machine without the extensions
     still works through the software path
 x86_64:
@@ -60,6 +61,18 @@ arm64:
   validation: >
     correctness is not assumed. MBEDTLS_SELF_TEST runs the AES and GCM NIST
     known-answer vectors against this header, and they pass.
+  validation_only_under_tinygo:
+    what: >
+      MBEDTLS_TINYGO_NEON is set by cgoflags_tinygo.go alone, so a host build
+      compiles the real <arm_neon.h>. `go test -tags force_tinygo_logic` passes
+      the vectors without ever reading the vendored header
+    history: >
+      until 2026-09-02 the only caller, https/mbedtls_test.go, carried
+      `force_tinygo_logic && !tinygo`, so nothing committed compiled the header
+      the docs called gated. Its tag now matches internal/mbedtls itself
+    gate: >
+      `tinygo test -tags darwinstarttlswith13 ./https` on darwin,
+      `tinygo test ./https` on linux
 x86_64_validation:
   status: correctness verified, throughput not
   verified:

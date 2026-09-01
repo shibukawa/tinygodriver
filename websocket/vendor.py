@@ -9,11 +9,16 @@ Re-run this after bumping WEBSOCKET_VERSION. Every transformation below is also
 recorded in PATCHES.md; keep the two in sync. A patch whose anchor text moved
 aborts the run rather than half-applying.
 
-Why a fork at all: four sites in the client's TLS path name symbols TinyGo does
-not define, and one of them, tls.Client, panics rather than failing. Upstream
-cannot be built for TinyGo without editing those four sites, and applications
-name websocket types directly, so a re-export wrapper would break every
-release. The fork is the drop-in itself, as in ../fasthttp.
+Why a fork at all: the client's TLS path relies on tls.Client actually
+handshaking. TinyGo 0.42 compiles that call and returns the *plaintext*
+connection from it, so upstream built for TinyGo would send the request in the
+clear rather than fail. Applications name websocket types directly, so a
+re-export wrapper would break every release. The fork is the drop-in itself, as
+in ../fasthttp.
+
+Two earlier patch sites are gone as of TinyGo 0.42, which now defines
+http.ProxyFromEnvironment (returning "no proxy", exactly what the shim did) and
+(*tls.Config).Clone. Both call sites are back on upstream's own code.
 
 Unlike fasthttp's vendor.py, and like fasthttprouter's, this keeps upstream's
 _test.go files: they exercise framing, masking, compression and the close
@@ -52,6 +57,11 @@ LOCAL_FILES = {
     "compat_std.go",
     "compat_tinygo.go",
     "compat_test.go",
+    # Hand-written like the rest of this list: it drives a real netdev server
+    # rather than net.Pipe, which is what proves the fork works on TinyGo at
+    # all. Omitting a hand-written file here means clean() deletes it on the
+    # next run, silently and with no other trace.
+    "integration_test.go",
 }
 
 # Upstream sources this fork does not take.
@@ -140,23 +150,17 @@ def rewrite(text):
 # Each entry is (old, new, expected_count). An unexpected count aborts, so a
 # version bump that moves the anchor fails loudly instead of dropping a patch.
 #
-# Four sites, all in client.go, all missing symbols rather than design
-# conflicts. The replacements live in compat_std.go and compat_tinygo.go, so
-# host Go keeps upstream behaviour exactly.
+# Two sites, one in client.go and one in conn.go, neither a design conflict.
+# The replacements live in compat_std.go and compat_tinygo.go, so host Go keeps
+# upstream behaviour exactly.
 
 PATCHES = {
     "client.go": [
-        # 1. http.ProxyFromEnvironment: TinyGo's http.Transport is an empty
-        # struct and the function does not exist.
-        (
-            "\tProxy:            http.ProxyFromEnvironment,",
-            "\tProxy:            proxyFromEnvironment,",
-            1,
-        ),
-        # 2. tls.Client panics on TinyGo, tls.Conn does not exist there, and
-        # ConnectionState is not a method on what a successful dial returns.
-        # clientTLS covers all three and, on TinyGo, refuses instead of
-        # panicking when the caller supplied no NetDialTLSContext.
+        # 1. TinyGo's tls.Client does not handshake: it returns the plaintext
+        # connection and reports success, so unpatched upstream would complete a
+        # wss:// dial in the clear. clientTLS refuses there instead. It also
+        # absorbs doHandshake, whose two version-selected files this fork drops:
+        # the handshake differs by compiler here, not by Go version.
         (
             """		tlsConn := tls.Client(netConn, cfg)
 		netConn = tlsConn
@@ -181,21 +185,8 @@ PATCHES = {
 """,
             1,
         ),
-        # 3. (*tls.Config).Clone does not exist on TinyGo. The compat files
-        # define cloneTLSConfig, so upstream's copy of it must go.
-        (
-            """func cloneTLSConfig(cfg *tls.Config) *tls.Config {
-	if cfg == nil {
-		return &tls.Config{}
-	}
-	return cfg.Clone()
-}
-""",
-            "",
-            1,
-        ),
     ],
-    # 4. A seam so tests can fix the frame mask.
+    # 2. A seam so tests can fix the frame mask.
     #
     # Upstream's go.mod says `go 1.12`, so its own test run gets randseednop=0
     # and math/rand.Seed still reseeds the global source newMaskKey draws from.
@@ -231,9 +222,10 @@ DROP_TESTS = {
     # Needs tls.X509KeyPair and a TLS listener to terminate against, which
     # TinyGo has neither of.
     "client_server_test.go": "terminates TLS; TinyGo defines no tls.Server",
-    # Exercises the proxy dialer against live CONNECT proxies it starts itself,
-    # through http.ProxyFromEnvironment, which this fork replaces.
-    "client_test.go": "asserts on http.ProxyFromEnvironment, replaced here",
+    # Exercises the proxy dialer against live CONNECT proxies it starts itself.
+    # The fork no longer replaces http.ProxyFromEnvironment, but TinyGo's always
+    # reports "no proxy", so every case here would assert against a direct dial.
+    "client_test.go": "needs env-driven proxying; TinyGo reports no proxy",
 }
 
 

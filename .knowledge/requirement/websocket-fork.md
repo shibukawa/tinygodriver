@@ -10,7 +10,7 @@ priority: must
 design: decision:websocket-fork
 scope:
   in:
-    - root package, four patch sites shimmed, one import path, both compilers
+    - root package, two patch sites shimmed, one import path, both compilers
     - client over ws and wss, server behind requirement:httpserver-package
     - upstream behaviour preserved on host Go
   out:

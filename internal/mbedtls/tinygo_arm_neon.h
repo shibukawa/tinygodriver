@@ -20,7 +20,8 @@
  * does not accept.
  *
  * Correctness is not taken on trust: MBEDTLS_SELF_TEST is enabled and the AES
- * and GCM NIST known-answer vectors run against this code.
+ * and GCM NIST known-answer vectors run against this code — under `tinygo
+ * test`, which is the only build that selects this header. See PATCHES.md.
  */
 #ifndef TINYGODRIVER_TINYGO_ARM_NEON_H
 #define TINYGODRIVER_TINYGO_ARM_NEON_H

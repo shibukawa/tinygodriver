@@ -42,12 +42,21 @@ layers:
     caveat: emulated runs prove correctness only, never throughput
   crypto_self_test:
     applies_to: system:mbedtls
-    command: mbedtls_aes_self_test, gcm, sha256 and sha512 known-answer vectors
+    command: >
+      tinygo test -tags darwinstarttlswith13 ./https on darwin, tinygo test
+      ./https on linux. Runs mbedtls_aes_self_test plus the gcm, sha256 and
+      sha512 known-answer vectors through https/mbedtls_test.go
+    must_be_tinygo: >
+      a host run compiles the real <arm_neon.h>, so only a tinygo run validates
+      the vendored one; see rule:mbedtls-hw-acceleration,
+      validation_only_under_tinygo
     value: >
       the only thing validating the bundled arm_neon.h in
       rule:mbedtls-hw-acceleration. Run it in both accelerated and software
       builds so a hardware path can never diverge silently.
-    status: passing on linux/arm64 and linux/amd64
+    status: >
+      passing on linux/arm64 and linux/amd64, and on darwin/arm64 under tinygo
+      0.42.0 since the test tag was corrected on 2026-09-02
 cases:
   - happy path GET, POST, PostForm, HEAD
   - custom CA accepted, and rejected when absent
