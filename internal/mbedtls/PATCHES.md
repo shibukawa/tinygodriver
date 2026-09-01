@@ -59,8 +59,10 @@ to work around a build problem.
 mbedTLS uses, with the crypto operations written as inline assembly rather than
 compiler builtins, so it survives a TinyGo LLVM upgrade. The real 3.2 MB header
 cannot be vendored instead: it is written against one exact clang version's
-`__builtin_neon_*` signatures, and clang 21's copy fails to compile under the
-clang 20.1.1 that TinyGo 0.41 bundles.
+`__builtin_neon_*` signatures, and clang 21's copy failed to compile under the
+clang 20.1.1 that TinyGo 0.41 bundled. The bundle keeps moving — TinyGo 0.42 is
+on LLVM 22.1.4 — and the header rode that upgrade with no change, which is the
+whole point of writing it in inline assembly.
 
 Its correctness is not assumed. `MBEDTLS_SELF_TEST` is enabled and the package
 test runs the AES, GCM, SHA-256 and SHA-512 known-answer vectors against it.

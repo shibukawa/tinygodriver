@@ -122,7 +122,7 @@ would be worse. Nothing inside fasthttp calls any of them in this build.
 
 ## What works
 
-Verified under TinyGo 0.41.1 on darwin/arm64, against a suite that runs
+Verified under TinyGo 0.42.0 on darwin/arm64, against a suite that runs
 identically on both compilers:
 
 - Server and client round trips, every method, keep-alive, chunked

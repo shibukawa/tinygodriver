@@ -9,7 +9,7 @@ Vendored source runs under this module's `go` directive, not upstream's, so any 
 scope: every fork in this repository; decision:websocket-fork, decision:fasthttp-fork
 mechanism: >
   GODEBUG defaults follow the go directive of the main module. Copying a file
-  out of a module that says `go 1.12` into one that says `go 1.26` opts it into
+  out of a module that says `go 1.12` into one that says `go 1.27` opts it into
   every default that changed in between
 observed:
   where: gorilla/websocket prepared_test.go, decision:websocket-fork

@@ -199,7 +199,7 @@ PATCHES = {
     #
     # Upstream's go.mod says `go 1.12`, so its own test run gets randseednop=0
     # and math/rand.Seed still reseeds the global source newMaskKey draws from.
-    # Vendored into a module that says `go 1.26`, Seed is the no-op it became
+    # Vendored into a module that says `go 1.27`, Seed is the no-op it became
     # in Go 1.24, and every client case of TestPreparedMessage fails. A
     # //go:debug directive fixes the host build and does nothing under TinyGo,
     # which does not implement godebug. Replacing the source outright is the

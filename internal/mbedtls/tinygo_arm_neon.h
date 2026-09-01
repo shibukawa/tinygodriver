@@ -5,8 +5,9 @@
  * because that header is generated during an LLVM build rather than checked
  * into the clang source tree. Vendoring the real 3.2 MB header does not work
  * either: it is written against one exact clang version's __builtin_neon_*
- * signatures, and clang 21's copy fails to compile with the clang 20.1.1 that
- * TinyGo 0.41 bundles.
+ * signatures, and clang 21's copy failed to compile with the clang 20.1.1 that
+ * TinyGo 0.41 bundled. The bundled compiler keeps moving — TinyGo 0.42 is on
+ * LLVM 22.1.4 — so pinning to any one copy is the wrong shape.
  *
  * This header therefore declares only what mbedTLS uses, and it expresses the
  * crypto instructions as inline assembly rather than compiler builtins.

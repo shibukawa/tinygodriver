@@ -27,7 +27,7 @@ layers:
     status: passing on darwin; verified by spike on linux
   linux_from_darwin:
     command: >
-      docker run --platform linux/arm64 -v $PWD:/src -w /src golang:1.26, then
+      docker run --platform linux/arm64 -v $PWD:/src -w /src golang:1.27, then
       the two go test layers above. No package install is needed since
       decision:netdev-crypto-tls-on-linux.
     value: >

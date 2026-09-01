@@ -96,7 +96,7 @@ server the application already uses. What this fork saves is that layer.
 
 ## Verification
 
-| | TinyGo 0.41.1 | host Go 1.26.5 |
+| | TinyGo 0.42.0 | host Go 1.27.0 |
 |---|---|---|
 | `go`/`tinygo test ./fasthttpwebsocket` | 54 pass, 0 fail | 78 pass, 0 fail |
 

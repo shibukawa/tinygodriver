@@ -6,7 +6,7 @@ title: TinyGo wasip2 Builds as GOOS linux
 TinyGo's `-target=wasip2` compiles with GOOS=linux, so every `linux` build constraint in this repository is admitted into a wasip2 build unless it also excludes the `wasip2` tag.
 
 ```yaml
-measured: tinygo 0.41.1, `tinygo info -target=wasip2`
+measured: tinygo 0.41.1, re-checked on 0.42.0 unchanged; `tinygo info -target=wasip2`
 wasip2: {goos: linux, goarch: arm, extra_tags: [tinygo.wasm, wasip2]}
 wasip1: {goos: wasip1, goarch: wasm, extra_tags: [tinygo.wasm]}
 consequence:

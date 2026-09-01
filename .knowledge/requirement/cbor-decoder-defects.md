@@ -33,7 +33,7 @@ not_reflection_free:
     through the reflect-based swapper
   fix: >
     slices.SortFunc and slices.Sort, generic, allocation-free and TinyGo-clean.
-    The module floor is Go 1.26, so slices is available.
+    The module floor is Go 1.27, so slices is available.
 duplicate_key_detection_is_quadratic:
   where: keyFingerprint, decoder.go:770-855
   what: >
