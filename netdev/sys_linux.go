@@ -281,19 +281,34 @@ func sysClose(fd int) error {
 }
 
 func sysSend(fd int, buf []byte, flags int) (int, error) {
-	n := int(C.h_write(C.int(fd), unsafe.Pointer(&buf[0]), C.ulong(len(buf))))
-	if n < 0 {
+	for {
+		n := int(C.h_write(C.int(fd), unsafe.Pointer(&buf[0]), C.ulong(len(buf))))
+		if n >= 0 {
+			return n, nil
+		}
+		// A signal that lands before any byte moves fails the call with
+		// EINTR rather than returning short; retry, as accept and select do.
+		// Device.Send loops over the short case.
+		if int(C.h_errno()) == osEINTR {
+			continue
+		}
 		return -1, lastErrno()
 	}
-	return n, nil
 }
 
 func sysRecv(fd int, buf []byte, flags int) (int, error) {
-	n := int(C.h_read(C.int(fd), unsafe.Pointer(&buf[0]), C.ulong(len(buf))))
-	if n < 0 {
+	for {
+		n := int(C.h_read(C.int(fd), unsafe.Pointer(&buf[0]), C.ulong(len(buf))))
+		if n >= 0 {
+			return n, nil
+		}
+		// EINTR here would reach callers that treat every read error as
+		// fatal; a short read needs no handling, io.Reader allows it.
+		if int(C.h_errno()) == osEINTR {
+			continue
+		}
 		return -1, lastErrno()
 	}
-	return n, nil
 }
 
 func sysSetReuseAddr(fd int) error {
