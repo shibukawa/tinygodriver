@@ -42,7 +42,10 @@ eintr:
   why: >
     correct detection makes EINTR visible for the first time, and accept blocks
     for the life of a server, so a signal would otherwise end the accept loop
-  handling: sysAccept retries on EINTR on linux and darwin; waitFD already did
+  handling: >
+    sysAccept retries on EINTR on linux and darwin; waitFD already did; since
+    2026-09-02 sysSend and sysRecv retry too, inside Device.Send's full-write
+    loop, see rule:netdev-write-fully
 error_classes: >
   ErrAddrNotAvailable ErrAddrInUse ErrConnRefused ErrConnReset ErrNotConnected
   ErrConnTimedOut ErrWouldBlock ErrSyscall, so errors.Is behaves the same on all

@@ -220,11 +220,37 @@ func (d *Device) Send(sockfd int, buf []byte, flags int, deadline time.Time) (in
 		// both I/O locks before touching the session.
 		return sysTLSSend(s.tls, buf)
 	}
-	n, err := sysSend(s.fd, buf, flags)
-	if n < 0 {
-		return -1, err
+	// Write the whole buffer or fail. A blocking write(2) returns a partial
+	// count, not EINTR, when a signal lands after some bytes have moved, and
+	// TinyGo's threads scheduler and garbage collector stop the world with
+	// signals; a 4 MiB write over loopback came back as 604596 bytes with no
+	// error. net.TCPConn.Write hands this count straight to callers that trust
+	// io.Writer's contract, and gorilla/websocket never reads it at all, so a
+	// short return here silently drops the tail of a frame. The driver is the
+	// last layer this repository owns, so the loop lives here rather than in
+	// every consumer. See rule:netdev-write-fully.
+	sent := 0
+	for sent < len(buf) {
+		if sent > 0 {
+			if err := waitWrite(s.fd, deadline); err != nil {
+				return sent, err
+			}
+		}
+		n, err := sysSend(s.fd, buf[sent:], flags)
+		if n < 0 {
+			if sent > 0 {
+				return sent, err
+			}
+			return -1, err
+		}
+		if n == 0 {
+			// write(2) never returns 0 for a non-empty buffer on a socket; a
+			// backend that did would spin this loop forever, so report it.
+			return sent, ErrSyscall
+		}
+		sent += n
 	}
-	return n, err
+	return sent, nil
 }
 
 func (d *Device) Recv(sockfd int, buf []byte, flags int, deadline time.Time) (int, error) {
