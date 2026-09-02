@@ -27,6 +27,11 @@ constraints:
       the chosen address rather than reading it back
 known_intermittent:
   websocket_TestConcurrentClients:
+    status: >
+      root cause found and fixed 2026-09-02, see rule:tinygo-rwmutex-deadlock.
+      It was TinyGo's sync.RWMutex, reached through netdev.Device.mu; netdev now
+      uses internal/syncx.RWMutex. Kept here as the record of what the symptom
+      looked like
     what: >
       16 clients x 50 echo round trips over real netdev sockets hangs forever,
       intermittently, under `tinygo test ./websocket` on darwin/arm64 with
@@ -40,9 +45,8 @@ known_intermittent:
     stack: >
       `sample` of a hung binary shows every thread either parked in
       internal/task.Pause (__ulock_wait) or blocked in the listener's Accept;
-      nothing is runnable. A lost wakeup between netdev and the threads
-      scheduler, not a test bug: no deadline is missing, the goroutines are
-      simply never resumed
+      nothing is runnable. A full call graph named the primitive: 15 threads in
+      sync.RWMutex.RLock and one in RWMutex.Lock
     not_a_regression_of: the fork's patch retirement, decision:websocket-fork
     scheduler_tasks_is_not_an_escape: >
       -scheduler=tasks fails to link on the darwin host at 0.42 with

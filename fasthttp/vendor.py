@@ -126,7 +126,23 @@ def rewrite(text):
 # version bump that moves the anchor fails loudly instead of dropping a patch.
 
 PATCHES = {
+    # sync.RWMutex deadlocks on TinyGo (<= 0.42) whenever a reader arrives
+    # while a writer waits; see internal/syncx. HostClient.mLock takes a
+    # writer on every new host while requests read it, so it is swapped for
+    # the shim, and the other declarations follow for the policy check in
+    # internal/syncx to stay green. The import lands in its own group at the
+    # end of the block, where gofmt leaves it alone.
     "client.go": [
+        (
+            "\tmLock sync.RWMutex\n",
+            "\tmLock syncx.RWMutex // PETITWEB: sync.RWMutex deadlocks on TinyGo, see internal/syncx\n",
+            1,
+        ),
+        (
+            '\t"time"\n)\n',
+            '\t"time"\n\n\t"github.com/shibukawa/tinygodriver/internal/syncx"\n)\n',
+            1,
+        ),
         # TinyGo's crypto/tls has no (*Config).Clone.
         (
             "\t\tc = c.Clone()\n",
@@ -349,6 +365,18 @@ PATCHES = {
             "\tif d.DisableDNSResolution || (resolveInDialer && d.Resolver == nil) {\n",
             1,
         ),
+    ],
+    "lbclient.go": [
+        ("\tmu sync.RWMutex\n", "\tmu syncx.RWMutex // PETITWEB: see internal/syncx\n", 1),
+        ('\t"time"\n)\n', '\t"time"\n\n\t"github.com/shibukawa/tinygodriver/internal/syncx"\n)\n', 1),
+    ],
+    "fasthttputil/inmemory_listener.go": [
+        ("\taddrLock     sync.RWMutex\n", "\taddrLock     syncx.RWMutex // PETITWEB: see internal/syncx\n", 1),
+        ('\t"sync"\n)\n', '\t"sync"\n\n\t"github.com/shibukawa/tinygodriver/internal/syncx"\n)\n', 1),
+    ],
+    "fasthttputil/pipeconns.go": [
+        ("\taddrLock sync.RWMutex\n", "\taddrLock syncx.RWMutex // PETITWEB: see internal/syncx\n", 1),
+        ('\t"time"\n)\n', '\t"time"\n\n\t"github.com/shibukawa/tinygodriver/internal/syncx"\n)\n', 1),
     ],
 }
 

@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // BSD-socket style constants mirrored from tinygo-org/drivers/netdev.
@@ -109,7 +111,7 @@ type netdever interface {
 // lookup while entries change only on Socket, Accept and Close; readers
 // should not serialize behind one another for that.
 type Device struct {
-	mu      sync.RWMutex
+	mu      syncx.RWMutex
 	sockets map[int]*socket
 }
 

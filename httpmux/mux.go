@@ -10,13 +10,14 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-	"sync"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // ServeMux is an HTTP request multiplexer implementing the Go 1.22+ ServeMux
 // routing semantics documented by net/http.
 type ServeMux struct {
-	mu     sync.RWMutex
+	mu     syncx.RWMutex
 	routes []route
 
 	// trailingSlash records whether any registered pattern can exactly match a

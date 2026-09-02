@@ -12,8 +12,9 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
-	"sync"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // entityTag is the struct tag, spelled as in cloud.google.com/go/datastore so
@@ -112,7 +113,7 @@ type cachedField struct {
 // sync.Map: the read path is one RLock, and sync.Map is measurably more
 // binary in a TinyGo build.
 var fieldCache struct {
-	sync.RWMutex
+	syncx.RWMutex
 	types map[reflect.Type][]cachedField
 }
 

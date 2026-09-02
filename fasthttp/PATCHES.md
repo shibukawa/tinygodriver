@@ -228,3 +228,18 @@ nothing inside fasthttp reaches any of it.
 `ErrZstdUnsupported` is declared in all three files, including the standard-Go
 one that never returns it, so that `errors.Is` against it compiles under every
 tag combination.
+
+## 8. `sync.RWMutex` becomes `internal/syncx.RWMutex`
+
+TinyGo's `sync.RWMutex` (through at least 0.42) deadlocks whenever a reader
+arrives while a writer is waiting for the existing readers to drain; see
+`internal/syncx` for the mechanism and upstream `tinygo-org/tinygo#5630` for
+the fix. `HostClient.mLock` is exactly that shape — every request read-locks
+it and the first request to a new host write-locks it — so it is swapped for
+the shim, which is `sync.RWMutex` on standard Go and a plain mutex on TinyGo.
+
+`lbclient.go` and the two `fasthttputil` files follow so that the policy test
+in `internal/syncx` (`TestNoStdRWMutexOnTinyGoPath`) stays green; their
+writers are rare, but a plain mutex costs nothing around a field read. Each
+site is a one-line type change plus the import, appended as its own group at
+the end of the block so gofmt leaves it in place.

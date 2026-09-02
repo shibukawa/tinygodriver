@@ -17,14 +17,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"sync"
 
 	"filippo.io/edwards25519"
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // server pub keys registry
 var (
-	serverPubKeyLock     sync.RWMutex
+	serverPubKeyLock     syncx.RWMutex // PETITWEB: sync.RWMutex deadlocks on TinyGo; see internal/syncx
 	serverPubKeyRegistry map[string]*rsa.PublicKey
 )
 

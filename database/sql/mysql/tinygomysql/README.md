@@ -60,6 +60,18 @@ Consequences for callers:
   Build with `-tags darwinstarttlswith13` to use mbedTLS and get 1.3.
 - Client certificates are unsupported on macOS, as elsewhere in `https`.
 
+### Read-write locks
+
+Upstream guards five read-mostly registries with `sync.RWMutex`: the dial and
+TLS-config registries, the two `LOAD DATA LOCAL INFILE` registries, and the
+per-server public-key cache used during `caching_sha2_password`. TinyGo's
+`sync.RWMutex` (through at least 0.42) deadlocks whenever a reader arrives while
+a writer is waiting, so all five are `internal/syncx.RWMutex` here: the standard
+type on standard Go, a plain mutex on TinyGo. The public-key cache is the one
+that could actually trip it, when several connections authenticate at once; the
+registries only take a writer at registration and follow for the policy check in
+`internal/syncx`. See that package's comment and `rule:tinygo-rwmutex-deadlock`.
+
 ## Known limitations under TinyGo
 
 - **The cooperative scheduler breaks cancellation.** Under
