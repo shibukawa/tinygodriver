@@ -17,16 +17,16 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/shibukawa/tinygodriver/https"
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // Registry for custom https.Configs
 var (
-	tlsConfigLock     sync.RWMutex
+	tlsConfigLock     syncx.RWMutex // PETITWEB: see internal/syncx
 	tlsConfigRegistry map[string]*https.Config
 )
 

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // Do performs the given http request and fills the given http response.
@@ -291,7 +293,7 @@ type Client struct {
 	// Connection pool strategy. Can be either LIFO or FIFO (default).
 	ConnPoolStrategy ConnPoolStrategyType
 
-	mLock sync.RWMutex
+	mLock syncx.RWMutex // PETITWEB: sync.RWMutex deadlocks on TinyGo, see internal/syncx
 	mOnce sync.Once
 
 	// NoDefaultUserAgentHeader when set to true, causes the default

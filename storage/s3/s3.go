@@ -10,11 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/shibukawa/tinygodriver/cloud/aws"
 	"github.com/shibukawa/tinygodriver/internal/cloudhttp"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // Internal failures that are not S3 error documents.
@@ -43,7 +44,7 @@ type Client struct {
 
 	// mu guards region, which a redirect updates when the bucket turns out to
 	// live somewhere else.
-	mu     sync.RWMutex
+	mu     syncx.RWMutex
 	region string
 }
 

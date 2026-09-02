@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net"
 	"sync"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // ErrInmemoryListenerClosed indicates that the InmemoryListener is already closed.
@@ -17,7 +19,7 @@ type InmemoryListener struct {
 	listenerAddr net.Addr
 	conns        chan acceptConn
 	done         chan struct{}
-	addrLock     sync.RWMutex
+	addrLock     syncx.RWMutex // PETITWEB: see internal/syncx
 	lock         sync.Mutex
 	closed       bool
 }

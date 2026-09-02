@@ -13,14 +13,15 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 var (
 	fileRegister       map[string]struct{}
-	fileRegisterLock   sync.RWMutex
+	fileRegisterLock   syncx.RWMutex // PETITWEB: see internal/syncx
 	readerRegister     map[string]func() io.Reader
-	readerRegisterLock sync.RWMutex
+	readerRegisterLock syncx.RWMutex // PETITWEB: see internal/syncx
 )
 
 // RegisterLocalFile adds the given file to the file allowlist,

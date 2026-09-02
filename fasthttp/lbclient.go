@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // ErrNoAvailableClients is returned by LBClient methods when no clients are
@@ -54,7 +56,7 @@ type LBClient struct {
 	// DefaultLBClientTimeout is used by default.
 	Timeout time.Duration
 
-	mu sync.RWMutex
+	mu syncx.RWMutex // PETITWEB: see internal/syncx
 
 	once sync.Once
 }

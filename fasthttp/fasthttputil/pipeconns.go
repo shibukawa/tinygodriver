@@ -6,6 +6,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // NewPipeConns returns new bi-directional connection pipe.
@@ -109,7 +111,7 @@ type pipeConn struct {
 
 	bb []byte
 
-	addrLock sync.RWMutex
+	addrLock syncx.RWMutex // PETITWEB: see internal/syncx
 
 	readDeadlineChLock sync.Mutex
 }

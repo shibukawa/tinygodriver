@@ -5,16 +5,17 @@ package netdev
 import (
 	"encoding/pem"
 	"errors"
-	"sync"
 
 	"github.com/shibukawa/tinygodriver/internal/securetransport"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // The Netdever seam passes TLS state as a uintptr. A Go pointer cannot be
 // stored in one across a cgo boundary, so sessions live in a table and the
 // uintptr is an index into it.
 var (
-	sessionMu   sync.RWMutex
+	sessionMu   syncx.RWMutex
 	sessions            = map[uintptr]*securetransport.Session{}
 	sessionNext uintptr = 1
 )

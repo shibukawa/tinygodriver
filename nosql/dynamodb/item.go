@@ -12,8 +12,9 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
-	"sync"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // itemTag is the struct tag, spelled as in aws-sdk-go-v2 so an example written
@@ -85,7 +86,7 @@ type fieldInfo struct {
 // RWMutex rather than sync.Map: the read path is one RLock, and sync.Map is
 // measurably more binary in a TinyGo build.
 var fieldCache struct {
-	sync.RWMutex
+	syncx.RWMutex
 	types map[reflect.Type][]fieldInfo
 }
 

@@ -21,7 +21,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"net"
-	"sync"
+
+	"github.com/shibukawa/tinygodriver/internal/syncx"
 )
 
 // MySQLDriver is exported to make the driver directly accessible.
@@ -39,7 +40,7 @@ type DialFunc func(addr string) (net.Conn, error)
 type DialContextFunc func(ctx context.Context, addr string) (net.Conn, error)
 
 var (
-	dialsLock sync.RWMutex
+	dialsLock syncx.RWMutex // PETITWEB: see internal/syncx
 	dials     map[string]DialContextFunc
 )
 
