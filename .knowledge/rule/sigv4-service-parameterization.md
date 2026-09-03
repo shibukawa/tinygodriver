@@ -29,6 +29,12 @@ signed_headers:
   never: >
     Content-Length. net/http writes it from Request.ContentLength, not from the
     header map, so signing it produces a header the server does not receive.
+  presign_form: >
+    host plus every header on the request, and nothing the signer adds itself:
+    x-amz-date, x-amz-content-sha256 and the session token move into the query
+    as X-Amz-* parameters. Each signed header is one the eventual sender must
+    reproduce, so the caller alone decides the set, and a whitelist would only
+    hide a header it asked to sign.
 payload_hash:
   dynamodb: always the real sha256; the body is a small buffered JSON document
   s3: body hash, or UnsignedPayload when the caller opts in
@@ -46,6 +52,10 @@ tested_by:
     test that would catch a service name reaching the scope but not the key.
   - TestSignDoubleEncodePath, same shape, for the canonicalization flag
   - TestSignHonoursRequestHost, for the host the signature covers
+  - >
+    TestPresignS3Example, the query-parameter example from the S3
+    documentation. Its example secret has a slash where the SigV4 example has
+    a plus; the canonical request hash on that page is reproduced exactly.
   - the s3 tests covering rule:sigv4-wire-agreement pass unchanged
 sdk_header_difference:
   observed: >
