@@ -18,12 +18,18 @@ var (
 	ErrBucketNotEmpty = errors.New("s3: bucket not empty")
 	ErrInvalidRange   = errors.New("s3: requested range not satisfiable")
 	ErrBadCredentials = errors.New("s3: credentials rejected")
+	ErrNoSuchUpload   = errors.New("s3: no such multipart upload")
+	ErrInvalidPart    = errors.New("s3: invalid part")
 
 	// Configuration failures are the shared ones, so errors.Is matches whether
 	// the caller compares against s3 or cloud/aws.
 	ErrNoCredentials   = aws.ErrNoCredentials
 	ErrNoRegion        = aws.ErrNoRegion
 	ErrTooManyRedirect = errors.New("s3: too many redirects")
+
+	// ErrPresignExpiry reports a Presign expiry S3 would refuse: negative, or
+	// more than MaxPresignExpiry.
+	ErrPresignExpiry = errors.New("s3: presign expiry out of range")
 )
 
 // codeToSentinel maps the Code element of an S3 error document.
@@ -36,6 +42,10 @@ var codeToSentinel = map[string]error{
 	"BucketAlreadyOwnedByYou":      ErrBucketExists,
 	"BucketNotEmpty":               ErrBucketNotEmpty,
 	"InvalidRange":                 ErrInvalidRange,
+	"NoSuchUpload":                 ErrNoSuchUpload,
+	"InvalidPart":                  ErrInvalidPart,
+	"InvalidPartOrder":             ErrInvalidPart,
+	"EntityTooSmall":               ErrInvalidPart,
 	"SignatureDoesNotMatch":        ErrBadCredentials,
 	"InvalidAccessKeyId":           ErrBadCredentials,
 	"InvalidSecurity":              ErrBadCredentials,

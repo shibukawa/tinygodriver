@@ -17,6 +17,9 @@
 //		PayloadHash: aws.SHA256Hex(payload),
 //	})
 //
+// Presign is the same signer writing its result into the query string instead
+// of the headers, which is what a presigned URL is.
+//
 // Credentials are static values or environment variables. There is no shared
 // credentials file, no SSO, and no IMDS lookup.
 //

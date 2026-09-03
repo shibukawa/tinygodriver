@@ -41,6 +41,17 @@ func sign(req *http.Request, creds Credentials, region, payloadHash string, now 
 	})
 }
 
+// presign signs req for S3 in region through its query string; see sign for
+// the choices it shares.
+func presign(req *http.Request, creds Credentials, region string, expires time.Duration, now time.Time) {
+	aws.Presign(req, creds, aws.SignRequest{
+		Service:     "s3",
+		Region:      region,
+		PayloadHash: unsignedPayload,
+		Time:        now,
+	}, expires)
+}
+
 // newHTTPClient returns the client used when the caller supplies none.
 //
 // One idle connection per host is enough for object transfer, where a request

@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// A hand-rolled reader for the two XML documents this package consumes, and a
-// renderer for the one it produces. encoding/xml handles arbitrary documents
+// A hand-rolled reader for the XML documents this package consumes, and a
+// renderer for the ones it produces. encoding/xml handles arbitrary documents
 // through reflection, which is a large dependency for a TinyGo binary that
-// only ever sees ListBucketResult and Error; both are flat, fixed schemas.
+// only ever sees ListBucketResult, Error and the two flat multipart replies.
 //
 // The subset understood here: elements with attributes, character data with
 // the five predefined entities plus numeric references, comments, and
@@ -460,6 +460,39 @@ func parseCommonPrefixes(s *xmlScan) (string, error) {
 			if string(name) == "Prefix" {
 				prefix = text
 			}
+		}
+	}
+}
+
+// parseFlatDocument reads a document whose root holds text elements, such as
+// InitiateMultipartUploadResult, handing each name and text to visit. An
+// unknown element is handed over too, nested markup flattened, and the
+// visitor ignores it; that is what keeps an addition from breaking a parse.
+func parseFlatDocument(body []byte, root string, visit func(name, text string)) error {
+	s := &xmlScan{b: body}
+	if err := s.root(root); err != nil {
+		return err
+	}
+	for {
+		ev, name, err := s.next()
+		if err != nil {
+			return err
+		}
+		switch ev {
+		case xmlEOF:
+			return errMalformedXML
+		case xmlSelf:
+		case xmlClose:
+			if string(name) != root {
+				return errMalformedXML
+			}
+			return nil
+		case xmlOpen:
+			text, err := s.textElement(name)
+			if err != nil {
+				return err
+			}
+			visit(string(name), text)
 		}
 	}
 }

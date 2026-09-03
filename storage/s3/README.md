@@ -46,6 +46,8 @@ what makes this the only correct design.
 | `Delete` | DeleteObject |
 | `List` | ListObjectsV2, one page |
 | `CreateBucket`, `DeleteBucket` | CreateBucket, DeleteBucket |
+| `Presign` | none; a SigV4 query-signed URL for GetObject, PutObject, HeadObject or DeleteObject |
+| `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload` | the multipart upload operations |
 
 `Put` takes `WithContentType`, `WithContentEncoding`, `WithMetadata`, and
 `WithContentLength`. `List` takes `WithPrefix`, `WithDelimiter`, `WithMaxKeys`,
@@ -70,6 +72,76 @@ for {
 	token = page.NextToken
 }
 ```
+
+## Multipart upload
+
+An object above the single-request limit goes up in parts. `CreateMultipartUpload`
+fixes the object's content type and metadata and returns a `MultipartUpload`;
+the other three calls take it back, so bucket, key and upload ID cannot drift
+apart. Part numbers run from 1 to 10000, and every part but the last must be at
+least 5 MiB, which the endpoint checks at completion.
+
+```go
+upload, err := client.CreateMultipartUpload(ctx, "bucket", "video.mp4",
+	s3.WithContentType("video/mp4"))
+var parts []s3.CompletedPart
+for n := 1; ; n++ {
+	chunk, done := nextChunk()
+	part, err := client.UploadPart(ctx, *upload, n, chunk)
+	if err != nil {
+		client.AbortMultipartUpload(ctx, *upload)
+		return err
+	}
+	parts = append(parts, *part)
+	if done {
+		break
+	}
+}
+res, err := client.CompleteMultipartUpload(ctx, *upload, parts)
+```
+
+An upload that is neither completed nor aborted keeps its parts, and AWS bills
+them, until a lifecycle rule removes it: abort on every failure path. A part
+body follows `Put`'s rules, and `WithContentLength` is the one `Put` option
+that applies to it. To let a browser send a part, presign it with the upload
+ID and part number as query parameters:
+
+```go
+u, err := client.Presign(ctx, "bucket", "video.mp4", s3.PresignOptions{
+	Method: "PUT",
+	Query:  map[string]string{"uploadId": upload.UploadID, "partNumber": "3"},
+})
+```
+
+## Presigned URLs
+
+`Presign` returns a URL that authorizes one request without the credentials,
+for a bounded time, so a browser can upload to or download from the bucket
+directly and the application only issues the permission. It uses the client's
+endpoint, region, addressing style and credentials, so a URL for RustFS, MinIO
+or Cloudflare R2 needs no second configuration. No request is made.
+
+```go
+upload, err := client.Presign(ctx, "bucket", "uploads/cat.jpg", s3.PresignOptions{
+	Method:      "PUT",
+	Expires:     15 * time.Minute,
+	ContentType: "image/jpeg",
+})
+
+download, err := client.Presign(ctx, "bucket", "uploads/cat.jpg", s3.PresignOptions{
+	Query: map[string]string{"response-content-disposition": `attachment; filename="cat.jpg"`},
+})
+```
+
+The signature carries `UNSIGNED-PAYLOAD`: the body is sent by someone who never
+sees the credentials, so the signer cannot hash it. Only the host and the
+headers the options name are signed, and each signed header is one the sender
+must reproduce exactly. That is why `ContentType` and `Headers` constrain a
+PUT, and why a GET names none: a link in a page cannot add a header, so the
+`response-content-*` parameters go in `Query`, signed with the URL.
+
+`Method` defaults to GET and `Expires` to fifteen minutes. S3 refuses more than
+seven days, and so does `Presign`, with `ErrPresignExpiry`.
 
 ## Configuration
 
@@ -117,13 +189,15 @@ if errors.As(err, &s3err) {
 ```
 
 `ErrNoSuchKey`, `ErrNoSuchBucket`, `ErrAccessDenied`, `ErrBucketExists`,
-`ErrBucketNotEmpty`, `ErrInvalidRange`, `ErrBadCredentials`, `ErrNoCredentials`,
-`ErrNoRegion`, `ErrTooManyRedirect`.
+`ErrBucketNotEmpty`, `ErrInvalidRange`, `ErrBadCredentials`, `ErrNoSuchUpload`,
+`ErrInvalidPart`, `ErrPresignExpiry`, `ErrNoCredentials`, `ErrNoRegion`,
+`ErrTooManyRedirect`.
 
 ## Limitations
 
-- **No multipart upload.** `Put` sends one request, so the endpoint's
-  single-request limit applies (5 GiB on AWS).
+- **Put is one request.** The endpoint's single-request limit applies (5 GiB
+  on AWS); anything larger goes through the multipart calls, and nothing here
+  splits a stream into parts for you.
 - **Put reads the body twice.** SigV4 signs a hash of the payload. A body that
   implements `io.Seeker` is hashed and rewound; anything else is buffered in
   memory. `WithUnsignedPayload` streams instead, at the cost of the signature no
