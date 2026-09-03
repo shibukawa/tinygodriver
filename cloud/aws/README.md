@@ -47,6 +47,25 @@ aws.Sign(req, creds, aws.SignRequest{
 DynamoDB posts to `/`, where both rules agree, which is why the flag stays false
 there.
 
+## Presigned URLs
+
+`Presign` is the same signer with the other output: the credential scope, date,
+expiry and signed-header list go into the query string as `X-Amz-*` parameters
+and the signature is appended as `X-Amz-Signature`, so the URL alone authorizes
+the request until it expires. It sets no headers and signs every header on the
+request, because each signed header is one the eventual sender has to
+reproduce. The payload hash is normally `UnsignedPayload`, the body being sent
+by someone who never sees the credentials.
+
+```go
+aws.Presign(req, creds, aws.SignRequest{
+	Service: "s3", Region: region, PayloadHash: aws.UnsignedPayload,
+}, 15*time.Minute)
+url := req.URL.String()
+```
+
+`storage/s3` wraps it as `Client.Presign`.
+
 ## Credentials
 
 ```go
@@ -97,7 +116,9 @@ mean.
 go test ./cloud/aws/ && go test -tags force_tinygo_logic ./cloud/aws/
 ```
 
-The signature tests are known-answer tests. The S3 case is the example from the
-SigV4 documentation; the DynamoDB cases were produced by `aws-sdk-go-v2`'s own
-signer over the same request and the same header set, which is what makes them
-evidence rather than a restatement of this implementation.
+The signature tests are known-answer tests. The S3 header case is the example
+from the SigV4 documentation and the presigned case is the query-parameter
+example from the S3 documentation; the DynamoDB cases were produced by
+`aws-sdk-go-v2`'s own signer over the same request and the same header set,
+which is what makes them evidence rather than a restatement of this
+implementation.

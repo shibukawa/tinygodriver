@@ -23,6 +23,10 @@ signing: |
   func Sign(req *http.Request, creds Credentials, sr SignRequest)
   // Sign covers Request.Host when the caller set it, not URL.Host: the
   // signature covers the host header, and net/http sends the former.
+  func Presign(req *http.Request, creds Credentials, sr SignRequest, expires time.Duration)
+  // Presign writes the same signature into req.URL.RawQuery as X-Amz-*
+  // parameters, sets no headers, and signs every header on req; see
+  // rule:sigv4-service-parameterization for how the two header sets differ.
 encoding: |
   func URIEncode(s string, encodeSlash bool) string
   func CanonicalQuery(params [][2]string) string

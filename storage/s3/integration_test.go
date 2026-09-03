@@ -7,9 +7,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shibukawa/tinygodriver/storage/s3"
 )
@@ -143,6 +145,168 @@ func TestIntegration(t *testing.T) {
 		t.Errorf("streamed object = %q", got)
 	}
 
+	// A presigned URL is only evidence once a client that holds no credentials
+	// has used it: the PUT goes up through a plain http.Client with exactly the
+	// signed headers, and the GET comes back down the same way.
+	const presignKey = "presigned/2019 (b)/こん.bin"
+	putURL, err := client.Presign(ctx, bucket, presignKey, s3.PresignOptions{
+		Method: "PUT", Expires: time.Minute, ContentType: "application/octet-stream",
+		Headers: map[string]string{"X-Amz-Meta-Owner": "presign"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Delete(context.Background(), bucket, presignKey) })
+	putReq, _ := http.NewRequestWithContext(ctx, http.MethodPut, putURL.String(), bytes.NewReader(payload))
+	putReq.Header.Set("Content-Type", "application/octet-stream")
+	putReq.Header.Set("X-Amz-Meta-Owner", "presign")
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putBody, _ := io.ReadAll(putResp.Body)
+	putResp.Body.Close()
+	if putResp.StatusCode != http.StatusOK {
+		t.Fatalf("presigned PUT = %d: %s", putResp.StatusCode, putBody)
+	}
+	info, err = client.Head(ctx, bucket, presignKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ContentType != "application/octet-stream" || info.Metadata["owner"] != "presign" {
+		t.Errorf("presigned PUT stored %+v", info)
+	}
+
+	// The signed content-type is a constraint on the sender, not a hint.
+	wrongType, _ := http.NewRequestWithContext(ctx, http.MethodPut, putURL.String(), bytes.NewReader(payload))
+	wrongType.Header.Set("Content-Type", "text/plain")
+	wrongType.Header.Set("X-Amz-Meta-Owner", "presign")
+	if resp, err := http.DefaultClient.Do(wrongType); err != nil {
+		t.Fatal(err)
+	} else {
+		drainAndClose(resp)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("presigned PUT with a different Content-Type = %d, want 403", resp.StatusCode)
+		}
+	}
+
+	getURL, err := client.Presign(ctx, bucket, presignKey, s3.PresignOptions{
+		Expires: time.Minute,
+		Query:   map[string]string{"response-content-disposition": `attachment; filename="down.bin"`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	getResp, err := http.Get(getURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ = io.ReadAll(getResp.Body)
+	getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("presigned GET = %d: %s", getResp.StatusCode, got)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("presigned GET returned %d bytes, want %d", len(got), len(payload))
+	}
+	if cd := getResp.Header.Get("Content-Disposition"); cd != `attachment; filename="down.bin"` {
+		t.Errorf("response-content-disposition was not applied: %q", cd)
+	}
+
+	// A URL whose signed parameters were edited must be refused, which is
+	// what shows the endpoint verified the signature rather than the shape.
+	tampered := strings.Replace(getURL.String(), "X-Amz-Expires=60", "X-Amz-Expires=600", 1)
+	if resp, err := http.Get(tampered); err != nil {
+		t.Fatal(err)
+	} else {
+		drainAndClose(resp)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("tampered presigned GET = %d, want 403", resp.StatusCode)
+		}
+	}
+
+	// Multipart: two parts through the client, a third through a presigned
+	// part URL, assembled and read back whole. The first two are at the 5 MiB
+	// minimum the endpoint enforces on every part but the last.
+	const partSize = 5 << 20
+	const multiKey = "multipart/2019 (c)/こん.bin"
+	upload, err := client.CreateMultipartUpload(ctx, bucket, multiKey,
+		s3.WithContentType("application/octet-stream"),
+		s3.WithMetadata(map[string]string{"owner": "multipart"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		client.AbortMultipartUpload(context.Background(), *upload)
+		client.Delete(context.Background(), bucket, multiKey)
+	})
+	partA := bytes.Repeat([]byte("A"), partSize)
+	partB := bytes.Repeat([]byte("B"), partSize)
+	partC := []byte("C-tail")
+	one, err := client.UploadPart(ctx, *upload, 1, bytes.NewReader(partA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := client.UploadPart(ctx, *upload, 2, struct{ io.Reader }{bytes.NewReader(partB)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partURL, err := client.Presign(ctx, bucket, multiKey, s3.PresignOptions{
+		Method: "PUT", Expires: time.Minute,
+		Query: map[string]string{"uploadId": upload.UploadID, "partNumber": "3"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partReq, _ := http.NewRequestWithContext(ctx, http.MethodPut, partURL.String(), bytes.NewReader(partC))
+	partResp, err := http.DefaultClient.Do(partReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partBody, _ := io.ReadAll(partResp.Body)
+	partResp.Body.Close()
+	if partResp.StatusCode != http.StatusOK {
+		t.Fatalf("presigned UploadPart = %d: %s", partResp.StatusCode, partBody)
+	}
+	three := s3.CompletedPart{PartNumber: 3, ETag: partResp.Header.Get("ETag")}
+	if one.ETag == "" || two.ETag == "" || three.ETag == "" {
+		t.Fatalf("parts without ETags: %+v %+v %+v", one, two, three)
+	}
+	completed, err := client.CompleteMultipartUpload(ctx, *upload, []s3.CompletedPart{*one, *two, three})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.ETag == "" {
+		t.Error("CompleteMultipartUpload returned no ETag")
+	}
+	whole, err := client.Get(ctx, bucket, multiKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ = io.ReadAll(whole.Body)
+	whole.Body.Close()
+	if !bytes.Equal(got, append(append(append([]byte{}, partA...), partB...), partC...)) {
+		t.Errorf("assembled object is %d bytes, want %d", len(got), 2*partSize+len(partC))
+	}
+	if whole.ContentType != "application/octet-stream" || whole.Metadata["owner"] != "multipart" {
+		t.Errorf("assembled object metadata = %+v", whole.ObjectInfo)
+	}
+
+	// An abandoned upload aborts, and a second abort reports it gone.
+	orphan, err := client.CreateMultipartUpload(ctx, bucket, "multipart/orphan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UploadPart(ctx, *orphan, 1, strings.NewReader("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.AbortMultipartUpload(ctx, *orphan); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.AbortMultipartUpload(ctx, *orphan); !errors.Is(err, s3.ErrNoSuchUpload) {
+		t.Errorf("second abort = %v, want ErrNoSuchUpload", err)
+	}
+
 	if _, err := client.Get(ctx, bucket, "definitely-missing"); !errors.Is(err, s3.ErrNoSuchKey) {
 		t.Errorf("missing key error = %v, want ErrNoSuchKey", err)
 	}
@@ -153,4 +317,9 @@ func TestIntegration(t *testing.T) {
 	if _, err := client.Head(ctx, bucket, key); !errors.Is(err, s3.ErrNoSuchKey) {
 		t.Errorf("Head after Delete = %v, want ErrNoSuchKey", err)
 	}
+}
+
+func drainAndClose(resp *http.Response) {
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 }

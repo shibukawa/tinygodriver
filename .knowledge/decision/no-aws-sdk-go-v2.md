@@ -71,6 +71,6 @@ what_was_verified_instead:
 consequences:
   - no external dependency enters go.mod
   - the API is this repository's own, see api:s3-client and api:dynamodb-client
-  - multipart upload is out of scope, see requirement:s3-client-scope
+  - the S3 surface grew on demand rather than by SDK coverage, see requirement:s3-client-scope and decision:s3-presign-in-scope
   - the signer is written once and shared, see decision:aws-shared-package
 related: requirement:no-crypto-tls-on-tinygo

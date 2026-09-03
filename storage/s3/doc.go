@@ -41,8 +41,14 @@
 //
 // # Scope
 //
-// Whole-object operations only. Multipart upload is not implemented, so Put
-// sends one request and is bounded by what the endpoint accepts in a single
-// PUT (5 GiB on AWS). Large uploads should use a stream the package can rewind
-// or hash, see Put.
+// Put sends one request and is bounded by what the endpoint accepts in a
+// single PUT (5 GiB on AWS). Above that, CreateMultipartUpload, UploadPart,
+// CompleteMultipartUpload and AbortMultipartUpload are the operations; nothing
+// here splits a stream into parts, since the caller knows the part boundaries
+// and the failure policy.
+//
+// Presign is the one operation that makes no request: it returns a SigV4
+// query-signed URL for a GET, PUT, HEAD or DELETE, so a browser can talk to the
+// bucket directly for a bounded time while the application holds the
+// credentials.
 package s3

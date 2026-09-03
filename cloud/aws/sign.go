@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -148,12 +149,7 @@ func CanonicalQuery(params [][2]string) string {
 // produced by URIEncode and CanonicalQuery: the canonical request is built from
 // them, so signature and request line cannot drift apart.
 func Sign(req *http.Request, creds Credentials, sr SignRequest) {
-	now := sr.Time
-	if now.IsZero() {
-		now = time.Now()
-	}
-	amzDate := now.UTC().Format("20060102T150405Z")
-	dateStamp := amzDate[:8]
+	amzDate, dateStamp := signingTime(sr.Time)
 
 	req.Header.Set("X-Amz-Date", amzDate)
 	req.Header.Set("X-Amz-Content-Sha256", sr.PayloadHash)
@@ -161,11 +157,99 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 		req.Header.Set("X-Amz-Security-Token", creds.SessionToken)
 	}
 
-	// The signed headers, sorted by lowercase name. A small sorted slice
-	// instead of a map plus sort.Strings: signing runs on every request, and
-	// the map, the key slice, and the per-key ToLower were its allocations.
-	headers := make([]signedHeader, 0, 8)
+	// The buffers are made here rather than in the helpers so escape analysis
+	// keeps them on this frame: a request signs a handful of headers, and the
+	// helpers only append.
+	headers := collectHeaders(make([]signedHeader, 0, 8), req, false)
+	signedHeaders := joinHeaderNames(make([]byte, 0, 96), headers)
+	canonicalHex := canonicalRequestHash(make([]byte, 0, 512), req.Method,
+		canonicalURI(req, sr.DoubleEncodePath), req.URL.RawQuery, headers, signedHeaders, sr.PayloadHash)
+
+	scope := dateStamp + "/" + sr.Region + "/" + sr.Service + "/aws4_request"
+	signature := signStringToSign(creds.SecretAccessKey, sr, amzDate, dateStamp, scope, canonicalHex)
+
+	req.Header.Set("Authorization", algorithm+" Credential="+creds.AccessKeyID+"/"+scope+
+		", SignedHeaders="+string(signedHeaders)+", Signature="+string(signature[:]))
+}
+
+// Presign signs req through its query string instead of its headers, so the
+// URL alone authorizes the request until expires elapses: a presigned URL,
+// which a browser can GET or PUT without the credentials. The X-Amz-Algorithm,
+// X-Amz-Credential, X-Amz-Date, X-Amz-Expires, X-Amz-SignedHeaders and, with a
+// session token, X-Amz-Security-Token parameters join req.URL.RawQuery in
+// canonical order, and X-Amz-Signature is appended last.
+//
+// Presign sets no headers. Every header on req is signed instead, because each
+// one is a header the eventual sender has to reproduce exactly, and only the
+// caller knows which ones it will. sr.PayloadHash is normally UnsignedPayload:
+// the body is sent by someone who never sees the credentials, so the signer
+// cannot hash it. expires is rounded up to whole seconds; S3 accepts one second
+// to seven days, and the caller checks that range.
+//
+// req.URL.RawPath and req.URL.RawQuery must hold the encoded forms produced by
+// URIEncode and CanonicalQuery, as for Sign.
+func Presign(req *http.Request, creds Credentials, sr SignRequest, expires time.Duration) {
+	amzDate, dateStamp := signingTime(sr.Time)
+	scope := dateStamp + "/" + sr.Region + "/" + sr.Service + "/aws4_request"
+
+	headers := collectHeaders(make([]signedHeader, 0, 8), req, true)
+	signedHeaders := joinHeaderNames(make([]byte, 0, 96), headers)
+
+	// The authorization parameters are merged into the canonical query the
+	// way CanonicalQuery would have placed them: encoded, then sorted. The
+	// existing query is already in that form, so its pairs sort as they are.
+	seconds := (expires + time.Second - 1) / time.Second
+	pairs := make([]string, 0, 12)
+	if req.URL.RawQuery != "" {
+		pairs = append(pairs, strings.Split(req.URL.RawQuery, "&")...)
+	}
+	pairs = append(pairs,
+		"X-Amz-Algorithm="+algorithm,
+		"X-Amz-Credential="+URIEncode(creds.AccessKeyID+"/"+scope, true),
+		"X-Amz-Date="+amzDate,
+		"X-Amz-Expires="+strconv.FormatInt(int64(seconds), 10),
+		"X-Amz-SignedHeaders="+URIEncode(string(signedHeaders), true),
+	)
+	if creds.SessionToken != "" {
+		pairs = append(pairs, "X-Amz-Security-Token="+URIEncode(creds.SessionToken, true))
+	}
+	sort.Strings(pairs)
+	query := strings.Join(pairs, "&")
+
+	canonicalHex := canonicalRequestHash(make([]byte, 0, 512), req.Method,
+		canonicalURI(req, sr.DoubleEncodePath), query, headers, signedHeaders, sr.PayloadHash)
+	signature := signStringToSign(creds.SecretAccessKey, sr, amzDate, dateStamp, scope, canonicalHex)
+
+	req.URL.RawQuery = query + "&X-Amz-Signature=" + string(signature[:])
+}
+
+// signingTime renders the signing time, now when t is zero, as the x-amz-date
+// value and the date stamp of the credential scope.
+func signingTime(t time.Time) (amzDate, dateStamp string) {
+	if t.IsZero() {
+		t = time.Now()
+	}
+	amzDate = t.UTC().Format("20060102T150405Z")
+	return amzDate, amzDate[:8]
+}
+
+// collectHeaders appends to headers the headers the signature covers, sorted
+// by lowercase name: host always, then either every header on the request
+// (all) or the signedHeaderNames present plus everything x-amz-*.
+//
+// A small sorted slice instead of a map plus sort.Strings: signing runs on
+// every request, and the map, the key slice, and the per-key ToLower were its
+// allocations.
+func collectHeaders(headers []signedHeader, req *http.Request, all bool) []signedHeader {
 	headers = insertHeader(headers, "host", host(req))
+	if all {
+		for name, vs := range req.Header {
+			if len(vs) > 0 {
+				headers = insertHeader(headers, lowerHeaderName(name), vs[0])
+			}
+		}
+		return headers
+	}
 	for _, name := range signedHeaderNames {
 		if v := req.Header.Get(name); v != "" {
 			headers = insertHeader(headers, name, v)
@@ -176,31 +260,42 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 			headers = insertHeader(headers, lowerHeaderName(name), vs[0])
 		}
 	}
+	return headers
+}
 
-	signedHeaders := make([]byte, 0, 96)
+// joinHeaderNames appends the SignedHeaders list, "host;range;x-amz-date".
+func joinHeaderNames(signedHeaders []byte, headers []signedHeader) []byte {
 	for i, h := range headers {
 		if i > 0 {
 			signedHeaders = append(signedHeaders, ';')
 		}
 		signedHeaders = append(signedHeaders, h.name...)
 	}
+	return signedHeaders
+}
 
-	canonicalURI := req.URL.EscapedPath()
-	if canonicalURI == "" {
-		canonicalURI = "/"
+// canonicalURI is the path the canonical request names: the escaped path as
+// sent, or its double-encoded form for the services that normalize it.
+func canonicalURI(req *http.Request, doubleEncode bool) string {
+	uri := req.URL.EscapedPath()
+	if uri == "" {
+		uri = "/"
 	}
-	if sr.DoubleEncodePath {
-		canonicalURI = URIEncode(canonicalURI, false)
+	if doubleEncode {
+		uri = URIEncode(uri, false)
 	}
+	return uri
+}
 
-	// The canonical request exists only to be hashed, so it is assembled in
-	// one buffer and never becomes a string.
-	canonical := make([]byte, 0, 512)
-	canonical = append(canonical, req.Method...)
+// canonicalRequestHash assembles the canonical request into canonical and
+// returns its hex SHA-256. The request exists only to be hashed, so it is built
+// in one buffer and never becomes a string.
+func canonicalRequestHash(canonical []byte, method, uri, query string, headers []signedHeader, signedHeaders []byte, payloadHash string) [sha256.Size * 2]byte {
+	canonical = append(canonical, method...)
 	canonical = append(canonical, '\n')
-	canonical = append(canonical, canonicalURI...)
+	canonical = append(canonical, uri...)
 	canonical = append(canonical, '\n')
-	canonical = append(canonical, req.URL.RawQuery...)
+	canonical = append(canonical, query...)
 	canonical = append(canonical, '\n')
 	for _, h := range headers {
 		canonical = append(canonical, h.name...)
@@ -211,12 +306,16 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 	canonical = append(canonical, '\n')
 	canonical = append(canonical, signedHeaders...)
 	canonical = append(canonical, '\n')
-	canonical = append(canonical, sr.PayloadHash...)
+	canonical = append(canonical, payloadHash...)
 	canonicalSum := sha256.Sum256(canonical)
 	var canonicalHex [sha256.Size * 2]byte
 	hex.Encode(canonicalHex[:], canonicalSum[:])
+	return canonicalHex
+}
 
-	scope := dateStamp + "/" + sr.Region + "/" + sr.Service + "/aws4_request"
+// signStringToSign builds the string to sign over the canonical request hash
+// and returns its hex signature under the derived key.
+func signStringToSign(secret string, sr SignRequest, amzDate, dateStamp, scope string, canonicalHex [sha256.Size * 2]byte) [sha256.Size * 2]byte {
 	stringToSign := make([]byte, 0, len(algorithm)+len(amzDate)+len(scope)+len(canonicalHex)+3)
 	stringToSign = append(stringToSign, algorithm...)
 	stringToSign = append(stringToSign, '\n')
@@ -226,14 +325,12 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 	stringToSign = append(stringToSign, '\n')
 	stringToSign = append(stringToSign, canonicalHex[:]...)
 
-	key := signingKey(creds.SecretAccessKey, dateStamp, sr.Region, sr.Service)
+	key := signingKey(secret, dateStamp, sr.Region, sr.Service)
 	mac := hmac.New(sha256.New, key)
 	mac.Write(stringToSign)
 	var signature [sha256.Size * 2]byte
 	hex.Encode(signature[:], mac.Sum(nil))
-
-	req.Header.Set("Authorization", algorithm+" Credential="+creds.AccessKeyID+"/"+scope+
-		", SignedHeaders="+string(signedHeaders)+", Signature="+string(signature[:]))
+	return signature
 }
 
 // signedHeader is one canonical header: a lowercase name and its raw value.
