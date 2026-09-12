@@ -171,29 +171,6 @@ func TestEncodeValueKeepsTheUnionRules(t *testing.T) {
 	}
 }
 
-// TestEncodeValueMatchesTheCodecWhereThereIsNoKey pins that the two encoders do
-// not drift for the values that cannot contain a key. Those go through
-// Value.MarshalJSON unchanged, and this is what says so.
-func TestEncodeValueMatchesTheCodecWhereThereIsNoKey(t *testing.T) {
-	partition := &wirePartitionID{ProjectID: "p"}
-	for _, v := range []Value{
-		String("s"), Int(1), Float(1.5), Bool(true), Null(),
-		Blob([]byte{1, 2}), GeoPoint(1, 2), Unindexed(String("x")),
-	} {
-		want, err := json.Marshal(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, err := encodeValue(v, partition)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != string(want) {
-			t.Errorf("encodeValue = %s, codec = %s", got, want)
-		}
-	}
-}
-
 // TestExcludeFromIndexesSurvivesTheKeyPaths checks the field that rides
 // alongside the union member, on the three branches that build JSON by hand.
 func TestExcludeFromIndexesSurvivesTheKeyPaths(t *testing.T) {

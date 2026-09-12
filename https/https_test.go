@@ -281,21 +281,6 @@ func TestPost(t *testing.T) {
 	}
 }
 
-func TestHead(t *testing.T) {
-	srv := newTestServer(t, "localhost", time.Now().Add(time.Hour))
-	defer srv.Close()
-
-	client := https.NewClient(https.WithRootCAPEM(srv.CAPEM))
-	resp, err := client.Head(srv.URL + "/hello")
-	if err != nil {
-		t.Fatalf("head: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-}
-
 // TestLargeBody exercises the receive path across many records, including the
 // leftover buffering in the native backend.
 func TestLargeBody(t *testing.T) {

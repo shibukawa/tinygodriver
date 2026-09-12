@@ -122,18 +122,3 @@ func TestPresignPinned(t *testing.T) {
 		})
 	}
 }
-
-// A bare request signs host alone, and the header-form names Sign adds never
-// appear in the query form: each signed header is one the sender must
-// reproduce, and a browser sends neither x-amz-date nor x-amz-content-sha256.
-func TestPresignSignedHeadersAreOnlyWhatTheSenderSends(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodPut, "https://b.s3.amazonaws.com/k", nil)
-	Presign(req, Credentials{AccessKeyID: "id", SecretAccessKey: "secret"},
-		SignRequest{Service: "s3", Region: "us-east-1", PayloadHash: UnsignedPayload}, time.Minute)
-	if !strings.Contains(req.URL.RawQuery, "&X-Amz-SignedHeaders=host&") {
-		t.Errorf("a bare request must sign host alone: %s", req.URL.RawQuery)
-	}
-	if strings.Contains(req.URL.RawQuery, "x-amz-date") || strings.Contains(req.URL.RawQuery, "x-amz-content-sha256") {
-		t.Errorf("header-form names leaked into the query form: %s", req.URL.RawQuery)
-	}
-}

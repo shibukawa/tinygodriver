@@ -299,20 +299,39 @@ func TestThrottlingIsRetried(t *testing.T) {
 	}
 }
 
-// TestValidationIsNotRetried is the other half: a request the server has
-// already judged wrong will be just as wrong the second time.
-func TestValidationIsNotRetried(t *testing.T) {
-	srv := newServer(t, func(w http.ResponseWriter, r *http.Request, n int) {
-		exception(w, 400, "com.amazonaws.dynamodb.v20120810#ValidationException", "bad expression")
-	})
-	client := newClient(t, srv.URL, dynamodb.WithRetry(3, time.Millisecond))
+// TestNonRetryableErrorsAreNotRetried covers both a rejected request and a
+// failed condition: neither response can change by sending the request again.
+func TestNonRetryableErrorsAreNotRetried(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		typ       string
+		message   string
+		want      error
+		condition bool
+	}{
+		{"validation", "com.amazonaws.dynamodb.v20120810#ValidationException", "bad expression", dynamodb.ErrValidation, false},
+		{"conditional check", "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException", "The conditional request failed", dynamodb.ErrConditionalCheck, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			srv := newServer(t, func(w http.ResponseWriter, r *http.Request, n int) {
+				exception(w, 400, test.typ, test.message)
+			})
+			client := newClient(t, srv.URL, dynamodb.WithRetry(3, time.Millisecond))
 
-	_, err := client.GetItem(context.Background(), "users", dynamodb.Key{"pk": dynamodb.S("k")})
-	if !errors.Is(err, dynamodb.ErrValidation) {
-		t.Fatalf("err = %v", err)
-	}
-	if got := len(srv.requests()); got != 1 {
-		t.Errorf("sent %d requests, want 1", got)
+			var err error
+			if test.condition {
+				_, err = client.PutItem(context.Background(), "users", dynamodb.Item{"pk": dynamodb.S("u#1")},
+					dynamodb.WithCondition("attribute_not_exists(pk)"))
+			} else {
+				_, err = client.GetItem(context.Background(), "users", dynamodb.Key{"pk": dynamodb.S("k")})
+			}
+			if !errors.Is(err, test.want) {
+				t.Fatalf("err = %v, want %v", err, test.want)
+			}
+			if got := len(srv.requests()); got != 1 {
+				t.Errorf("sent %d requests, want 1", got)
+			}
+		})
 	}
 }
 

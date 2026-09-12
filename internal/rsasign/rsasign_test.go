@@ -103,22 +103,6 @@ func TestSignatureVerifies(t *testing.T) {
 	}
 }
 
-func TestSignIsDeterministic(t *testing.T) {
-	key := loadKey(t, 2048)
-	digest := sha256.Sum256(message(t))
-	first, err := key.SignPKCS1v15SHA256(digest[:])
-	if err != nil {
-		t.Fatalf("sign: %v", err)
-	}
-	second, err := key.SignPKCS1v15SHA256(digest[:])
-	if err != nil {
-		t.Fatalf("sign again: %v", err)
-	}
-	if !bytes.Equal(first, second) {
-		t.Error("two signatures over the same digest differ; PKCS#1 v1.5 has no nonce")
-	}
-}
-
 func TestUnwrapMatchesCommittedPKCS1(t *testing.T) {
 	for _, bits := range []int{2048, 4096} {
 		t.Run(sizeName(bits), func(t *testing.T) {

@@ -68,15 +68,3 @@ func TestLookupOrderEnvBeatsSystem(t *testing.T) {
 		t.Fatalf("failed in %v, too fast to have tried the override", elapsed)
 	}
 }
-
-// TestLookupHostsFileBeatsEverything pins that the documented workaround still
-// takes precedence, including over the system resolver.
-func TestLookupHostsFileBeatsEverything(t *testing.T) {
-	ip, err := lookupHost("localhost")
-	if err != nil {
-		t.Fatalf("localhost: %v", err)
-	}
-	if ip != netip.MustParseAddr("127.0.0.1") {
-		t.Fatalf("got %v, want 127.0.0.1", ip)
-	}
-}

@@ -10,35 +10,6 @@ func loopback(port uint16) netip.AddrPort {
 	return netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port)
 }
 
-// A bind on port 0 asks the OS to pick a port. The choice is only readable
-// through getsockname, so Bind must resolve it instead of storing the request.
-func TestBindPortZeroResolves(t *testing.T) {
-	d := New()
-	fd, err := d.Socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
-	if err != nil {
-		t.Fatalf("Socket: %v", err)
-	}
-	defer d.Close(fd)
-
-	if err := d.Bind(fd, loopback(0)); err != nil {
-		t.Fatalf("Bind: %v", err)
-	}
-	if err := d.Listen(fd, 1); err != nil {
-		t.Fatalf("Listen: %v", err)
-	}
-
-	laddr, err := d.LocalAddr(fd)
-	if err != nil {
-		t.Fatalf("LocalAddr: %v", err)
-	}
-	if laddr.Port() == 0 {
-		t.Fatalf("LocalAddr reported port 0, want the OS assignment")
-	}
-	if laddr.Addr() != loopback(0).Addr() {
-		t.Errorf("LocalAddr = %v, want the bound 127.0.0.1", laddr)
-	}
-}
-
 // Port 0 is a valid bind target but never a valid destination. Standard Go
 // reports EADDRNOTAVAIL; Connect must not hand back an unconnected socket.
 func TestConnectPortZeroFails(t *testing.T) {

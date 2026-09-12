@@ -379,17 +379,17 @@ func TestRouterMutable(t *testing.T) {
 	router := New()
 	router.Mutable(true)
 
-	if !router.treeMutable {
-		t.Errorf("Router.treesMutables is false")
-	}
-
 	for _, method := range httpMethods {
 		router.Handle(method, "/", handler1)
-	}
-
-	for method := range router.trees {
-		if !router.trees[method].Mutable {
-			t.Errorf("Method %d - Mutable == %v, want %v", method, router.trees[method].Mutable, true)
+		err := catchPanic(func() {
+			router.Handle(method, "/", handler2)
+		})
+		if err != nil {
+			t.Errorf("Mutable(true) before registration - Method %s - Unexpected panic: %v", method, err)
+		}
+		h, _ := router.Lookup(method, "/", nil)
+		if !sameHandler(h, handler2) {
+			t.Errorf("Mutable(true) before registration - Method %s - Handler is not updated", method)
 		}
 	}
 

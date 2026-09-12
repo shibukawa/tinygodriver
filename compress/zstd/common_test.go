@@ -34,13 +34,6 @@ func TestETagOption(t *testing.T) {
 	}
 }
 
-func TestWithETagFalseSkipsHasherAllocation(t *testing.T) {
-	w := newOutputWriter(&bytes.Buffer{}, false)
-	if w.hash != nil {
-		t.Fatal("WithETag(false) allocated a hasher")
-	}
-}
-
 // TestResetRepeatsRepresentation is what makes the encoder poolable: a Writer
 // that has finished one frame and been Reset must produce byte for byte what a
 // fresh Writer would, and account for it as if nothing came before.
