@@ -178,12 +178,39 @@ names_as_bytes:
     between the floor and the byte-compare scan, because Attr rescans the
     tag per ask; see decode_speed under open
   bench: names_bench_test.go, BenchmarkNames_*
+float_parsing:
+  asked: why strconv.ParseFloat is slow, 2026-09-25
+  measured: >
+    32 ns for "12.25", 30 for "4000", 70 for a 17-digit value, 74 for a
+    20-digit one that leaves the Eisel-Lemire path, 97 ns and two
+    allocations for a malformed one; ParseInt on "4000" takes 16
+  where_it_goes: >
+    readFloat, the syntax scanner, is 70 percent of it. It accepts signs,
+    hex floats, underscores, three exponent markers, inf and nan in several
+    spellings, and tracks truncation past 19 digits, one branchy byte at a
+    time. The conversion after it is cheap: an exact float64 division for
+    15 digits or fewer, Eisel-Lemire's 128-bit multiply up to 19, and the
+    big-decimal fallback only past that. The generality is the cost, and
+    the correctly rounded answer for every input is what it buys
+  shipped: >
+    Value.Float tries Clinger's fast path first: a plain decimal of at most
+    15 significant digits and 22 fraction digits is one exact division,
+    bit-identical to strconv, and everything else falls back. 15.6 ns
+    against 32; the typed decode moves from 98.5 to 104 MB/s, in line with
+    its 9 percent share. TestFloatFastPathAgreesWithStrconv compares
+    200,000 generated decimals bit for bit
+  fallback_cost: >
+    103 ns for a value the fast path declines, the wasted scan plus
+    strconv. Exponent forms are rare in cell values, so the average holds
 open:
   skip_speed: >
     Skip walks tokens, so it runs at scanning speed and still hashes every
     name. A raw scan that only tracks brackets and quotes would be faster for
     a large skipped subtree; not needed until measured
   decode_speed: >
-    decoding runs at 40 percent of scanning speed. Attr rescans the tag per
-    ask and ParseFloat is strconv's; both are candidates if the gap matters
+    decoding runs at 40 percent of scanning speed. Profiled 2026-09-25 on
+    the typed worksheet decode: Attr is 28 percent of the time, the token
+    scan 43, ParseFloat 9. Attr rescans the tag per ask, three asks per
+    cell, so a one-pass attribute index per element is the candidate; the
+    float parse was the smaller item and is now the fast path below
 ```

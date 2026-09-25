@@ -126,6 +126,10 @@ parse the raw bytes, `Equal` compares decoded content, `String` and
 `AppendTo` decode into new or caller-owned storage. Content with no
 ampersand, which is nearly all of it, is never copied.
 
+`Float` converts a plain decimal of at most 15 significant digits by one
+exact division, which is bit-identical to `strconv.ParseFloat` and twice as
+fast; anything else, an exponent, more digits, `inf`, goes to `strconv`.
+
 ## Lifetime
 
 Every slice the reader returns aliases its buffer and is valid until the next

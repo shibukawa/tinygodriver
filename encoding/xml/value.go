@@ -87,8 +87,14 @@ func (v Value) Uint() (uint64, error) {
 	return n, err
 }
 
-// Float parses a floating point number.
+// Float parses a floating point number. A plain decimal of at most 15
+// significant digits and at most 22 fraction digits, which is every number a
+// spreadsheet writer emits for a cell, is converted by one exact division
+// and is bit-identical to strconv's answer; anything else goes to strconv.
 func (v Value) Float() (float64, error) {
+	if f, ok := parseDecimalFast(v); ok {
+		return f, nil
+	}
 	f, err := strconv.ParseFloat(v.str(), 64)
 	if err != nil {
 		_, err = strconv.ParseFloat(string(v), 64)
@@ -162,4 +168,58 @@ func appendReference(dst, ref []byte) ([]byte, bool) {
 		return dst, false
 	}
 	return utf8.AppendRune(dst, rune(n)), true
+}
+
+// pow10 holds the powers of ten a float64 represents exactly.
+var pow10 = [...]float64{1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22}
+
+// parseDecimalFast is Clinger's fast path: with a mantissa below 2^53 and a
+// power of ten below 10^23, both operands of the division are exact and one
+// IEEE operation rounds correctly, so the result is the one strconv would
+// reach through its general scanner. It reports false for any input outside
+// that shape, an exponent, a sign other than a leading minus, or no digits,
+// and the caller falls back.
+func parseDecimalFast(s []byte) (float64, bool) {
+	i := 0
+	neg := false
+	if len(s) > 0 && s[0] == '-' {
+		neg = true
+		i = 1
+	}
+	var mant uint64
+	sig, frac, nd := 0, 0, 0
+	seenPoint := false
+	for ; i < len(s); i++ {
+		c := s[i]
+		if c >= '0' && c <= '9' {
+			nd++
+			if mant != 0 || c != '0' {
+				if sig == 15 {
+					return 0, false
+				}
+				sig++
+			}
+			mant = mant*10 + uint64(c-'0')
+			if seenPoint {
+				frac++
+			}
+			continue
+		}
+		if c == '.' && !seenPoint {
+			seenPoint = true
+			continue
+		}
+		return 0, false
+	}
+	if nd == 0 || frac >= len(pow10) {
+		return 0, false
+	}
+	f := float64(mant)
+	if frac > 0 {
+		f /= pow10[frac]
+	}
+	if neg {
+		f = -f
+	}
+	return f, true
 }
