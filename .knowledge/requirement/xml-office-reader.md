@@ -9,6 +9,9 @@ Reading an Office Open XML part through the standard library allocates for every
 state: prototype 2026-09-24 at encoding/xml, design under review
 priority: should
 proposed_by: the maintainer, asking for a SAX-style reader with a story for struct mapping
+consumer: >
+  an Office file viewer. It reads parts and produces none, so the reader is
+  the whole of this package: no writer is planned, decided 2026-09-25
 shape_of_the_input:
   parts: >
     worksheets (sheetN.xml), shared strings (sharedStrings.xml), document
@@ -122,13 +125,31 @@ import_path:
     this one is not to need the other
   alternative: encoding/xmlscan or encoding/saxml, if the alias is judged a trap
 verified:
-  host_go: 18 tests through four input shapes each, go vet clean, on go1.27.0 linux/amd64
+  host_go: 20 tests, most through four input shapes each, go vet and race clean, on go1.27.0 linux/amd64
   not_yet: tinygo test, which the container lacks; see rule:tinygo-test-constraints for what to expect
+range_over_func:
+  asked: whether Next should have an iterator form, 2026-09-25
+  shipped: >
+    Tokens and Children as iter.Seq adapters over Next and NextChild, ending
+    silently on an error that Err reports after the loop, as bufio.Scanner
+    does. The explicit calls stay the primitives
+  measured: >
+    the typed worksheet decode written as four nested Children loops in one
+    method: 64.8 MB/s and 166,002 allocations, four per cell, because the
+    inliner gives up at the third level and every deeper loop body becomes a
+    heap closure. The same decode with one Children loop per method: 89.6
+    MB/s and 0 allocations, against 98.5 MB/s for the explicit NextChild
+    loops. Tokens alone matches Next within 3 percent at 0 allocations
+  rule: >
+    one Children loop per function. It is free only while the iterator
+    inlines at the call site, and one element type per DecodeXMLFrom is the
+    design anyway. Stated in the README, and TestIteratorsAllocateNothing
+    pins the single-loop case
+  tinygo: >
+    unverified. Range over func compiles there, but whether LLVM removes the
+    closure context allocation after inlining is a question for tinygo test,
+    which the same allocation test will answer
 open:
-  writer: >
-    an append-style writer, AppendStartElement and friends into a caller
-    buffer, is the other half for a consumer that also produces parts. Not
-    designed here
   skip_speed: >
     Skip walks tokens, so it runs at scanning speed and still hashes every
     name. A raw scan that only tracks brackets and quotes would be faster for

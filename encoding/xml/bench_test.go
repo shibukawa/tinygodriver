@@ -545,3 +545,191 @@ func BenchmarkSstDecode_Reader(b *testing.B) {
 		}
 	}
 }
+
+// The same typed decode through the range-over-func surface, to price the
+// iterator against the explicit loop.
+type typedSheetIter struct {
+	Cells []typedCell
+}
+
+func (s *typedSheetIter) DecodeXMLFrom(r *Reader) error {
+	s.Cells = s.Cells[:0]
+	for name := range r.Children(r.Element()) {
+		if string(name) != "sheetData" {
+			continue
+		}
+		for range r.Children(r.Element()) {
+			for range r.Children(r.Element()) {
+				var c typedCell
+				ref, _ := r.Attr("r")
+				c.Col, c.Row = parseRef(ref)
+				if v, ok := r.Attr("s"); ok {
+					n, err := v.Int()
+					if err != nil {
+						return err
+					}
+					c.Style = int(n)
+				}
+				if v, ok := r.Attr("t"); ok {
+					c.Shared = v.Equal("s")
+				}
+				for name := range r.Children(r.Element()) {
+					if string(name) != "v" {
+						continue
+					}
+					v, err := r.ElementText()
+					if err != nil {
+						return err
+					}
+					if c.Shared {
+						n, err := v.Int()
+						if err != nil {
+							return err
+						}
+						c.SharedID = int(n)
+					} else if c.Num, err = v.Float(); err != nil {
+						return err
+					}
+				}
+				s.Cells = append(s.Cells, c)
+			}
+		}
+	}
+	return r.Err()
+}
+
+func BenchmarkSheetDecode_ReaderTypedIter(b *testing.B) {
+	b.SetBytes(int64(len(benchSheet)))
+	b.ReportAllocs()
+	src := bytes.NewReader(benchSheet)
+	r := NewReader(src, Options{})
+	var s typedSheetIter
+	for b.Loop() {
+		src.Reset(benchSheet)
+		r.Reset(src)
+		for k := range r.Tokens() {
+			if k == StartElement {
+				break
+			}
+		}
+		if err := r.Decode(&s); err != nil {
+			b.Fatal(err)
+		}
+		if len(s.Cells) != 40000 {
+			b.Fatal("cells")
+		}
+	}
+}
+
+func BenchmarkSheetScan_ReaderTokens(b *testing.B) {
+	b.SetBytes(int64(len(benchSheet)))
+	b.ReportAllocs()
+	src := bytes.NewReader(benchSheet)
+	r := NewReader(src, Options{})
+	for b.Loop() {
+		src.Reset(benchSheet)
+		r.Reset(src)
+		n := 0
+		for range r.Tokens() {
+			n++
+		}
+		if err := r.Err(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// The iterator surface again, but one Children loop per method, which is the
+// shape the Decodable design intends: each level is its own decoder.
+type typedSheetSplit struct {
+	Cells []typedCell
+}
+
+func (s *typedSheetSplit) DecodeXMLFrom(r *Reader) error {
+	s.Cells = s.Cells[:0]
+	for name := range r.Children(r.Element()) {
+		if string(name) == "sheetData" {
+			if err := s.decodeSheetData(r); err != nil {
+				return err
+			}
+		}
+	}
+	return r.Err()
+}
+
+func (s *typedSheetSplit) decodeSheetData(r *Reader) error {
+	for range r.Children(r.Element()) {
+		if err := s.decodeRow(r); err != nil {
+			return err
+		}
+	}
+	return r.Err()
+}
+
+func (s *typedSheetSplit) decodeRow(r *Reader) error {
+	for range r.Children(r.Element()) {
+		var c typedCell
+		if err := c.DecodeXMLFrom(r); err != nil {
+			return err
+		}
+		s.Cells = append(s.Cells, c)
+	}
+	return r.Err()
+}
+
+func (c *typedCell) DecodeXMLFrom(r *Reader) error {
+	ref, _ := r.Attr("r")
+	c.Col, c.Row = parseRef(ref)
+	if v, ok := r.Attr("s"); ok {
+		n, err := v.Int()
+		if err != nil {
+			return err
+		}
+		c.Style = int(n)
+	}
+	if v, ok := r.Attr("t"); ok {
+		c.Shared = v.Equal("s")
+	}
+	for name := range r.Children(r.Element()) {
+		if string(name) != "v" {
+			continue
+		}
+		v, err := r.ElementText()
+		if err != nil {
+			return err
+		}
+		if c.Shared {
+			n, err := v.Int()
+			if err != nil {
+				return err
+			}
+			c.SharedID = int(n)
+		} else if c.Num, err = v.Float(); err != nil {
+			return err
+		}
+	}
+	return r.Err()
+}
+
+func BenchmarkSheetDecode_ReaderTypedIterSplit(b *testing.B) {
+	b.SetBytes(int64(len(benchSheet)))
+	b.ReportAllocs()
+	src := bytes.NewReader(benchSheet)
+	r := NewReader(src, Options{})
+	var s typedSheetSplit
+	for b.Loop() {
+		src.Reset(benchSheet)
+		r.Reset(src)
+		for k := range r.Tokens() {
+			if k == StartElement {
+				break
+			}
+		}
+		if err := r.Decode(&s); err != nil {
+			b.Fatal(err)
+		}
+		if len(s.Cells) != 40000 {
+			b.Fatal("cells")
+		}
+	}
+}

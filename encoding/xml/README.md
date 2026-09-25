@@ -26,6 +26,8 @@ worksheet, 1.5 MB, 2000 rows of 20 cells, linux/amd64:
 | `Unmarshal` into row/cell structs | 135,890,580 | 11.2 | 839,877 |
 | **`Decodable` into the same structs** | **15,839,326** | **95.8** | 75,819 (the strings kept) |
 | **`Decodable` into typed cells** | **15,584,072** | **97.3** | **0** |
+| `Decodable` into typed cells, `Children` loops, one per method | 16,927,753 | 89.6 | 0 |
+| `Decodable` into typed cells, four `Children` loops in one method | 23,418,110 | 64.8 | 166,002 |
 
 And on a shared-strings part, 20,000 strings with entities and rich-text runs:
 
@@ -67,6 +69,30 @@ On a `StartElement` the caller can:
 
 `NextChild` is the shape of every decoder: a loop over the children with a
 switch on the name, and nothing to do for the elements it does not name.
+`Children` is the same loop as a range statement, and `Tokens` is `Next` as
+one; both end silently on an error, which `Err` reports after the loop.
+
+```go
+for name := range r.Children(r.Element()) {
+	switch string(name) {
+	case "v":
+		v, err := r.ElementText()
+		...
+	}
+}
+if err := r.Err(); err != nil {
+	return err
+}
+```
+
+**Keep one `Children` loop per function.** A range-over-func loop costs
+nothing only while the compiler inlines the iterator at the call site, and it
+stops doing that two or three nested loops in. Measured on the worksheet
+above, the typed decode written as four nested `Children` loops in one method
+allocates four times per cell and runs at 65 MB/s; the same decode with one
+loop per method allocates nothing and runs at 90 MB/s, against 98 MB/s for
+the explicit `NextChild` loops. One element type per `DecodeXMLFrom` is the
+design anyway, so the rule costs nothing to follow.
 
 ```go
 func (c *Cell) DecodeXMLFrom(r *xml.Reader) error {
@@ -129,4 +155,5 @@ and it costs a byte comparison. Namespace resolution is not performed; the
 
 ## Not in scope
 
-Writing, namespace resolution, reflection-based mapping, and DTDs.
+Writing: this reader serves a viewer, which produces nothing. Also namespace
+resolution, reflection-based mapping, and DTDs.

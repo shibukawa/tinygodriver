@@ -553,3 +553,72 @@ func TestSteadyStateReadingAllocatesNothing(t *testing.T) {
 		t.Errorf("byte-slice steady state allocates %v per document, want 0", allocs)
 	}
 }
+
+func TestIteratorsMatchTheExplicitLoops(t *testing.T) {
+	const doc = `<row r="1"><c r="A1"><v>1</v></c><c r="B1"><is><t>x</t></is></c><c r="C1"/></row>`
+	sources(t, doc, func(t *testing.T, r *Reader) {
+		var kinds []Kind
+		var names []string
+		for k := range r.Tokens() {
+			kinds = append(kinds, k)
+			if k == StartElement && r.NameIs("row") {
+				for name := range r.Children(r.Element()) {
+					names = append(names, string(name))
+					if string(name) == "c" {
+						if ref, _ := r.Attr("r"); ref.Equal("B1") {
+							// Descend and stop, leaving <t> unread.
+							for range r.Children(r.Element()) {
+								break
+							}
+						}
+					}
+				}
+				if r.Kind() != EndElement || !r.NameIs("row") {
+					t.Errorf("Children ended on %v %q", r.Kind(), r.Name())
+				}
+			}
+		}
+		if err := r.Err(); err != nil {
+			t.Fatal(err)
+			return
+		}
+		// Children consumed the row through its end tag, so Tokens saw only its start.
+		if strings.Join(names, ",") != "c,c,c" || len(kinds) != 1 {
+			t.Errorf("names %v kinds %v", names, kinds)
+		}
+	})
+	r := NewBytesReader([]byte(`<a><b></a>`), Options{})
+	n := 0
+	for range r.Tokens() {
+		n++
+	}
+	if r.Err() == nil {
+		t.Error("the iterator hid the error")
+	}
+}
+
+func TestIteratorsAllocateNothing(t *testing.T) {
+	doc := []byte(`<row r="1"><c r="A1" s="1" t="s"><v>0</v></c><c r="B1"><v>12.5</v></c></row>`)
+	src := bytes.NewReader(doc)
+	r := NewReader(src, Options{})
+	var c cell
+	run := func() {
+		src.Reset(doc)
+		r.Reset(src)
+		for k := range r.Tokens() {
+			if k != StartElement {
+				continue
+			}
+			for range r.Children(r.Element()) {
+				if err := r.Decode(&c); err != nil {
+					t.Fatal(err)
+					return
+				}
+			}
+		}
+	}
+	run()
+	if allocs := testing.AllocsPerRun(100, run); allocs != 0 {
+		t.Errorf("iterator loop allocates %v per document, want 0", allocs)
+	}
+}

@@ -45,6 +45,10 @@ elements: |
 
   type Decodable interface{ DecodeXMLFrom(r *Reader) error }
   func (r *Reader) Decode(d Decodable) error
+iterators: |
+  func (r *Reader) Tokens() iter.Seq[Kind]              // Next, ending at EOF or an error
+  func (r *Reader) Children(e Element) iter.Seq[[]byte] // NextChild, yielding each child's name
+  func (r *Reader) Err() error                          // what stopped an iterator
 values: |
   type Value []byte  // as written, entities included, aliases the buffer
   func (v Value) HasEntities() bool
@@ -110,6 +114,22 @@ decodable:
     DecodeXMLFrom, matching DecodeCBORFrom in requirement:cbor-codec-interface
     and tinybind's DecodeJSONFrom, so the three codecs read alike and a
     generator can emit all three
+iterators:
+  contract: >
+    sugar over Next and NextChild with the same positions and the same
+    skipping; they end silently on an error and Err reports it after the
+    loop. A break from Children leaves the reader on the child's start tag
+    with e still open
+  one_loop_per_function: >
+    a range-over-func body is free only while the iterator inlines at the
+    call site, and the inliner stops two or three nested loops in; see
+    range_over_func in requirement:xml-office-reader for the measurement.
+    Write one Children loop per DecodeXMLFrom, which the design asks for
+    anyway
+  why_the_name_is_yielded: >
+    switch string(name) on the loop variable is the natural body, compiles to
+    comparisons with no conversion, and needs no second call into the reader.
+    Everything else the body wants, attributes and text, it reads from r
 lifetime: >
   every slice aliases the buffer and is valid until the next call that
   advances the reader: Next, Skip, NextChild, ElementText, RawElement,
