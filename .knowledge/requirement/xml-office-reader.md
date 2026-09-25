@@ -149,6 +149,35 @@ range_over_func:
     unverified. Range over func compiles there, but whether LLVM removes the
     closure context allocation after inlining is a question for tinygo test,
     which the same allocation test will answer
+names_as_bytes:
+  asked: whether handling tag and attribute names as []byte rather than string is faster, 2026-09-25
+  measured: >
+    the same scan of the worksheet with a name switch and one attribute
+    lookup per start tag. Names converted to strings on every tag: 164 MB/s
+    and 44,000 allocations. Names compared as bytes against literals: 193
+    MB/s and none. Names interned through a map: 153 MB/s and none, slower
+    than converting because a map probe per tag costs more than a small
+    allocation. Against the 244 MB/s floor of a scan that reads no names, a
+    string switch on the bytes costs 5 percent and a switch on the name
+    hash the reader already keeps costs 3.5 percent
+  what_the_gain_is: >
+    the allocation and the copy, not the comparison. string(b) == "lit" and
+    switch string(b) compile to a length check and a memequal with no
+    conversion, so bytes compare as fast as strings do. The saving is that
+    nothing is copied for a name the caller only looks at, which in a
+    worksheet is every name
+  where_a_string_is_still_right: >
+    a name the caller keeps. A viewer keeps almost none, since the
+    vocabulary is fixed and dispatch is on it; a value it keeps is one
+    allocation, through Value.String, and that is the one it asked for
+  not_offered: >
+    a hash accessor for dispatch. It would save 1.5 percent of a scan and
+    move a collision from a mismatched-tag error into silent misdispatch
+  the_next_lever: >
+    attribute access, not names. The attribute lookup is most of the gap
+    between the floor and the byte-compare scan, because Attr rescans the
+    tag per ask; see decode_speed under open
+  bench: names_bench_test.go, BenchmarkNames_*
 open:
   skip_speed: >
     Skip walks tokens, so it runs at scanning speed and still hashes every
