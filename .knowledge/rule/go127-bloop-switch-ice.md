@@ -6,7 +6,7 @@ title: No Tagless Switch Inside b.Loop On go1.27.0
 Do not write a tagless `switch { case f(): ... }` inside a `for b.Loop() { ... }` body. go1.27.0's escape analysis crashes on it with an internal compiler error blamed on `iter/iter.go:223`, the declaration of `iter.Seq`, which names nothing in the file being compiled.
 
 ```yaml
-observed: go1.27.0 linux/amd64, encoding/xml/bench_test.go BenchmarkSstDecode_Reader, 2026-09-24
+observed: go1.27.0 linux/amd64, encoding/xmlro/bench_test.go BenchmarkSstDecode_Reader, 2026-09-24
 symptom: >
   "internal compiler error: panic: runtime error: invalid memory address or
   nil pointer dereference" at iter.go:223:6, from

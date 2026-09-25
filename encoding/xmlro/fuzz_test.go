@@ -1,6 +1,6 @@
 //go:build !tinygo
 
-package xml
+package xmlro
 
 import (
 	"bytes"

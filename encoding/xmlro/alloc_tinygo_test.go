@@ -1,6 +1,6 @@
 //go:build tinygo
 
-package xml
+package xmlro
 
 // TinyGo 0.42 allocates the closure contexts of a range-over-func loop on
 // the heap: the iterator's own and the loop body's, so the cost grows with

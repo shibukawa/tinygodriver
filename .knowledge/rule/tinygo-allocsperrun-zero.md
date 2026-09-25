@@ -15,7 +15,7 @@ allocsperrun:
     on both compilers and is unaffected by a collection in between. Mallocs
     and HeapAlloc stay zero under TinyGo, so count bytes, not objects
   shape: >
-    encoding/xml/reader_test.go allocatedBytes(runs, fn) uint64, with a
+    encoding/xmlro/reader_test.go allocatedBytes(runs, fn) uint64, with a
     test that the helper itself sees an allocation, so a future runtime
     that zeroes TotalAlloc too cannot make the suite vacuous
   consequence: >

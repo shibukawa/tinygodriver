@@ -1,9 +1,12 @@
-# encoding/xml
+# encoding/xmlro
 
-A pull reader for Office Open XML parts: worksheets, shared strings, document
+A read-only pull reader for Office Open XML parts: worksheets, shared strings, document
 bodies, styles. It reads one token at a time from an `io.Reader` or a byte
 slice, hands back names, attributes and text as slices into its own buffer,
 and allocates nothing in steady state. A caller copies only what it keeps.
+
+The name says what it is: XML, read only. It never writes, and it does not
+share a name with the standard library package it stands beside.
 
 It is a filter, not a mapper. `encoding/xml` in the standard library decodes
 any document into any struct; this package reads the handful of elements an
@@ -37,7 +40,7 @@ And on a shared-strings part, 20,000 strings with entities and rich-text runs:
 | `Unmarshal` | 15.0 | 436,058 |
 | **`Reader`, one string per `<si>`** | **200.0** | **20,000** |
 
-`go test -bench . ./encoding/xml` reproduces the table.
+`go test -bench . ./encoding/xmlro` reproduces the table.
 
 The same benchmarks under TinyGo 0.42.0 on the same machine. TinyGo does
 not count objects, so only bytes per operation are meaningful there, and
@@ -62,16 +65,16 @@ loop.
 ## Reading
 
 ```go
-r := xml.NewReader(part, xml.Options{})   // or xml.NewBytesReader(data, ...)
+r := xmlro.NewReader(part, xmlro.Options{})   // or xmlro.NewBytesReader(data, ...)
 for {
 	k, err := r.Next()
 	if err != nil {
 		return err
 	}
-	if k == xml.EOF {
+	if k == xmlro.EOF {
 		break
 	}
-	if k == xml.StartElement && r.NameIs("sheetData") {
+	if k == xmlro.StartElement && r.NameIs("sheetData") {
 		err = r.Decode(&sheet)          // sheet implements Decodable
 	}
 }
@@ -119,7 +122,7 @@ the explicit `NextChild` loops. One element type per `DecodeXMLFrom` is the
 design anyway, so the rule costs nothing to follow.
 
 ```go
-func (c *Cell) DecodeXMLFrom(r *xml.Reader) error {
+func (c *Cell) DecodeXMLFrom(r *xmlro.Reader) error {
 	ref, _ := r.Attr("r")
 	c.Col, c.Row = parseRef(ref)
 	if s, ok := r.Attr("s"); ok {
@@ -184,7 +187,7 @@ should know.
 **`string(b) == "lit"` allocates.** The Go compiler elides the conversion
 in a comparison, a `switch string(b)` and a map index; TinyGo does not, and
 copies the bytes every time. Compare names with `NameIs`, values with
-`Value.Equal`, and anything else with `xml.Equal(b, s)`, which allocates on
+`Value.Equal`, and anything else with `xmlro.Equal(b, s)`, which allocates on
 neither compiler. This package uses nothing else internally, and the
 allocation tests run under `tinygo test` to hold it there.
 
