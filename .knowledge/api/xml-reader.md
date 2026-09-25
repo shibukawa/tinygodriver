@@ -35,6 +35,10 @@ tokens: |
 
   func (r *Reader) Attr(name string) (Value, bool)
   func (r *Reader) NextAttr() (name []byte, value Value, ok bool)
+
+  func (r *Reader) Namespace() string
+  func (r *Reader) LookupNamespace(prefix []byte) (string, bool)
+  const XMLNamespace = "http://www.w3.org/XML/1998/namespace"
 elements: |
   type Element struct{ ... }  // a value: the depth of the element entered
   func (r *Reader) Element() Element
@@ -61,6 +65,7 @@ values: |
   func (v Value) Float() (float64, error)
   func (v Value) Bool() (bool, error)
   func Unescape(dst, src []byte) []byte
+  func Equal(b []byte, s string) bool  // string(b) == s without the copy TinyGo makes
 errors: |
   var ErrTruncated, ErrTooLarge, ErrTooDeep, ErrDoctype, ErrEncoding, ErrNotStart error
   type SyntaxError struct{ Offset int64; Msg string }
@@ -135,8 +140,26 @@ lifetime: >
   advances the reader: Next, Skip, NextChild, ElementText, RawElement,
   Decode. A Value kept across that boundary is a bug the race detector will
   not find, so the rule is stated on the type and on the reader
+namespaces:
+  contract: >
+    xmlns declarations are recorded as start tags are read and dropped as
+    their elements close, Skip included. Namespace resolves the current
+    element's prefix, or the default namespace for an unprefixed name;
+    LookupNamespace resolves any prefix. Both are empty when nothing binds
+    the prefix, except xml, which is always bound. Names are still matched
+    as written
+  cost: >
+    one byte comparison per attribute per start tag to notice there is no
+    declaration, and one copy per declaration, made once. Measured at no
+    change in the worksheet benchmarks
+equal:
+  why_exported: >
+    string(b) == s is the idiom the Go compiler compiles to a comparison
+    with no allocation, and TinyGo compiles to a copy of b every time. Equal
+    is the one form that allocates on neither, and a Children loop body
+    switching on the name needs it under TinyGo; see
+    rule:tinygo-string-conversion-allocates
 not_offered:
-  namespace_resolution: see requirement:xml-office-reader, namespaces
   reflection_unmarshal: see decision:xml-struct-mapping
   token_struct: >
     no Token value type. Every accessor reads the reader's current state, so

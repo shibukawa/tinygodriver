@@ -39,12 +39,16 @@ func (r *Reader) Tokens() iter.Seq[Kind] {
 // does not consume, and it ends silently on an error:
 //
 //	for name := range r.Children(r.Element()) {
-//		switch string(name) {
-//		case "v":
+//		switch {
+//		case xml.Equal(name, "v"):
 //			text, err := r.ElementText()
 //			...
 //		}
 //	}
+//
+// The name is compared through Equal rather than string(name) because the
+// conversion allocates under TinyGo; see Equal.
+//
 //	if err := r.Err(); err != nil {
 //		return err
 //	}

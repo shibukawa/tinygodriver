@@ -7,14 +7,33 @@ import (
 	"unsafe"
 )
 
+// Equal reports whether b holds exactly the bytes of s. It allocates on
+// neither compiler: the Go compiler elides the conversion in string(b) == s,
+// but TinyGo does not, and copies b for every comparison, every switch on
+// string(b) and every map index by string(b). Compare names through this,
+// NameIs or Value.Equal when the binary is a TinyGo one.
+func Equal(b []byte, s string) bool {
+	return len(b) == len(s) && unsafe.String(unsafe.SliceData(b), len(b)) == s
+}
+
 // Value is attribute or text content as it appears in the document, entities
 // included. Its methods decode on demand, so content with no ampersand,
 // which is nearly all of it, is never copied. A Value aliases the reader's
 // buffer and is valid until the reader advances.
+//
+// Decoding replaces the five predefined entities and numeric character
+// references, and normalizes line ends as XML requires of text: "\r\n" and a
+// lone "\r" both become "\n". The further whitespace normalization XML
+// applies to attribute values, tabs and newlines to spaces, is not done;
+// Office writers escape such characters as references, which decoding
+// leaves as the characters they name.
 type Value []byte
 
-// HasEntities reports whether decoding would change the bytes.
-func (v Value) HasEntities() bool { return bytes.IndexByte(v, '&') >= 0 }
+// HasEntities reports whether decoding would change the bytes: an entity or
+// character reference, or a carriage return.
+func (v Value) HasEntities() bool {
+	return bytes.IndexByte(v, '&') >= 0 || bytes.IndexByte(v, '\r') >= 0
+}
 
 // AppendTo appends the decoded content to dst.
 func (v Value) AppendTo(dst []byte) []byte {
@@ -35,10 +54,10 @@ func (v Value) String() string {
 // Equal reports whether the decoded content equals s.
 func (v Value) Equal(s string) bool {
 	if !v.HasEntities() {
-		return string(v) == s
+		return Equal(v, s)
 	}
 	var tmp [64]byte
-	return string(Unescape(tmp[:0], v)) == s
+	return Equal(Unescape(tmp[:0], v), s)
 }
 
 // EqualFold reports whether the decoded content equals s under ASCII case
@@ -105,27 +124,37 @@ func (v Value) Float() (float64, error) {
 // Bool parses an xsd:boolean: "1", "0", "true" or "false". Office attributes
 // use the digits.
 func (v Value) Bool() (bool, error) {
-	switch string(v) {
-	case "1", "true":
+	switch {
+	case Equal(v, "1"), Equal(v, "true"):
 		return true, nil
-	case "0", "false":
+	case Equal(v, "0"), Equal(v, "false"):
 		return false, nil
 	}
 	return false, &strconv.NumError{Func: "Bool", Num: string(v), Err: strconv.ErrSyntax}
 }
 
 // Unescape appends src to dst with the five predefined entities and numeric
-// character references decoded. A reference it does not recognize is copied
-// as written.
+// character references decoded and line ends normalized to "\n". A
+// reference it does not recognize is copied as written.
 func Unescape(dst, src []byte) []byte {
 	for {
 		i := bytes.IndexByte(src, '&')
-		if i < 0 {
+		j := bytes.IndexByte(src, '\r')
+		if i < 0 && j < 0 {
 			return append(dst, src...)
+		}
+		if i < 0 || (j >= 0 && j < i) {
+			dst = append(dst, src[:j]...)
+			dst = append(dst, '\n')
+			src = src[j+1:]
+			if len(src) > 0 && src[0] == '\n' {
+				src = src[1:]
+			}
+			continue
 		}
 		dst = append(dst, src[:i]...)
 		src = src[i:]
-		j := bytes.IndexByte(src, ';')
+		j = bytes.IndexByte(src, ';')
 		if j < 0 || j > 10 {
 			dst = append(dst, '&')
 			src = src[1:]
@@ -142,16 +171,16 @@ func Unescape(dst, src []byte) []byte {
 }
 
 func appendReference(dst, ref []byte) ([]byte, bool) {
-	switch string(ref) {
-	case "lt":
+	switch {
+	case Equal(ref, "lt"):
 		return append(dst, '<'), true
-	case "gt":
+	case Equal(ref, "gt"):
 		return append(dst, '>'), true
-	case "amp":
+	case Equal(ref, "amp"):
 		return append(dst, '&'), true
-	case "apos":
+	case Equal(ref, "apos"):
 		return append(dst, '\''), true
-	case "quot":
+	case Equal(ref, "quot"):
 		return append(dst, '"'), true
 	}
 	if len(ref) < 2 || ref[0] != '#' {

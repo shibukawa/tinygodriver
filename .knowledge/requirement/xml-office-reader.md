@@ -109,14 +109,17 @@ well_formedness:
     nothing to fetch
 namespaces:
   decided: >
-    not resolved. Names are matched as written, prefix included, and the xmlns
-    attributes are attributes. Office generators emit canonical prefixes, and
-    a strict-conformance document that rebinds them is not one this reader is
-    for
-  if_it_becomes_needed: >
-    a fixed-size prefix stack pushed at each start tag that carries xmlns
-    attributes, resolved by a scan from the top. No map, no allocation per
-    element, opt-in by an option
+    names are matched as written, prefix included, since Office generators
+    emit canonical prefixes. Resolution is available on demand for the
+    caller that must tell a default-namespace name from a bare one, or one
+    vocabulary from another under the same prefix, which a viewer reading
+    files from several generators eventually meets
+  shipped: >
+    2026-09-25. Declarations are recorded as start tags are read, one string
+    copy each, and dropped as elements close, Skip included. Namespace and
+    LookupNamespace scan the stack from the top. Always on: the cost per
+    start tag is one byte comparison per attribute, unmeasurable in the
+    worksheet benchmarks
 struct_mapping: decision:xml-struct-mapping
 surface: api:xml-reader
 import_path:
@@ -149,9 +152,12 @@ range_over_func:
     design anyway. Stated in the README, and TestIteratorsAllocateNothing
     pins the single-loop case
   tinygo: >
-    unverified. Range over func compiles there, but whether LLVM removes the
-    closure context allocation after inlining is a question for tinygo test,
-    which the same allocation test will answer
+    it compiles and runs, and allocates the closure contexts TinyGo puts on
+    the heap, once per loop: 32 bytes for a Tokens loop with an empty body,
+    80 for a Children loop with one, 208 for a loop whose body decodes a
+    cell, since the body's captures are in the context. Pinned in
+    alloc_tinygo_test.go. A decoder that must not allocate under TinyGo
+    writes the explicit loop
 names_as_bytes:
   asked: whether handling tag and attribute names as []byte rather than string is faster, 2026-09-25
   measured: >
@@ -181,6 +187,11 @@ names_as_bytes:
     between the floor and the byte-compare scan, because Attr rescans the
     tag per ask; see decode_speed under open
   bench: names_bench_test.go, BenchmarkNames_*
+  tinygo_caveat: >
+    the whole argument that bytes compare as fast as strings rests on the Go
+    compiler eliding the conversion, and TinyGo does not: string(b) == s
+    there is a 16-byte allocation per comparison. Equal is the exported
+    form that allocates on neither, and the package uses nothing else
 declared_attributes:
   asked: >
     whether handing the reader the wanted attribute names before Next, so

@@ -73,7 +73,7 @@ var sinkF float64
 
 func BenchmarkFloat_Strconv(b *testing.B) {
 	b.ReportAllocs()
-	for b.Loop() {
+	for range b.N {
 		sinkF, _ = strconv.ParseFloat("12.25", 64)
 	}
 }
@@ -81,7 +81,7 @@ func BenchmarkFloat_Strconv(b *testing.B) {
 func BenchmarkFloat_Value(b *testing.B) {
 	b.ReportAllocs()
 	v := Value("12.25")
-	for b.Loop() {
+	for range b.N {
 		sinkF, _ = v.Float()
 	}
 }
@@ -89,7 +89,7 @@ func BenchmarkFloat_Value(b *testing.B) {
 func BenchmarkFloat_ValueFallback(b *testing.B) {
 	b.ReportAllocs()
 	v := Value("1.2345678901234567890")
-	for b.Loop() {
+	for range b.N {
 		sinkF, _ = v.Float()
 	}
 }

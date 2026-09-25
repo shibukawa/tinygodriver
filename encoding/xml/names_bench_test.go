@@ -16,7 +16,7 @@ func BenchmarkNames_StringPerTag(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for k := range r.Tokens() {
@@ -37,7 +37,7 @@ func BenchmarkNames_BytesCompare(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		n := 0
@@ -70,7 +70,7 @@ func BenchmarkNames_Interned(b *testing.B) {
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
 	intern := map[string]string{}
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for k := range r.Tokens() {
@@ -97,7 +97,7 @@ func BenchmarkNames_UnsafeStringView(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		n := 0
@@ -135,7 +135,7 @@ func BenchmarkNames_HashSwitch(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		n := 0
@@ -161,7 +161,7 @@ func BenchmarkNames_Floor(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for range r.Tokens() {

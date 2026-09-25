@@ -39,6 +39,26 @@ And on a shared-strings part, 20,000 strings with entities and rich-text runs:
 
 `go test -bench . ./encoding/xml` reproduces the table.
 
+The same benchmarks under TinyGo 0.42.0 on the same machine. TinyGo does
+not count objects, so only bytes per operation are meaningful there, and
+the standard library's figures are its own encoding/xml compiled by TinyGo:
+
+| | MB/s | B/op |
+|---|---|---|
+| `Decoder.RawToken` loop | 22.3 | 24,485,984 |
+| **`Reader.Next` loop** | **139.7** | **1,017** |
+| **`Reader.Skip` over the sheet body** | **294.0** | 632 |
+| `Unmarshal` into row/cell structs | 9.1 | 53,796,336 |
+| **`Decodable` into typed cells** | **84.2** | 63,939 |
+| `Decodable` into typed cells, `Children` loops, one per method | 50.2 | 10,688,355 |
+| `Unmarshal` of shared strings | 15.3 | 25,600,384 |
+| **`Reader`, one string per `<si>`** | **133.6** | 803,004 |
+
+The bytes on the `Reader` rows are the buffer and the kept strings, sized
+once; the iterator row shows what the per-loop closure contexts cost when
+the loop is per cell, which is why a TinyGo decoder writes the explicit
+loop.
+
 ## Reading
 
 ```go
@@ -141,12 +161,45 @@ call that advances the reader: `Next`, `Skip`, `NextChild`, `ElementText`,
 `RawElement`, `Decode`. Keep a name or a value by copying it. The reader is
 not safe for concurrent use; reuse one across parts with `Reset`.
 
-## What is matched
+## Names and namespaces
 
 Names are matched as written, prefix included. Office XML generators emit
 canonical prefixes (`w:`, `a:`, `r:`, `mc:`), so `NameIs("w:p")` is enough,
-and it costs a byte comparison. Namespace resolution is not performed; the
-`xmlns` attributes are ordinary attributes a caller can read.
+and it costs a byte comparison.
+
+The reader also tracks `xmlns` declarations, so a caller that must tell one
+vocabulary from another can ask. `Namespace` returns the namespace of the
+current element's name, through its prefix or the default namespace;
+`LookupNamespace` resolves any prefix at the current position. Declarations
+are copied once, when they are read, which for an Office part is a handful
+of strings at the root; every start tag after that pays one byte comparison
+per attribute to notice there are none. The `xmlns` attributes stay visible
+through `NextAttr` as well.
+
+## On TinyGo
+
+Everything above holds under TinyGo 0.42, with two differences a caller
+should know.
+
+**`string(b) == "lit"` allocates.** The Go compiler elides the conversion
+in a comparison, a `switch string(b)` and a map index; TinyGo does not, and
+copies the bytes every time. Compare names with `NameIs`, values with
+`Value.Equal`, and anything else with `xml.Equal(b, s)`, which allocates on
+neither compiler. This package uses nothing else internally, and the
+allocation tests run under `tinygo test` to hold it there.
+
+**The iterators allocate per loop.** TinyGo puts the closure contexts of a
+range-over-func loop on the heap, the iterator's and the loop body's, so
+the cost grows with what the body captures: 32 bytes for a `Tokens` loop
+with an empty body, 80 for a `Children` loop with one, about 200 for a
+loop whose body decodes into a struct. It is paid once per loop rather than
+per iteration, and the tests pin the numbers. The explicit `Next` and
+`NextChild` calls the iterators wrap allocate nothing, so a decoder that
+must not allocate on TinyGo writes the explicit loop.
+
+`testing.AllocsPerRun` returns zero under TinyGo whatever the code does, so
+the allocation tests here measure `runtime.MemStats.TotalAlloc` instead, and
+`testing.B.Loop` is unimplemented there, so the benchmarks use `b.N`.
 
 ## Bounds and refusals
 
@@ -155,13 +208,22 @@ and it costs a byte comparison. Namespace resolution is not performed; the
 - Nesting stops at `Options.MaxDepth` (1024 by default).
 - A `DOCTYPE` is refused unless `Options.AllowDoctype` is set; an internal
   subset is refused always. There are no external entities to expand.
-- An XML declaration naming an encoding other than UTF-8 is `ErrEncoding`.
+- An XML declaration naming an encoding other than UTF-8, or a UTF-16 byte
+  order mark, is `ErrEncoding`.
 - An end tag that does not match its start tag is a `SyntaxError`, checked by
-  a 32-bit hash of the name, which is the whole of the well-formedness
-  checking done. This is a reader for documents a writer produced, not a
-  validator.
+  a 32-bit hash of the name; a malformed attribute is one too. That is the
+  whole of the well-formedness checking done: duplicate attributes, the
+  characters a name or text may contain, and UTF-8 validity are not checked.
+  This is a reader for documents a writer produced, not a validator.
+- Decoding normalizes line ends in text (`\r\n` and `\r` to `\n`) as XML
+  requires; it does not apply the further whitespace normalization XML
+  specifies for attribute values.
+
+Three fuzz targets check that no input panics the reader and that a document
+reads identically as a byte slice and as a one-byte-at-a-time stream through
+a buffer too small for any token.
 
 ## Not in scope
 
-Writing: this reader serves a viewer, which produces nothing. Also namespace
-resolution, reflection-based mapping, and DTDs.
+Writing: this reader serves a viewer, which produces nothing. Also
+reflection-based mapping, DTDs, and encodings other than UTF-8.

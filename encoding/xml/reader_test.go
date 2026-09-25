@@ -4,10 +4,36 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/iotest"
 )
+
+// allocatedBytes reports how many heap bytes runs calls of fn allocated.
+// It reads runtime.MemStats.TotalAlloc rather than using
+// testing.AllocsPerRun, which TinyGo implements as a constant zero, so a
+// test built on it passes there without measuring anything.
+func allocatedBytes(runs int, fn func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range runs {
+		fn()
+	}
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// The helper itself must see an allocation, or every test built on it is
+// vacuous.
+func TestAllocatedBytesSeesAllocations(t *testing.T) {
+	var keep [][]byte
+	n := allocatedBytes(10, func() { keep = append(keep, make([]byte, 1000)) })
+	if n < 10000 {
+		t.Errorf("10 allocations of 1000 bytes measured as %d bytes", n)
+	}
+	_ = keep
+}
 
 type tok struct {
 	kind Kind
@@ -527,8 +553,8 @@ func TestSteadyStateReadingAllocatesNothing(t *testing.T) {
 		}
 	}
 	run() // size the buffers
-	if allocs := testing.AllocsPerRun(100, run); allocs != 0 {
-		t.Errorf("steady state allocates %v per document, want 0", allocs)
+	if n := allocatedBytes(100, run); n != 0 {
+		t.Errorf("steady state allocates %d bytes over 100 documents, want 0", n)
 	}
 	rb := NewBytesReader(doc, Options{})
 	runBytes := func() {
@@ -547,8 +573,8 @@ func TestSteadyStateReadingAllocatesNothing(t *testing.T) {
 		}
 	}
 	runBytes()
-	if allocs := testing.AllocsPerRun(100, runBytes); allocs != 0 {
-		t.Errorf("byte-slice steady state allocates %v per document, want 0", allocs)
+	if n := allocatedBytes(100, runBytes); n != 0 {
+		t.Errorf("byte-slice steady state allocates %d bytes over 100 documents, want 0", n)
 	}
 }
 
@@ -616,8 +642,8 @@ func TestIteratorsAllocateNothing(t *testing.T) {
 		}
 	}
 	run()
-	if allocs := testing.AllocsPerRun(100, run); allocs != 0 {
-		t.Errorf("iterator loop allocates %v per document, want 0", allocs)
+	if n, budget := allocatedBytes(100, run)/100, iterBudget.decodeLoop; n > budget {
+		t.Errorf("iterator loop allocates %d bytes per document, budget %d", n, budget)
 	}
 }
 
@@ -662,5 +688,118 @@ func TestSkipLeavesTheReaderOnTheEndTag(t *testing.T) {
 	r.Next()
 	if err := r.Skip(); !errors.Is(err, ErrTooDeep) {
 		t.Errorf("depth bound inside Skip: %v", err)
+	}
+}
+
+func TestNamespacesResolveByPrefixAndDefault(t *testing.T) {
+	const doc = `<worksheet xmlns="http://main" xmlns:r="http://rel" xmlns:x14ac="http://x14ac">` +
+		`<sheetData><row x14ac:dyDescent="0.25"><c r="A1"/></row></sheetData>` +
+		`<inner xmlns="http://other" xmlns:r="http://rel2"><a/></inner>` +
+		`<after/><xml:lang/></worksheet>`
+	sources(t, doc, func(t *testing.T, r *Reader) {
+		got := map[string]string{}
+		for k := range r.Tokens() {
+			if k != StartElement {
+				continue
+			}
+			got[string(r.Name())] = r.Namespace()
+			if r.NameIs("row") {
+				if uri, ok := r.LookupNamespace([]byte("x14ac")); !ok || uri != "http://x14ac" {
+					t.Errorf("x14ac resolved to %q %v", uri, ok)
+				}
+				if uri, ok := r.LookupNamespace([]byte("r")); !ok || uri != "http://rel" {
+					t.Errorf("r resolved to %q %v", uri, ok)
+				}
+				if _, ok := r.LookupNamespace([]byte("nope")); ok {
+					t.Error("an unbound prefix resolved")
+				}
+			}
+			if r.NameIs("a") {
+				if uri, _ := r.LookupNamespace([]byte("r")); uri != "http://rel2" {
+					t.Errorf("inside <inner>, r resolved to %q", uri)
+				}
+			}
+			if r.NameIs("after") {
+				if uri, _ := r.LookupNamespace([]byte("r")); uri != "http://rel" {
+					t.Errorf("after <inner>, r resolved to %q, the inner binding leaked", uri)
+				}
+			}
+		}
+		if err := r.Err(); err != nil {
+			t.Fatal(err)
+			return
+		}
+		want := map[string]string{
+			"worksheet": "http://main", "sheetData": "http://main", "row": "http://main", "c": "http://main",
+			"inner": "http://other", "a": "http://other", "after": "http://main", "xml:lang": XMLNamespace,
+		}
+		for name, uri := range want {
+			if got[name] != uri {
+				t.Errorf("%s: namespace %q, want %q", name, got[name], uri)
+			}
+		}
+	})
+	// A skipped subtree's declarations do not leak either.
+	r := NewBytesReader([]byte(`<a xmlns:p="1"><b xmlns:p="2"><c/></b><d/></a>`), Options{})
+	r.Next()
+	r.Next()
+	if err := r.Skip(); err != nil {
+		t.Fatal(err)
+		return
+	}
+	r.Next()
+	if uri, _ := r.LookupNamespace([]byte("p")); uri != "1" {
+		t.Errorf("after Skip, p resolved to %q", uri)
+	}
+	r.ResetBytes([]byte(`<a/>`))
+	r.Next()
+	if r.Namespace() != "" {
+		t.Errorf("no declaration gave %q", r.Namespace())
+	}
+}
+
+func TestLineEndsAreNormalizedInDecodedContent(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"a\r\nb", "a\nb"},
+		{"a\rb", "a\nb"},
+		{"a\r\r\nb\r", "a\n\nb\n"},
+		{"a\nb", "a\nb"},
+		{"&#13;", "\r"},
+		{"x&amp;\r\ny", "x&\ny"},
+	} {
+		v := Value(c.in)
+		if got := v.String(); got != c.want {
+			t.Errorf("String(%q) = %q, want %q", c.in, got, c.want)
+		}
+		if !v.Equal(c.want) {
+			t.Errorf("Equal(%q, %q) is false", c.in, c.want)
+		}
+	}
+	if Value("a\nb").HasEntities() {
+		t.Error("a bare newline needs no decoding")
+	}
+	r := NewBytesReader([]byte("<t>line\r\nnext</t>"), Options{})
+	r.Next()
+	v, err := r.ElementText()
+	if err != nil || string(v) != "line\nnext" {
+		t.Errorf("ElementText: %q %v", v, err)
+	}
+}
+
+func TestUTF16InputIsRefused(t *testing.T) {
+	for _, bom := range []string{"\xFF\xFE", "\xFE\xFF"} {
+		r := NewBytesReader([]byte(bom+"<\x00a\x00/\x00>\x00"), Options{})
+		if _, err := r.Next(); !errors.Is(err, ErrEncoding) {
+			t.Errorf("%x: got %v, want ErrEncoding", bom, err)
+		}
+	}
+	r := NewReader(iotest.OneByteReader(strings.NewReader("\xFF\xFE<a/>")), Options{BufferSize: 4})
+	if _, err := r.Next(); !errors.Is(err, ErrEncoding) {
+		t.Errorf("one byte at a time: got %v, want ErrEncoding", err)
+	}
+	// 0xFF alone is not a byte order mark; it is malformed text the reader passes through.
+	r = NewBytesReader([]byte("\xFF<a/>"), Options{})
+	if k, err := r.Next(); err != nil || k != Text {
+		t.Errorf("a lone 0xFF: %v %v", k, err)
 	}
 }

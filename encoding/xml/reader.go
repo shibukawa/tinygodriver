@@ -99,6 +99,19 @@ func (e *SyntaxError) Error() string {
 // a value, held on the caller's stack.
 type Element struct{ depth int }
 
+// nsEntry is one xmlns declaration, in scope while the element at depth is
+// open. The strings are copies: a declaration is made at the root and read
+// at every depth below it, long after the buffer has moved on.
+type nsEntry struct {
+	depth  int
+	prefix string
+	uri    string
+}
+
+// XMLNamespace is the namespace the xml prefix is bound to without a
+// declaration.
+const XMLNamespace = "http://www.w3.org/XML/1998/namespace"
+
 // attrEntry locates one attribute of the current start tag. The offsets are
 // relative to the token start, which compaction keeps in step, so an entry
 // stays valid for as long as the token does.
@@ -138,6 +151,7 @@ type Reader struct {
 	textLen  int
 	attrs    []attrEntry // attributes of the current StartElement, offsets relative to tokStart
 	attrPos  int         // NextAttr cursor into attrs
+	ns       []nsEntry   // namespace declarations in scope, innermost last
 
 	scratch []byte
 	opts    Options
@@ -177,6 +191,7 @@ func (r *Reader) init(opts Options) {
 	r.opts = opts
 	r.stack = make([]uint32, 0, 32)
 	r.attrs = make([]attrEntry, 0, 8)
+	r.ns = make([]nsEntry, 0, 8)
 }
 
 func (r *Reader) reset() {
@@ -230,7 +245,7 @@ func (r *Reader) Offset() int64 { return r.base + int64(r.r) }
 func (r *Reader) Name() []byte { return r.buf[r.nameOff : r.nameOff+r.nameLen] }
 
 // NameIs reports whether the qualified name equals s. It allocates nothing.
-func (r *Reader) NameIs(s string) bool { return string(r.Name()) == s }
+func (r *Reader) NameIs(s string) bool { return Equal(r.Name(), s) }
 
 // LocalName returns the name after the prefix, or the whole name when there
 // is none.
@@ -389,6 +404,9 @@ func (r *Reader) next() (Kind, error) {
 		r.pendingEnd = false
 		r.depth--
 		r.stack = r.stack[:r.depth]
+		if len(r.ns) > 0 {
+			r.popNamespaces()
+		}
 		return EndElement, nil
 	}
 	r.nameLen, r.attrLen, r.textLen, r.attrPos = 0, 0, 0, 0
@@ -424,13 +442,24 @@ func (r *Reader) next() (Kind, error) {
 }
 
 func (r *Reader) scanText() (Kind, error) {
-	if r.base == 0 && r.r == 0 && r.buf[0] == 0xEF {
-		// A byte order mark is not text.
-		if ok, err := r.avail(2); err != nil {
-			return None, err
-		} else if ok && r.buf[1] == 0xBB && r.buf[2] == 0xBF {
-			r.r += 3
-			return r.next()
+	if r.base == 0 && r.r == 0 {
+		switch r.buf[0] {
+		case 0xEF:
+			// A UTF-8 byte order mark is not text.
+			if ok, err := r.avail(2); err != nil {
+				return None, err
+			} else if ok && r.buf[1] == 0xBB && r.buf[2] == 0xBF {
+				r.r += 3
+				return r.next()
+			}
+		case 0xFF, 0xFE:
+			// A UTF-16 byte order mark, in either order, is a document this
+			// reader does not decode.
+			if ok, err := r.avail(1); err != nil {
+				return None, err
+			} else if ok && r.buf[1] == r.buf[0]^1 {
+				return None, ErrEncoding
+			}
 		}
 	}
 	i, err := r.indexByte(1, '<')
@@ -640,7 +669,65 @@ func (r *Reader) scanStartTag() (Kind, error) {
 	r.stack = append(r.stack, h)
 	r.depth++
 	r.pendingEnd = selfClose
+	r.declareNamespaces()
 	return StartElement, nil
+}
+
+// declareNamespaces records the xmlns attributes of the start tag just
+// scanned. Almost every tag has none, and the check is one byte per
+// attribute.
+func (r *Reader) declareNamespaces() {
+	for i := range r.attrs {
+		e := &r.attrs[i]
+		if e.nameLen < 5 || r.buf[r.tokStart+int(e.nameOff)] != 'x' {
+			continue
+		}
+		name := r.attrName(*e)
+		if !Equal(name[:5], "xmlns") {
+			continue
+		}
+		var prefix string
+		if len(name) > 5 {
+			if name[5] != ':' {
+				continue
+			}
+			prefix = string(name[6:])
+		}
+		r.ns = append(r.ns, nsEntry{depth: r.depth, prefix: prefix, uri: r.attrValue(*e).String()})
+	}
+}
+
+// popNamespaces drops the declarations of elements no longer open.
+func (r *Reader) popNamespaces() {
+	for n := len(r.ns); n > 0 && r.ns[n-1].depth > r.depth; n-- {
+		r.ns = r.ns[:n-1]
+	}
+}
+
+// Namespace returns the namespace the current element's name is in: the
+// one its prefix is bound to, or the default namespace when it has none.
+// It is empty when nothing binds the prefix. Names are still matched as
+// written; this is for the caller that must tell one vocabulary from
+// another under the same prefix, or an unprefixed name under a default
+// namespace from one without.
+func (r *Reader) Namespace() string {
+	uri, _ := r.LookupNamespace(r.Prefix())
+	return uri
+}
+
+// LookupNamespace returns the namespace bound to prefix at the current
+// position. An empty prefix looks up the default namespace. The xml prefix
+// is always bound.
+func (r *Reader) LookupNamespace(prefix []byte) (string, bool) {
+	for i := len(r.ns) - 1; i >= 0; i-- {
+		if Equal(prefix, r.ns[i].prefix) {
+			return r.ns[i].uri, r.ns[i].uri != ""
+		}
+	}
+	if Equal(prefix, "xml") {
+		return XMLNamespace, true
+	}
+	return "", false
 }
 
 func (r *Reader) scanEndTag() (Kind, error) {
@@ -679,6 +766,9 @@ func (r *Reader) scanEndTag() (Kind, error) {
 	r.r += i + 1
 	r.depth--
 	r.stack = r.stack[:r.depth]
+	if len(r.ns) > 0 {
+		r.popNamespaces()
+	}
 	return EndElement, nil
 }
 
@@ -700,7 +790,7 @@ func (r *Reader) scanProcInst() (Kind, error) {
 	r.nameOff, r.nameLen = r.r+2, end-2
 	r.attrOff, r.attrLen = r.r+end, i-end
 	r.textOff, r.textLen = r.attrOff, r.attrLen
-	isDecl := string(r.Name()) == "xml"
+	isDecl := Equal(r.Name(), "xml")
 	r.r += i + 2
 	if isDecl {
 		if enc, ok := r.declAttr("encoding"); ok && !enc.EqualFold("utf-8") {
@@ -715,7 +805,7 @@ func (r *Reader) hasPrefix(s string) (bool, error) {
 	if err != nil || !ok {
 		return false, err
 	}
-	return string(r.buf[r.r:r.r+len(s)]) == s, nil
+	return Equal(r.buf[r.r:r.r+len(s)], s), nil
 }
 
 func (r *Reader) scanBang() (Kind, error) {
@@ -788,7 +878,7 @@ func (r *Reader) attrName(e attrEntry) []byte {
 func (r *Reader) Attr(name string) (Value, bool) {
 	for i := range r.attrs {
 		e := &r.attrs[i]
-		if int(e.nameLen) == len(name) && string(r.attrName(*e)) == name {
+		if int(e.nameLen) == len(name) && Equal(r.attrName(*e), name) {
 			return r.attrValue(*e), true
 		}
 	}
@@ -843,7 +933,7 @@ func (r *Reader) declAttr(name string) (Value, bool) {
 		if j < 0 {
 			return nil, false
 		}
-		if string(n) == name {
+		if Equal(n, name) {
 			return Value(b[i : i+j]), true
 		}
 		i += j + 1
@@ -992,6 +1082,9 @@ func (r *Reader) skipRaw() error {
 	}
 	r.depth--
 	r.stack = r.stack[:r.depth]
+	if len(r.ns) > 0 {
+		r.popNamespaces()
+	}
 	return nil
 }
 
@@ -1001,7 +1094,7 @@ func (r *Reader) hasPrefixAt(rel int, s string) (bool, error) {
 	if err != nil || !ok {
 		return false, err
 	}
-	return string(r.buf[r.r+rel:r.r+rel+len(s)]) == s, nil
+	return Equal(r.buf[r.r+rel:r.r+rel+len(s)], s), nil
 }
 
 // NextChild advances to the next direct child element of e and reports

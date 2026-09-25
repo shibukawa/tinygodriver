@@ -69,7 +69,7 @@ var (
 func BenchmarkSheetScan_StdRawToken(b *testing.B) {
 	b.SetBytes(int64(len(benchSheet)))
 	b.ReportAllocs()
-	for b.Loop() {
+	for range b.N {
 		d := stdxml.NewDecoder(bytes.NewReader(benchSheet))
 		for {
 			if _, err := d.RawToken(); err != nil {
@@ -82,7 +82,7 @@ func BenchmarkSheetScan_StdRawToken(b *testing.B) {
 func BenchmarkSheetScan_StdToken(b *testing.B) {
 	b.SetBytes(int64(len(benchSheet)))
 	b.ReportAllocs()
-	for b.Loop() {
+	for range b.N {
 		d := stdxml.NewDecoder(bytes.NewReader(benchSheet))
 		for {
 			if _, err := d.Token(); err != nil {
@@ -97,7 +97,7 @@ func BenchmarkSheetScan_Reader(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for {
@@ -116,7 +116,7 @@ func BenchmarkSheetScan_BytesReader(b *testing.B) {
 	b.SetBytes(int64(len(benchSheet)))
 	b.ReportAllocs()
 	r := NewBytesReader(benchSheet, Options{})
-	for b.Loop() {
+	for range b.N {
 		r.ResetBytes(benchSheet)
 		for {
 			k, err := r.Next()
@@ -136,7 +136,7 @@ func BenchmarkSheetSkipBody_Reader(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for {
@@ -179,7 +179,7 @@ type stdCell struct {
 func BenchmarkSheetDecode_StdUnmarshal(b *testing.B) {
 	b.SetBytes(int64(len(benchSheet)))
 	b.ReportAllocs()
-	for b.Loop() {
+	for range b.N {
 		var ws stdWorksheet
 		if err := stdxml.Unmarshal(benchSheet, &ws); err != nil {
 			b.Fatal(err)
@@ -292,7 +292,7 @@ func BenchmarkSheetDecode_Reader(b *testing.B) {
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
 	var ws worksheet
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for {
@@ -421,7 +421,7 @@ func BenchmarkSheetDecode_ReaderTyped(b *testing.B) {
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
 	var s typedSheet
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for {
@@ -457,7 +457,7 @@ type stdSst struct {
 func BenchmarkSstDecode_StdUnmarshal(b *testing.B) {
 	b.SetBytes(int64(len(benchSst)))
 	b.ReportAllocs()
-	for b.Loop() {
+	for range b.N {
 		var sst stdSst
 		if err := stdxml.Unmarshal(benchSst, &sst); err != nil {
 			b.Fatal(err)
@@ -477,7 +477,7 @@ func BenchmarkSstDecode_Reader(b *testing.B) {
 	r := NewReader(src, Options{})
 	strs := make([]string, 0, 20000)
 	var scratch []byte
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSst)
 		r.Reset(src)
 		strs = strs[:0]
@@ -555,7 +555,7 @@ type typedSheetIter struct {
 func (s *typedSheetIter) DecodeXMLFrom(r *Reader) error {
 	s.Cells = s.Cells[:0]
 	for name := range r.Children(r.Element()) {
-		if string(name) != "sheetData" {
+		if !Equal(name, "sheetData") {
 			continue
 		}
 		for range r.Children(r.Element()) {
@@ -574,7 +574,7 @@ func (s *typedSheetIter) DecodeXMLFrom(r *Reader) error {
 					c.Shared = v.Equal("s")
 				}
 				for name := range r.Children(r.Element()) {
-					if string(name) != "v" {
+					if !Equal(name, "v") {
 						continue
 					}
 					v, err := r.ElementText()
@@ -604,7 +604,7 @@ func BenchmarkSheetDecode_ReaderTypedIter(b *testing.B) {
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
 	var s typedSheetIter
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for k := range r.Tokens() {
@@ -626,7 +626,7 @@ func BenchmarkSheetScan_ReaderTokens(b *testing.B) {
 	b.ReportAllocs()
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		n := 0
@@ -648,7 +648,7 @@ type typedSheetSplit struct {
 func (s *typedSheetSplit) DecodeXMLFrom(r *Reader) error {
 	s.Cells = s.Cells[:0]
 	for name := range r.Children(r.Element()) {
-		if string(name) == "sheetData" {
+		if Equal(name, "sheetData") {
 			if err := s.decodeSheetData(r); err != nil {
 				return err
 			}
@@ -691,7 +691,7 @@ func (c *typedCell) DecodeXMLFrom(r *Reader) error {
 		c.Shared = v.Equal("s")
 	}
 	for name := range r.Children(r.Element()) {
-		if string(name) != "v" {
+		if !Equal(name, "v") {
 			continue
 		}
 		v, err := r.ElementText()
@@ -717,7 +717,7 @@ func BenchmarkSheetDecode_ReaderTypedIterSplit(b *testing.B) {
 	src := bytes.NewReader(benchSheet)
 	r := NewReader(src, Options{})
 	var s typedSheetSplit
-	for b.Loop() {
+	for range b.N {
 		src.Reset(benchSheet)
 		r.Reset(src)
 		for k := range r.Tokens() {
