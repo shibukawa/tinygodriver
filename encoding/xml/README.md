@@ -75,8 +75,6 @@ On a `StartElement` the caller can:
 switch on the name, and nothing to do for the elements it does not name.
 `Children` is the same loop as a range statement, and `Tokens` is `Next` as
 one; both end silently on an error, which `Err` reports after the loop.
-The numbers in the iterator rows above are from before attribute indexing
-and are kept for the ratio between them, not the absolute.
 
 ```go
 for name := range r.Children(r.Element()) {
@@ -95,8 +93,8 @@ if err := r.Err(); err != nil {
 nothing only while the compiler inlines the iterator at the call site, and it
 stops doing that two or three nested loops in. Measured on the worksheet
 above, the typed decode written as four nested `Children` loops in one method
-allocates four times per cell and runs at 65 MB/s; the same decode with one
-loop per method allocates nothing and runs at 90 MB/s, against 98 MB/s for
+allocates four times per cell and runs at 74 MB/s; the same decode with one
+loop per method allocates nothing and runs at 122 MB/s, against 132 MB/s for
 the explicit `NextChild` loops. One element type per `DecodeXMLFrom` is the
 design anyway, so the rule costs nothing to follow.
 
