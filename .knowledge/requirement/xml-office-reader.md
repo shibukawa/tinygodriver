@@ -75,11 +75,14 @@ borrow_not_copy:
     since numbers carry no entities; Equal compares decoded content; String
     and AppendTo decode into new or caller-owned storage. Text with no
     ampersand, which is nearly all of it, is never copied
-  attributes_are_not_tabulated: >
-    Attr scans the raw tag for the name asked. An Office element carries two
-    to four attributes, and a caller asks for one or two, so a scan per ask
-    beats building a table per element. NextAttr enumerates for the caller
-    that wants all of them
+  attributes_are_indexed_in_the_scan: >
+    the start-tag scanner records where each attribute's name and value sit
+    as it passes them, into a table of four ints per attribute reused across
+    tags, and Attr compares the asked name against those few entries. This
+    replaced a rescan of the tag per ask on 2026-09-25: the typed decode
+    went from 104 to 132 MB/s and a pure scan of the same worksheet from 245
+    to 228, since the scanner now parses attribute structure for every
+    element whether or not one is asked. Skip does not pay it, see below
 streaming:
   what: >
     one buffer over an io.Reader, compacted when a token straddles its end,
@@ -125,7 +128,7 @@ import_path:
     this one is not to need the other
   alternative: encoding/xmlscan or encoding/saxml, if the alias is judged a trap
 verified:
-  host_go: 20 tests, most through four input shapes each, go vet and race clean, on go1.27.0 linux/amd64
+  host_go: 22 tests, most through four input shapes each, go vet and race clean, on go1.27.0 linux/amd64
   not_yet: tinygo test, which the container lacks; see rule:tinygo-test-constraints for what to expect
 range_over_func:
   asked: whether Next should have an iterator form, 2026-09-25
@@ -178,6 +181,29 @@ names_as_bytes:
     between the floor and the byte-compare scan, because Attr rescans the
     tag per ask; see decode_speed under open
   bench: names_bench_test.go, BenchmarkNames_*
+declared_attributes:
+  asked: >
+    whether handing the reader the wanted attribute names before Next, so
+    the scanner decides in the pass, would be faster, 2026-09-25
+  what_it_would_save: >
+    the name comparison in Attr, and the indexing of elements nobody asks
+    about. Measured ceiling for the first, attribute values read by slot
+    with no comparison at all: 143 MB/s against 133 by name, 7 percent,
+    which a real declared API would not reach since the scanner must still
+    match names to fill the slots. The second is the 7 percent between the
+    indexed scan and the old one, paid only on elements that are tokenized
+    and not asked, and a viewer skips those as subtrees, where Skip already
+    pays nothing
+  what_it_would_cost: >
+    a per-element-type declaration, worksheet c wants r s t, that every
+    decoder registers before reading and that the scanner consults by name
+    hash on every start tag; a second way to reach an attribute; and a
+    coupling between the reader and the schema that the Decodable design
+    keeps out of the reader
+  decided: >
+    not offered. The rescan was the cost, and indexing in the scan removed
+    it without the caller declaring anything; what a declaration could add
+    is under 7 percent at the ceiling
 float_parsing:
   asked: why strconv.ParseFloat is slow, 2026-09-25
   measured: >
@@ -204,13 +230,17 @@ float_parsing:
     strconv. Exponent forms are rare in cell values, so the average holds
 open:
   skip_speed: >
-    Skip walks tokens, so it runs at scanning speed and still hashes every
-    name. A raw scan that only tracks brackets and quotes would be faster for
-    a large skipped subtree; not needed until measured
+    shipped 2026-09-25: Skip scans raw, tracking tags, quotes, comments,
+    CDATA and depth, with no attribute indexing and no end-tag matching
+    inside the subtree, and leaves the reader on the end tag with Name set.
+    259 MB/s over the worksheet body against 228 for the token scan; the
+    gap is small because the tags are small and the per-byte tag walk
+    dominates either way. What it buys is that the attribute indexing above
+    is never paid for a subtree nobody reads
   decode_speed: >
     decoding runs at 40 percent of scanning speed. Profiled 2026-09-25 on
-    the typed worksheet decode: Attr is 28 percent of the time, the token
-    scan 43, ParseFloat 9. Attr rescans the tag per ask, three asks per
-    cell, so a one-pass attribute index per element is the candidate; the
-    float parse was the smaller item and is now the fast path below
+    the typed worksheet decode: Attr was 28 percent of the time, the token
+    scan 43, ParseFloat 9. The attribute index in the scan and the float
+    fast path took both; the decode now runs at 132 MB/s, 58 percent of the
+    scan, and the remaining cost is the token scan itself
 ```

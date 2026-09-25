@@ -20,21 +20,22 @@ worksheet, 1.5 MB, 2000 rows of 20 cells, linux/amd64:
 
 | | ns/op | MB/s | allocs/op |
 |---|---|---|---|
-| `Decoder.RawToken` loop | 59,324,868 | 25.6 | 364,082 |
-| `Decoder.Token` loop | 73,473,628 | 20.7 | 548,110 |
-| **`Reader.Next` loop** | **6,190,569** | **245.0** | **0** |
-| `Unmarshal` into row/cell structs | 135,890,580 | 11.2 | 839,877 |
-| **`Decodable` into the same structs** | **15,839,326** | **95.8** | 75,819 (the strings kept) |
-| **`Decodable` into typed cells** | **15,584,072** | **97.3** | **0** |
-| `Decodable` into typed cells, `Children` loops, one per method | 16,927,753 | 89.6 | 0 |
-| `Decodable` into typed cells, four `Children` loops in one method | 23,418,110 | 64.8 | 166,002 |
+| `Decoder.RawToken` loop | 59,363,299 | 25.6 | 364,082 |
+| `Decoder.Token` loop | 79,809,134 | 19.0 | 548,110 |
+| **`Reader.Next` loop** | **6,953,800** | **218.1** | **0** |
+| **`Reader.Skip` over the sheet body** | **5,943,703** | **255.2** | **0** |
+| `Unmarshal` into row/cell structs | 131,751,407 | 11.5 | 839,876 |
+| **`Decodable` into the same structs** | **12,616,078** | **120.2** | 75,782 (the strings kept) |
+| **`Decodable` into typed cells** | **11,471,666** | **132.2** | **0** |
+| `Decodable` into typed cells, `Children` loops, one per method | 12,397,310 | 122.4 | 0 |
+| `Decodable` into typed cells, four `Children` loops in one method | 20,500,697 | 74.0 | 166,002 |
 
 And on a shared-strings part, 20,000 strings with entities and rich-text runs:
 
 | | MB/s | allocs/op |
 |---|---|---|
 | `Unmarshal` | 15.0 | 436,058 |
-| **`Reader`, one string per `<si>`** | **203.3** | **20,000** |
+| **`Reader`, one string per `<si>`** | **200.0** | **20,000** |
 
 `go test -bench . ./encoding/xml` reproduces the table.
 
@@ -59,18 +60,23 @@ for {
 On a `StartElement` the caller can:
 
 - read `Name`, `LocalName`, `Prefix`, and any attribute with `Attr(name)` or
-  all of them with `NextAttr`;
+  all of them with `NextAttr`. The attributes were indexed as the tag was
+  scanned, so `Attr` compares against the element's few names and copies
+  nothing;
 - walk the direct children with `NextChild`, which skips whatever the caller
   does not consume;
 - take the element's own text with `ElementText`, entities decoded, children
   skipped;
 - capture the whole subtree, tags included, with `RawElement`;
-- discard the subtree with `Skip`.
+- discard the subtree with `Skip`, which scans it raw: tags, quotes and
+  depth only, no attribute indexing and no end-tag matching inside.
 
 `NextChild` is the shape of every decoder: a loop over the children with a
 switch on the name, and nothing to do for the elements it does not name.
 `Children` is the same loop as a range statement, and `Tokens` is `Next` as
 one; both end silently on an error, which `Err` reports after the loop.
+The numbers in the iterator rows above are from before attribute indexing
+and are kept for the ratio between them, not the absolute.
 
 ```go
 for name := range r.Children(r.Element()) {

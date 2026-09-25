@@ -99,6 +99,14 @@ func (e *SyntaxError) Error() string {
 // a value, held on the caller's stack.
 type Element struct{ depth int }
 
+// attrEntry locates one attribute of the current start tag. The offsets are
+// relative to the token start, which compaction keeps in step, so an entry
+// stays valid for as long as the token does.
+type attrEntry struct {
+	nameOff, nameLen int32
+	valOff, valLen   int32
+}
+
 // Reader reads XML tokens from an io.Reader or from a byte slice.
 //
 // Every slice a Reader returns aliases its buffer and is valid until the next
@@ -124,11 +132,12 @@ type Reader struct {
 	tokStart int // where the current token began
 	nameOff  int
 	nameLen  int
-	attrOff  int // raw attribute region of a StartElement
+	attrOff  int // raw attribute region of a StartElement or ProcInst
 	attrLen  int
 	textOff  int // body of Text, CData, Comment, ProcInst, Directive
 	textLen  int
-	attrPos  int // NextAttr cursor, relative to attrOff
+	attrs    []attrEntry // attributes of the current StartElement, offsets relative to tokStart
+	attrPos  int         // NextAttr cursor into attrs
 
 	scratch []byte
 	opts    Options
@@ -167,6 +176,7 @@ func (r *Reader) init(opts Options) {
 	}
 	r.opts = opts
 	r.stack = make([]uint32, 0, 32)
+	r.attrs = make([]attrEntry, 0, 8)
 }
 
 func (r *Reader) reset() {
@@ -178,6 +188,7 @@ func (r *Reader) reset() {
 	r.pendingEnd = false
 	r.stack = r.stack[:0]
 	r.tokStart, r.nameOff, r.nameLen, r.attrOff, r.attrLen, r.textOff, r.textLen, r.attrPos = 0, 0, 0, 0, 0, 0, 0, 0
+	r.attrs = r.attrs[:0]
 	r.scratch = r.scratch[:0]
 	r.err = nil
 }
@@ -381,6 +392,7 @@ func (r *Reader) next() (Kind, error) {
 		return EndElement, nil
 	}
 	r.nameLen, r.attrLen, r.textLen, r.attrPos = 0, 0, 0, 0
+	r.attrs = r.attrs[:0]
 	ok, err := r.avail(0)
 	if err != nil {
 		return None, err
@@ -487,10 +499,16 @@ func (r *Reader) scanStartTag() (Kind, error) {
 	attrStart := end
 	i := end
 	selfClose := false
-	var quote byte
-scan:
+	// One pass over the attributes, recording where each name and value
+	// sits, so a later Attr is a lookup in a short table rather than a
+	// rescan of the tag. The scanner reads every byte of the tag anyway.
+	//
+	// The loop indexes the buffered window directly and refills only when
+	// it runs off the end; every offset is relative to r.r, which a refill
+	// keeps, so the parse resumes where it stopped.
+	buf := r.buf[r.r:r.w]
 	for {
-		if r.r+i >= r.w {
+		for i >= len(buf) {
 			ok, err := r.more()
 			if err != nil {
 				return None, err
@@ -498,39 +516,116 @@ scan:
 			if !ok {
 				return None, ErrTruncated
 			}
-			continue
+			buf = r.buf[r.r:r.w]
 		}
-		c := r.buf[r.r+i]
-		if quote != 0 {
-			if c == quote {
-				quote = 0
-			}
+		c := buf[i]
+		if isSpace(c) {
 			i++
 			continue
 		}
-		switch c {
-		case '"', '\'':
-			quote = c
-		case '>':
-			break scan
-		case '/':
-			ok, err := r.avail(i + 1)
-			if err != nil {
-				return None, err
+		if c == '>' {
+			break
+		}
+		if c == '/' {
+			for i+1 >= len(buf) {
+				ok, err := r.more()
+				if err != nil {
+					return None, err
+				}
+				if !ok {
+					return None, ErrTruncated
+				}
+				buf = r.buf[r.r:r.w]
 			}
-			if !ok {
-				return None, ErrTruncated
-			}
-			if r.buf[r.r+i+1] != '>' {
+			if buf[i+1] != '>' {
 				return None, r.syntax(i, "unexpected '/' in tag")
 			}
 			selfClose = true
 			i++
-			break scan
-		case '<':
-			return None, r.syntax(i, "unexpected '<' in tag")
+			break
+		}
+		// Attribute name, then optional space, '=', optional space, a quote.
+		ns := i
+		for {
+			if i >= len(buf) {
+				ok, err := r.more()
+				if err != nil {
+					return None, err
+				}
+				if !ok {
+					return None, ErrTruncated
+				}
+				buf = r.buf[r.r:r.w]
+				continue
+			}
+			c = buf[i]
+			if !nameByte[c] {
+				break
+			}
+			i++
+		}
+		if i == ns {
+			return None, r.syntax(i, "unexpected byte in tag")
+		}
+		ne := i
+		for {
+			if i >= len(buf) {
+				ok, err := r.more()
+				if err != nil {
+					return None, err
+				}
+				if !ok {
+					return None, ErrTruncated
+				}
+				buf = r.buf[r.r:r.w]
+				continue
+			}
+			c = buf[i]
+			if !isSpace(c) {
+				break
+			}
+			i++
+		}
+		if c != '=' {
+			return None, r.syntax(i, "attribute without a value")
 		}
 		i++
+		for {
+			if i >= len(buf) {
+				ok, err := r.more()
+				if err != nil {
+					return None, err
+				}
+				if !ok {
+					return None, ErrTruncated
+				}
+				buf = r.buf[r.r:r.w]
+				continue
+			}
+			c = buf[i]
+			if !isSpace(c) {
+				break
+			}
+			i++
+		}
+		if c != '"' && c != '\'' {
+			return None, r.syntax(i, "attribute value is not quoted")
+		}
+		i++
+		vs := i
+		ve, err := r.indexByte(i, c)
+		if err != nil {
+			return None, err
+		}
+		if ve < 0 {
+			return None, ErrTruncated
+		}
+		buf = r.buf[r.r:r.w]
+		r.attrs = append(r.attrs, attrEntry{
+			nameOff: int32(ns), nameLen: int32(ne - ns),
+			valOff: int32(vs), valLen: int32(ve - vs),
+		})
+		i = ve + 1
 	}
 	attrEnd := i
 	if selfClose {
@@ -608,7 +703,7 @@ func (r *Reader) scanProcInst() (Kind, error) {
 	isDecl := string(r.Name()) == "xml"
 	r.r += i + 2
 	if isDecl {
-		if enc, ok := r.Attr("encoding"); ok && !enc.EqualFold("utf-8") {
+		if enc, ok := r.declAttr("encoding"); ok && !enc.EqualFold("utf-8") {
 			return None, ErrEncoding
 		}
 	}
@@ -677,93 +772,236 @@ func (r *Reader) scanBang() (Kind, error) {
 
 func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
 
-// attrs is the raw attribute region of the current StartElement.
-func (r *Reader) attrs() []byte { return r.buf[r.attrOff : r.attrOff+r.attrLen] }
+// attrValue returns the value of entry e.
+func (r *Reader) attrValue(e attrEntry) Value {
+	return Value(r.buf[r.tokStart+int(e.valOff) : r.tokStart+int(e.valOff+e.valLen)])
+}
 
-// scanAttr parses one attribute of b starting at i. It returns the name, the
-// raw value and the offset after the value; ok is false at the end of the
-// region. A malformed attribute is recorded as the reader's error.
-func (r *Reader) scanAttr(b []byte, i int) (name []byte, value Value, next int, ok bool) {
-	for i < len(b) && isSpace(b[i]) {
-		i++
-	}
-	if i >= len(b) {
-		return nil, nil, i, false
-	}
-	ns := i
-	for i < len(b) && b[i] != '=' && !isSpace(b[i]) {
-		i++
-	}
-	name = b[ns:i]
-	for i < len(b) && isSpace(b[i]) {
-		i++
-	}
-	if i >= len(b) || b[i] != '=' || len(name) == 0 {
-		r.err = &SyntaxError{Offset: r.base + int64(r.attrOff+i), Msg: "attribute without a value"}
-		return nil, nil, i, false
-	}
-	i++
-	for i < len(b) && isSpace(b[i]) {
-		i++
-	}
-	if i >= len(b) || (b[i] != '"' && b[i] != '\'') {
-		r.err = &SyntaxError{Offset: r.base + int64(r.attrOff+i), Msg: "attribute value is not quoted"}
-		return nil, nil, i, false
-	}
-	q := b[i]
-	i++
-	vs := i
-	j := bytes.IndexByte(b[i:], q)
-	if j < 0 {
-		// scanStartTag balanced the quotes, so this cannot happen.
-		r.err = &SyntaxError{Offset: r.base + int64(r.attrOff+i), Msg: "unterminated attribute value"}
-		return nil, nil, i, false
-	}
-	return name, Value(b[vs : vs+j]), vs + j + 1, true
+// attrName returns the name of entry e.
+func (r *Reader) attrName(e attrEntry) []byte {
+	return r.buf[r.tokStart+int(e.nameOff) : r.tokStart+int(e.nameOff+e.nameLen)]
 }
 
 // Attr returns the value of the named attribute of the current StartElement,
-// as written. It scans the tag each time, which for the handful of attributes
-// an Office element carries is cheaper than building a table.
+// as written. The start tag was indexed as it was scanned, so this is a
+// comparison against each of the element's few names, not a rescan.
 func (r *Reader) Attr(name string) (Value, bool) {
-	b := r.attrs()
-	i := 0
-	for {
-		n, v, next, ok := r.scanAttr(b, i)
-		if !ok {
-			return nil, false
+	for i := range r.attrs {
+		e := &r.attrs[i]
+		if int(e.nameLen) == len(name) && string(r.attrName(*e)) == name {
+			return r.attrValue(*e), true
 		}
-		if string(n) == name {
-			return v, true
-		}
-		i = next
 	}
+	return nil, false
 }
 
 // NextAttr returns the attributes of the current StartElement in document
 // order, one per call, and reports false after the last. It restarts on each
 // new token.
 func (r *Reader) NextAttr() (name []byte, value Value, ok bool) {
-	name, value, r.attrPos, ok = r.scanAttr(r.attrs(), r.attrPos)
-	return name, value, ok
+	if r.attrPos >= len(r.attrs) {
+		return nil, nil, false
+	}
+	e := r.attrs[r.attrPos]
+	r.attrPos++
+	return r.attrName(e), r.attrValue(e), true
+}
+
+// declAttr finds a pseudo-attribute of the XML declaration, whose body is
+// small, in the buffer, and only ever asked one question.
+func (r *Reader) declAttr(name string) (Value, bool) {
+	b := r.buf[r.attrOff : r.attrOff+r.attrLen]
+	i := 0
+	for {
+		for i < len(b) && isSpace(b[i]) {
+			i++
+		}
+		if i >= len(b) {
+			return nil, false
+		}
+		ns := i
+		for i < len(b) && b[i] != '=' && !isSpace(b[i]) {
+			i++
+		}
+		n := b[ns:i]
+		for i < len(b) && isSpace(b[i]) {
+			i++
+		}
+		if i >= len(b) || b[i] != '=' {
+			return nil, false
+		}
+		i++
+		for i < len(b) && isSpace(b[i]) {
+			i++
+		}
+		if i >= len(b) || (b[i] != '"' && b[i] != '\'') {
+			return nil, false
+		}
+		q := b[i]
+		i++
+		j := bytes.IndexByte(b[i:], q)
+		if j < 0 {
+			return nil, false
+		}
+		if string(n) == name {
+			return Value(b[i : i+j]), true
+		}
+		i += j + 1
+	}
 }
 
 // Skip advances from a StartElement to its matching EndElement, reading
-// nothing in between.
+// nothing in between. It scans the subtree raw, tracking only tags, quotes
+// and depth, so it neither indexes attributes nor checks that end tags
+// match inside what it skips; the reader is left on the end tag with Name
+// set, exactly as Next would leave it.
 func (r *Reader) Skip() error {
 	if r.kind != StartElement {
 		return ErrNotStart
 	}
-	d := r.depth
-	for {
-		k, err := r.Next()
+	if r.err != nil {
+		return r.err
+	}
+	if r.pendingEnd {
+		_, err := r.Next()
+		return err
+	}
+	if err := r.skipRaw(); err != nil {
+		r.err = err
+		r.kind = None
+		return err
+	}
+	r.kind = EndElement
+	return nil
+}
+
+func (r *Reader) skipRaw() error {
+	r.attrs = r.attrs[:0]
+	r.attrLen, r.textLen, r.attrPos = 0, 0, 0
+	d := 1
+	for d > 0 {
+		i, err := r.indexByte(0, '<')
 		if err != nil {
 			return err
 		}
-		if k == EndElement && r.depth == d-1 {
-			return nil
+		if i < 0 {
+			return ErrTruncated
+		}
+		if ok, err := r.avail(i + 1); err != nil {
+			return err
+		} else if !ok {
+			return ErrTruncated
+		}
+		switch r.buf[r.r+i+1] {
+		case '/':
+			end, _, err := r.scanName(i + 2)
+			if err != nil {
+				return err
+			}
+			j, err := r.indexByte(end, '>')
+			if err != nil {
+				return err
+			}
+			if j < 0 {
+				return ErrTruncated
+			}
+			d--
+			if d == 0 {
+				r.tokStart = r.r + i
+				r.nameOff, r.nameLen = r.r+i+2, end-i-2
+			}
+			r.r += j + 1
+		case '!':
+			var term string
+			var skip int
+			if ok, err := r.hasPrefixAt(i, "<!--"); err != nil {
+				return err
+			} else if ok {
+				term, skip = "-->", 4
+			} else if ok, err := r.hasPrefixAt(i, "<![CDATA["); err != nil {
+				return err
+			} else if ok {
+				term, skip = "]]>", 9
+			} else {
+				return r.syntax(i, "unexpected '<!'")
+			}
+			j, err := r.index(i+skip, term)
+			if err != nil {
+				return err
+			}
+			if j < 0 {
+				return ErrTruncated
+			}
+			r.r += j + len(term)
+		case '?':
+			j, err := r.index(i+2, "?>")
+			if err != nil {
+				return err
+			}
+			if j < 0 {
+				return ErrTruncated
+			}
+			r.r += j + 2
+		default:
+			// A start tag: find its end, honouring quotes.
+			j := i + 1
+			var quote byte
+			selfClose := false
+			buf := r.buf[r.r:r.w]
+		tag:
+			for {
+				for j >= len(buf) {
+					ok, err := r.more()
+					if err != nil {
+						return err
+					}
+					if !ok {
+						return ErrTruncated
+					}
+					buf = r.buf[r.r:r.w]
+				}
+				c := buf[j]
+				if quote != 0 {
+					if c == quote {
+						quote = 0
+					}
+					j++
+					continue
+				}
+				switch c {
+				case '"', '\'':
+					quote = c
+				case '>':
+					if j > 0 && buf[j-1] == '/' {
+						selfClose = true
+					}
+					break tag
+				case '<':
+					return r.syntax(j, "unexpected '<' in tag")
+				}
+				j++
+			}
+			if !selfClose {
+				d++
+				if r.depth+d > r.opts.MaxDepth {
+					return ErrTooDeep
+				}
+			}
+			r.r += j + 1
 		}
 	}
+	r.depth--
+	r.stack = r.stack[:r.depth]
+	return nil
+}
+
+// hasPrefixAt reports whether the input at rel starts with s.
+func (r *Reader) hasPrefixAt(rel int, s string) (bool, error) {
+	ok, err := r.avail(rel + len(s) - 1)
+	if err != nil || !ok {
+		return false, err
+	}
+	return string(r.buf[r.r+rel:r.r+rel+len(s)]) == s, nil
 }
 
 // NextChild advances to the next direct child element of e and reports

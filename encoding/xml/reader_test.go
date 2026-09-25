@@ -292,10 +292,12 @@ func TestMalformedInputIsRefused(t *testing.T) {
 		{"<a></b>", nil, "does not match"},
 		{"</a>", nil, "no open element"},
 		{"<a></a", ErrTruncated, ""},
-		{"<a x=1/>", nil, ""}, // detected lazily, see below
+		{"<a x=1/>", nil, "not quoted"},
+		{"<a x/>", nil, "without a value"},
+		{"<a =\"1\"/>", nil, "unexpected byte"},
 		{"<a></a >", nil, ""},
 		{"<a/ >", nil, "unexpected '/'"},
-		{"<a><b</a>", nil, "unexpected '<'"},
+		{"<a><b</a>", nil, "unexpected byte in tag"},
 		{"<!DOCTYPE a><a/>", ErrDoctype, ""},
 		{"<!-- x", ErrTruncated, ""},
 		{"<![CDATA[ x", ErrTruncated, ""},
@@ -327,14 +329,10 @@ func TestMalformedInputIsRefused(t *testing.T) {
 	}
 }
 
-func TestAMalformedAttributeSurfacesOnTheNextAdvance(t *testing.T) {
+func TestAMalformedAttributeIsRefusedAtTheTag(t *testing.T) {
 	r := NewBytesReader([]byte(`<a x=1></a>`), Options{})
-	r.Next()
-	if _, ok := r.Attr("x"); ok {
-		t.Error("unquoted value accepted")
-	}
 	if _, err := r.Next(); err == nil {
-		t.Error("the malformed attribute was not reported")
+		t.Error("unquoted value accepted")
 	}
 }
 
@@ -620,5 +618,49 @@ func TestIteratorsAllocateNothing(t *testing.T) {
 	run()
 	if allocs := testing.AllocsPerRun(100, run); allocs != 0 {
 		t.Errorf("iterator loop allocates %v per document, want 0", allocs)
+	}
+}
+
+func TestSkipLeavesTheReaderOnTheEndTag(t *testing.T) {
+	const doc = `<a><b x=">" y='/>'><c/><!-- </b> --><![CDATA[</b>]]><?pi </b> ?>text<d>deep</d></b><e/></a>`
+	sources(t, doc, func(t *testing.T, r *Reader) {
+		r.Next()
+		a := r.Element()
+		if ok, _ := r.NextChild(a); !ok || !r.NameIs("b") {
+			t.Fatalf("expected <b>, got %v %q", r.Kind(), r.Name())
+			return
+		}
+		if err := r.Skip(); err != nil {
+			t.Fatal(err)
+			return
+		}
+		if r.Kind() != EndElement || !r.NameIs("b") || r.Depth() != 1 {
+			t.Errorf("after Skip: %v %q depth %d", r.Kind(), r.Name(), r.Depth())
+		}
+		if ok, _ := r.NextChild(a); !ok || !r.NameIs("e") {
+			t.Errorf("after the skipped subtree expected <e>, got %q", r.Name())
+		}
+		if err := r.Skip(); err != nil || r.Kind() != EndElement || !r.NameIs("e") {
+			t.Errorf("skipping a self-closing element: %v %v %q", err, r.Kind(), r.Name())
+		}
+	})
+	for _, bad := range []string{"<a><b></c></a>", "<a><b>", "<a><b <c/></b></a>", "<a><!bogus></a>"} {
+		r := NewBytesReader([]byte(bad), Options{})
+		r.Next()
+		if bad == "<a><b></c></a>" {
+			// A mismatch inside the skipped subtree is not detected, by design.
+			if err := r.Skip(); err != nil {
+				t.Errorf("%q: %v", bad, err)
+			}
+			continue
+		}
+		if err := r.Skip(); err == nil {
+			t.Errorf("%q: skipped without error", bad)
+		}
+	}
+	r := NewBytesReader([]byte(strings.Repeat("<a>", 5)+strings.Repeat("</a>", 5)), Options{MaxDepth: 4})
+	r.Next()
+	if err := r.Skip(); !errors.Is(err, ErrTooDeep) {
+		t.Errorf("depth bound inside Skip: %v", err)
 	}
 }

@@ -41,7 +41,7 @@ elements: |
   func (r *Reader) NextChild(e Element) (bool, error)
   func (r *Reader) ElementText() (Value, error)
   func (r *Reader) RawElement() ([]byte, error)
-  func (r *Reader) Skip() error
+  func (r *Reader) Skip() error  // raw scan of the subtree, no indexing, no matching inside
 
   type Decodable interface{ DecodeXMLFrom(r *Reader) error }
   func (r *Reader) Decode(d Decodable) error
