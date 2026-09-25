@@ -3,10 +3,10 @@ id: api:xml-reader
 type: api
 title: XML Reader API
 ---
-Public surface of `encoding/xml`: a pull reader over a stream or a byte slice, a borrowed Value with decode-on-demand accessors, and the Decodable interface that a struct reads itself through.
+Public surface of `encoding/xmlro`: a pull reader over a stream or a byte slice, a borrowed Value with decode-on-demand accessors, and the Decodable interface that a struct reads itself through.
 
 ```yaml
-package: github.com/shibukawa/tinygodriver/encoding/xml
+package: github.com/shibukawa/tinygodriver/encoding/xmlro
 state: prototype, under review with requirement:xml-office-reader
 construction: |
   func NewReader(src io.Reader, opts Options) *Reader
@@ -70,12 +70,12 @@ errors: |
   var ErrTruncated, ErrTooLarge, ErrTooDeep, ErrDoctype, ErrEncoding, ErrNotStart error
   type SyntaxError struct{ Offset int64; Msg string }
 usage: |
-  r := xml.NewReader(part, xml.Options{})
+  r := xmlro.NewReader(part, xmlro.Options{})
   for {
       k, err := r.Next()
       if err != nil { return err }
-      if k == xml.EOF { break }
-      if k == xml.StartElement && r.NameIs("sheetData") {
+      if k == xmlro.EOF { break }
+      if k == xmlro.StartElement && r.NameIs("sheetData") {
           if err := r.Decode(&sheet); err != nil { return err }
       }
   }

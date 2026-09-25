@@ -1,8 +1,8 @@
-package xml
+package xmlro
 
 import (
 	"bytes"
-	stdxml "encoding/xml"
+	"encoding/xml"
 	"strconv"
 	"testing"
 )
@@ -70,7 +70,7 @@ func BenchmarkSheetScan_StdRawToken(b *testing.B) {
 	b.SetBytes(int64(len(benchSheet)))
 	b.ReportAllocs()
 	for range b.N {
-		d := stdxml.NewDecoder(bytes.NewReader(benchSheet))
+		d := xml.NewDecoder(bytes.NewReader(benchSheet))
 		for {
 			if _, err := d.RawToken(); err != nil {
 				break
@@ -83,7 +83,7 @@ func BenchmarkSheetScan_StdToken(b *testing.B) {
 	b.SetBytes(int64(len(benchSheet)))
 	b.ReportAllocs()
 	for range b.N {
-		d := stdxml.NewDecoder(bytes.NewReader(benchSheet))
+		d := xml.NewDecoder(bytes.NewReader(benchSheet))
 		for {
 			if _, err := d.Token(); err != nil {
 				break
@@ -160,8 +160,8 @@ func BenchmarkSheetSkipBody_Reader(b *testing.B) {
 // reflection and by a hand-written Decodable.
 
 type stdWorksheet struct {
-	XMLName stdxml.Name `xml:"worksheet"`
-	Rows    []stdRow    `xml:"sheetData>row"`
+	XMLName xml.Name `xml:"worksheet"`
+	Rows    []stdRow `xml:"sheetData>row"`
 }
 
 type stdRow struct {
@@ -181,7 +181,7 @@ func BenchmarkSheetDecode_StdUnmarshal(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
 		var ws stdWorksheet
-		if err := stdxml.Unmarshal(benchSheet, &ws); err != nil {
+		if err := xml.Unmarshal(benchSheet, &ws); err != nil {
 			b.Fatal(err)
 		}
 		if len(ws.Rows) != 2000 {
@@ -445,7 +445,7 @@ func BenchmarkSheetDecode_ReaderTyped(b *testing.B) {
 // Shared strings: text heavy, with entities and rich-text runs.
 
 type stdSst struct {
-	XMLName stdxml.Name `xml:"sst"`
+	XMLName xml.Name `xml:"sst"`
 	SI      []struct {
 		T string `xml:"t"`
 		R []struct {
@@ -459,7 +459,7 @@ func BenchmarkSstDecode_StdUnmarshal(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
 		var sst stdSst
-		if err := stdxml.Unmarshal(benchSst, &sst); err != nil {
+		if err := xml.Unmarshal(benchSst, &sst); err != nil {
 			b.Fatal(err)
 		}
 		if len(sst.SI) != 20000 {

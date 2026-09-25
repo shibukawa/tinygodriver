@@ -32,7 +32,7 @@ and tests between both compilers.
 | [`cloud/aws`](./cloud/aws) | `github.com/shibukawa/tinygodriver/cloud/aws` | SigV4 signing and credentials, shared by the AWS clients |
 | [`cloud/google`](./cloud/google) | `github.com/shibukawa/tinygodriver/cloud/google` | Google credentials and bearer tokens, RSA signed by the OS on TinyGo |
 | [`jwt`](./jwt) | `github.com/shibukawa/tinygodriver/jwt` | Bounded signed JWT subset, HS256 and RS256 |
-| [`encoding/xml`](./encoding/xml) | `github.com/shibukawa/tinygodriver/encoding/xml` | Allocation-free pull reader for Office Open XML parts, ten times `encoding/xml` |
+| [`encoding/xmlro`](./encoding/xmlro) | `github.com/shibukawa/tinygodriver/encoding/xmlro` | Read-only, allocation-free pull reader for Office Open XML parts, ten times `encoding/xml` |
 
 ## Quick start
 
@@ -128,7 +128,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`nosql/datastore`](./nosql/datastore/README.md): values, keys, queries, conditional writes and contention
 - [`cloud/aws`](./cloud/aws/README.md): signing another AWS service with this signer
 - [`cloud/google`](./cloud/google/README.md): token sources, clock skew, and where the RSA code goes
-- [`encoding/xml`](./encoding/xml/README.md): what is borrowed, what is bounded, and the measured gap to the standard library
+- [`encoding/xmlro`](./encoding/xmlro/README.md): what is borrowed, what is bounded, and the measured gap to the standard library
 
 - **IPv4 only** (matches TinyGo’s net port).
 - **HTTPS client (`https`)**: Network.framework on macOS, Schannel on Windows,

@@ -1,4 +1,4 @@
-// Package xml is a pull reader for XML documents shaped like the parts of an
+// Package xmlro is a read-only pull reader for XML documents shaped like the parts of an
 // Office Open XML package: one encoding, no DTD, deep repetition of a few
 // element shapes, and a caller that wants a handful of the elements and none
 // of the rest.
@@ -51,4 +51,4 @@
 // The buffer grows only to hold one token, or one capture, and never past
 // Options.MaxBufferBytes; nesting stops at Options.MaxDepth. A document that
 // needs more is refused, not accommodated.
-package xml
+package xmlro

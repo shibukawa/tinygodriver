@@ -6,7 +6,7 @@ title: Allocation-Free XML Reader For Office Parts
 Reading an Office Open XML part through the standard library allocates for every token and reflects for every struct field, and a worksheet is forty thousand cells of the same three elements. The consumer wants a few of those elements and none of the rest, so the reader's job is to skip, not to map.
 
 ```yaml
-state: prototype 2026-09-24 at encoding/xml, design under review
+state: shipped 2026-09-25 at encoding/xmlro, v1.3.0 as encoding/xml and renamed in v1.3.1
 priority: should
 proposed_by: the maintainer, asking for a SAX-style reader with a story for struct mapping
 consumer: >
@@ -123,13 +123,18 @@ namespaces:
 struct_mapping: decision:xml-struct-mapping
 surface: api:xml-reader
 import_path:
-  chosen: github.com/shibukawa/tinygodriver/encoding/xml, package xml
-  precedent: decision:cbor-import-path put the first codec at encoding/cbor for mirroring the standard library
-  cost: >
-    a file that imports both this package and the standard one aliases one of
-    them. The benchmark file does; a consumer rarely will, since the point of
-    this one is not to need the other
-  alternative: encoding/xmlscan or encoding/saxml, if the alias is judged a trap
+  chosen: github.com/shibukawa/tinygodriver/encoding/xmlro, package xmlro
+  decided: >
+    2026-09-25 by the maintainer, after v1.3.0 shipped it as encoding/xml.
+    The name collided with the standard library package, so any file that
+    reached for both had to alias one, and the benchmark file did. The
+    suffix says what the package is: XML, read only. It never writes, which
+    is the whole of the difference a consumer needs to remember
+  precedent: >
+    decision:cbor-import-path put the first codec at encoding/cbor for
+    mirroring the standard library; that argument holds only where the
+    standard library has no package of the name
+  rejected: encoding/xmlscan and encoding/saxml, names for a mechanism rather than a contract
 verified:
   host_go: 22 tests, most through four input shapes each, go vet and race clean, on go1.27.0 linux/amd64
   not_yet: tinygo test, which the container lacks; see rule:tinygo-test-constraints for what to expect

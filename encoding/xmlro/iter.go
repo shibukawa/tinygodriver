@@ -1,4 +1,4 @@
-package xml
+package xmlro
 
 import "iter"
 
@@ -12,7 +12,7 @@ func (r *Reader) Err() error { return r.err }
 // and the element-level calls all refer to the token just yielded.
 //
 //	for k := range r.Tokens() {
-//		if k == xml.StartElement && r.NameIs("sheetData") {
+//		if k == xmlro.StartElement && r.NameIs("sheetData") {
 //			r.Decode(&sheet)
 //		}
 //	}
@@ -40,7 +40,7 @@ func (r *Reader) Tokens() iter.Seq[Kind] {
 //
 //	for name := range r.Children(r.Element()) {
 //		switch {
-//		case xml.Equal(name, "v"):
+//		case xmlro.Equal(name, "v"):
 //			text, err := r.ElementText()
 //			...
 //		}

@@ -1,10 +1,10 @@
-package xml_test
+package xmlro_test
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/shibukawa/tinygodriver/encoding/xml"
+	"github.com/shibukawa/tinygodriver/encoding/xmlro"
 )
 
 // A cell of a worksheet, read by hand: the attributes it wants, the child
@@ -17,7 +17,7 @@ type cell struct {
 	Index  int64
 }
 
-func (c *cell) DecodeXMLFrom(r *xml.Reader) error {
+func (c *cell) DecodeXMLFrom(r *xmlro.Reader) error {
 	*c = cell{} // the caller reuses one cell, and an absent attribute must not keep the last value
 	ref, _ := r.Attr("r")
 	c.Ref = ref.String()
@@ -28,7 +28,7 @@ func (c *cell) DecodeXMLFrom(r *xml.Reader) error {
 		c.Shared = t.Equal("s")
 	}
 	for name := range r.Children(r.Element()) {
-		if !xml.Equal(name, "v") {
+		if !xmlro.Equal(name, "v") {
 			continue
 		}
 		v, err := r.ElementText()
@@ -58,10 +58,10 @@ func Example() {
   <mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells>
 </worksheet>`
 
-	r := xml.NewReader(strings.NewReader(sheet), xml.Options{})
+	r := xmlro.NewReader(strings.NewReader(sheet), xmlro.Options{})
 	var c cell
 	for k := range r.Tokens() {
-		if k != xml.StartElement {
+		if k != xmlro.StartElement {
 			continue
 		}
 		switch {
