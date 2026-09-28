@@ -104,3 +104,29 @@ func BenchmarkWriterReuse(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkDecode decodes the reference CLI's frames from decoder_test.go,
+// which exercise the whole format rather than the subset this encoder writes.
+func BenchmarkDecode(b *testing.B) {
+	for _, c := range []struct {
+		name  string
+		frame []byte
+	}{
+		{"level6-1k-blocks", goldenSmallBlocks},
+		{"level19", goldenLevel19},
+		{"level1-stdin", goldenStdin},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			d := newDecoder(8 << 20)
+			var dst []byte
+			b.SetBytes(goldenSize)
+			b.ReportAllocs()
+			for range b.N { // TinyGo does not implement b.Loop
+				var err error
+				if dst, err = d.decodeAll(dst[:0], c.frame); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
