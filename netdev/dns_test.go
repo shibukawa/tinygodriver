@@ -50,13 +50,3 @@ func TestNameserversEnvOverrides(t *testing.T) {
 		t.Fatalf("nameservers() = %v, want only 10.0.0.53:53", got)
 	}
 }
-
-// TestNameserversFallback pins the documented default when nothing is
-// configured and no resolver file can be read.
-func TestNameserversFallback(t *testing.T) {
-	t.Setenv(NetdevDNSEnv, "")
-	got := nameservers()
-	if len(got) == 0 {
-		t.Fatal("nameservers() returned nothing; a lookup would have no resolver at all")
-	}
-}

@@ -142,25 +142,6 @@ func TestNestedAndOr(t *testing.T) {
 	}
 }
 
-// TestCompositeOfOneIsUnwrapped keeps the request saying what the tree means:
-// a wrapper around a single operand would read as if it meant more.
-func TestCompositeOfOneIsUnwrapped(t *testing.T) {
-	s := newStub(stubReply{200, `{"batch":{"moreResults":"NO_MORE_RESULTS"}}`})
-	client, _ := newTestClient(t, s)
-
-	q := NewQuery("Task").Where(Or(Prop("a", Equal, Int(1))))
-	if _, err := client.Run(context.Background(), q); err != nil {
-		t.Fatal(err)
-	}
-	filter := s.calls()[0].Body["query"].(map[string]any)["filter"].(map[string]any)
-	if _, wrapped := filter["compositeFilter"]; wrapped {
-		t.Errorf("a one-operand Or was wrapped: %v", filter)
-	}
-	if _, ok := filter["propertyFilter"]; !ok {
-		t.Errorf("filter = %v", filter)
-	}
-}
-
 func TestEmptyCompositeIsRejected(t *testing.T) {
 	s := newStub()
 	client, _ := newTestClient(t, s)

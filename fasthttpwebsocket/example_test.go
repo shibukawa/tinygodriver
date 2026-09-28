@@ -7,7 +7,6 @@ package websocket_test
 import (
 	"log"
 	"net/http"
-	"testing"
 
 	"github.com/shibukawa/tinygodriver/fasthttpwebsocket"
 )
@@ -39,7 +38,3 @@ func ExampleIsUnexpectedCloseError() {
 }
 
 func processMessage(mt int, p []byte) {}
-
-// TestX prevents godoc from showing this entire file in the example. Remove
-// this function when a second example is added.
-func TestX(t *testing.T) {}

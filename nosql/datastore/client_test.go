@@ -410,17 +410,29 @@ func TestRunQueryBuildsFilterAndDecodesBatch(t *testing.T) {
 	}
 }
 
-func TestSingleFilterIsNotWrappedInComposite(t *testing.T) {
-	s := newStub(stubReply{200, `{"batch":{"moreResults":"NO_MORE_RESULTS"}}`})
-	client, _ := newTestClient(t, s)
+func TestSingleConditionIsNotWrappedInComposite(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		query *Query
+	}{
+		{"Filter", NewQuery("Task").Filter("done", Equal, Bool(true))},
+		{"one-operand Or", NewQuery("Task").Where(Or(Prop("a", Equal, Int(1))))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := newStub(stubReply{200, `{"batch":{"moreResults":"NO_MORE_RESULTS"}}`})
+			client, _ := newTestClient(t, s)
 
-	_, err := client.Run(context.Background(), NewQuery("Task").Filter("done", Equal, Bool(true)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	filter := s.calls()[0].Body["query"].(map[string]any)["filter"].(map[string]any)
-	if _, ok := filter["propertyFilter"]; !ok {
-		t.Errorf("a single filter was wrapped: %v", filter)
+			if _, err := client.Run(context.Background(), test.query); err != nil {
+				t.Fatal(err)
+			}
+			filter := s.calls()[0].Body["query"].(map[string]any)["filter"].(map[string]any)
+			if _, ok := filter["propertyFilter"]; !ok {
+				t.Errorf("single condition was wrapped or lost: %v", filter)
+			}
+			if _, wrapped := filter["compositeFilter"]; wrapped {
+				t.Errorf("single condition was wrapped in a composite: %v", filter)
+			}
+		})
 	}
 }
 

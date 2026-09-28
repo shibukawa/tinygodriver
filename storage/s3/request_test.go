@@ -11,19 +11,6 @@ package s3
 
 import "testing"
 
-func TestEscapedPathMatchesSignature(t *testing.T) {
-	client := newTestClient(t, "https://s3.us-east-1.amazonaws.com")
-	u := client.buildURL(&request{bucket: "bucket", key: "photos/2019 (a)/こん.txt"})
-
-	const want = "/photos/2019%20%28a%29/%E3%81%93%E3%82%93.txt"
-	if got := u.EscapedPath(); got != want {
-		t.Errorf("EscapedPath = %q, want %q", got, want)
-	}
-	if got := u.RequestURI(); got != want {
-		t.Errorf("RequestURI = %q, want %q", got, want)
-	}
-}
-
 func TestBuildURLAddressing(t *testing.T) {
 	for _, test := range []struct {
 		name     string

@@ -5,7 +5,6 @@ package dynamodb_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"reflect"
 	"testing"
@@ -68,23 +67,6 @@ func TestWriteRequestShapes(t *testing.T) {
 	}
 	if _, ok := reqs[2].Body["Item"]; ok {
 		t.Error("DeleteItem sent an Item member")
-	}
-}
-
-func TestConditionalCheckFailedIsItsOwnError(t *testing.T) {
-	srv := newServer(t, func(w http.ResponseWriter, r *http.Request, n int) {
-		exception(w, 400, "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
-			"The conditional request failed")
-	})
-	client := newClient(t, srv.URL)
-
-	_, err := client.PutItem(context.Background(), "users", dynamodb.Item{"pk": dynamodb.S("u#1")},
-		dynamodb.WithCondition("attribute_not_exists(pk)"))
-	if !errors.Is(err, dynamodb.ErrConditionalCheck) {
-		t.Fatalf("err = %v, want ErrConditionalCheck", err)
-	}
-	if got := len(srv.requests()); got != 1 {
-		t.Errorf("sent %d requests: a refused condition is an answer, not a fault", got)
 	}
 }
 

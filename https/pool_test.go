@@ -248,6 +248,9 @@ func TestBodylessResponsesAreReused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("head: %v", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("head status = %d, want 200", resp.StatusCode)
+	}
 	resp.Body.Close()
 
 	resp, err = c.Get(srv.URL + "/nocontent")

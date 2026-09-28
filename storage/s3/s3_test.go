@@ -166,41 +166,47 @@ func TestPutStreamHashesUnseekableBody(t *testing.T) {
 	}
 }
 
-func TestPutUnsignedPayload(t *testing.T) {
-	srv, seen := newServer(t, func(w http.ResponseWriter, r *http.Request) {})
+// TestPutUnsignedStreams checks the signature mode with and without an
+// explicit stream length. AWS needs Content-Length on unsigned streams to avoid
+// chunked transfer encoding.
+func TestPutUnsignedStreams(t *testing.T) {
+	var lengths []int64
+	var chunked []bool
+	srv, seen := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		lengths = append(lengths, r.ContentLength)
+		chunked = append(chunked, len(r.TransferEncoding) > 0)
+	})
 	client := newClient(t, srv.URL, s3.WithUnsignedPayload(true))
-
 	if _, err := client.Put(context.Background(), "bucket", "k",
 		struct{ io.Reader }{strings.NewReader("body")}); err != nil {
 		t.Fatal(err)
 	}
 	if got := (*seen)[0].ContentSHA; got != "UNSIGNED-PAYLOAD" {
-		t.Errorf("x-amz-content-sha256 = %q, want UNSIGNED-PAYLOAD", got)
+		t.Errorf("unknown-length stream x-amz-content-sha256 = %q, want UNSIGNED-PAYLOAD", got)
 	}
-}
+	if string((*seen)[0].Body) != "body" {
+		t.Errorf("unknown-length stream body = %q, want %q", (*seen)[0].Body, "body")
+	}
 
-// TestPutUnsignedStreamSendsLength guards the combination AWS rejects: an
-// unsigned stream with no length goes out chunked, so WithContentLength has to
-// put a Content-Length back on the request.
-func TestPutUnsignedStreamSendsLength(t *testing.T) {
-	var length int64
-	var chunked bool
-	srv, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		length = r.ContentLength
-		chunked = len(r.TransferEncoding) > 0
-	})
-	client := newClient(t, srv.URL, s3.WithUnsignedPayload(true))
-	body := struct{ io.Reader }{strings.NewReader("streamed body")}
+	const payload = "streamed body"
+	body := struct{ io.Reader }{strings.NewReader(payload)}
 
 	if _, err := client.Put(context.Background(), "bucket", "k", body,
 		s3.WithContentLength(13)); err != nil {
 		t.Fatal(err)
 	}
-	if chunked {
-		t.Error("request used chunked transfer encoding")
+	got := (*seen)[1]
+	if got.ContentSHA != "UNSIGNED-PAYLOAD" {
+		t.Errorf("x-amz-content-sha256 = %q, want UNSIGNED-PAYLOAD", got.ContentSHA)
 	}
-	if length != 13 {
-		t.Errorf("Content-Length = %d, want 13", length)
+	if string(got.Body) != payload {
+		t.Errorf("body = %q, want %q", got.Body, payload)
+	}
+	if len(lengths) != 2 || lengths[1] != 13 {
+		t.Errorf("known-length request Content-Length = %v, want 13", lengths)
+	}
+	if len(chunked) != 2 || chunked[1] {
+		t.Error("request used chunked transfer encoding")
 	}
 }
 

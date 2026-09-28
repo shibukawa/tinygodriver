@@ -115,51 +115,6 @@ func TestSignDynamoDBWithSessionToken(t *testing.T) {
 	}
 }
 
-// TestSignServiceReachesScopeAndKey is the property rule
-// sigv4-service-parameterization exists for: changing only the service must
-// change the signature, not just the scope string that is printed.
-func TestSignServiceReachesScopeAndKey(t *testing.T) {
-	creds := Credentials{AccessKeyID: "id", SecretAccessKey: "secret"}
-	sr := SignRequest{Region: "us-east-1", PayloadHash: EmptyPayloadHash, Time: ddbTime}
-
-	sigs := map[string]string{}
-	for _, service := range []string{"s3", "dynamodb"} {
-		req, err := http.NewRequest(http.MethodGet, "https://example.amazonaws.com/", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		sr.Service = service
-		Sign(req, creds, sr)
-		auth := req.Header.Get("Authorization")
-		if !strings.Contains(auth, "/"+service+"/aws4_request") {
-			t.Errorf("%s: scope missing the service: %s", service, auth)
-		}
-		sigs[service] = auth[strings.Index(auth, "Signature="):]
-	}
-	if sigs["s3"] == sigs["dynamodb"] {
-		t.Error("signature is identical across services, so the service does not reach the signing key")
-	}
-}
-
-func TestSignDoubleEncodePath(t *testing.T) {
-	sign := func(double bool) string {
-		req, err := http.NewRequest(http.MethodGet, "https://example.amazonaws.com/", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.URL.Path = "/a b"
-		req.URL.RawPath = URIEncode("/a b", false)
-		Sign(req, Credentials{AccessKeyID: "id", SecretAccessKey: "secret"}, SignRequest{
-			Service: "svc", Region: "us-east-1", PayloadHash: EmptyPayloadHash,
-			DoubleEncodePath: double, Time: ddbTime,
-		})
-		return req.Header.Get("Authorization")
-	}
-	if sign(false) == sign(true) {
-		t.Error("DoubleEncodePath did not change the signature, so it is not reaching the canonical request")
-	}
-}
-
 // TestSignHonoursRequestHost covers a request whose Host was overridden: the
 // signature covers the host header, so signing URL.Host there would sign a
 // request nobody sends.

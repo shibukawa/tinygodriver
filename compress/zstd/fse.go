@@ -107,41 +107,39 @@ func buildCTable(norm []int16, tableLog uint8) *ctable {
 	return ct
 }
 
-// fillCTable turns a normalised distribution into an encoding table, writing
-// into ct's presized stateTable and symbolTT. It follows the construction the
-// format requires: symbols are spread across the state space with a stride that
-// visits every slot exactly once, low-probability symbols are placed from the
-// top down, and each symbol's transform records how many state bits it emits.
-// Every entry of both tables is written, so reused storage needs no clearing.
-func fillCTable(ct *ctable, norm []int16, tableLog uint8) {
+// spreadSymbols assigns a symbol to each of the 1<<tableLog states, writing
+// tableSymbol. Encoder and decoder must agree on this layout state for state,
+// so both build their tables from it: low-probability symbols take one state
+// each from the top down, and the rest are spread with a stride that visits
+// every remaining slot exactly once. It reports false when norm does not
+// account for exactly the table's states, which a decoder has to expect of a
+// distribution it read off the wire.
+func spreadSymbols(tableSymbol []byte, norm []int16, tableLog uint8) bool {
 	tableSize := uint32(1) << tableLog
-	symbolLen := len(norm)
+	var total uint32
+	for _, v := range norm {
+		if v < -1 {
+			return false
+		}
+		if v == -1 {
+			v = 1
+		}
+		total += uint32(v)
+	}
+	if total != tableSize {
+		return false
+	}
 
-	// Cumulative start position per symbol, and the spread order. The arrays
-	// are sized for the largest alphabet and accuracy used here, so they live
-	// on the stack.
-	var cumulArr [54]int16
-	var tableSymbolArr [1 << maxLiteralLengthLog]byte
-	cumul := cumulArr[:symbolLen+1]
-	tableSymbol := tableSymbolArr[:tableSize]
 	highThreshold := tableSize - 1
 	for i, v := range norm {
 		if v == -1 {
-			cumul[i+1] = cumul[i] + 1
 			tableSymbol[highThreshold] = byte(i)
 			highThreshold--
-			continue
 		}
-		cumul[i+1] = cumul[i] + v
 	}
-	if uint32(cumul[symbolLen]) != tableSize {
-		panic("zstd: predefined distribution does not sum to its table size")
-	}
-	cumul[symbolLen] = int16(tableSize) + 1
 
-	// Spread the symbols. The stride is coprime with the table size, so the walk
-	// touches every position; positions already taken by low-probability symbols
-	// are skipped.
+	// The stride is coprime with the table size, so the walk touches every
+	// position; positions already taken by low-probability symbols are skipped.
 	step := tableSize>>1 + tableSize>>3 + 3
 	mask := tableSize - 1
 	var position uint32
@@ -154,9 +152,35 @@ func fillCTable(ct *ctable, norm []int16, tableLog uint8) {
 			}
 		}
 	}
-	if position != 0 {
-		panic("zstd: symbol spread did not return to its starting position")
+	return position == 0
+}
+
+// fillCTable turns a normalised distribution into an encoding table, writing
+// into ct's presized stateTable and symbolTT. Symbols take the states
+// spreadSymbols gives them, and each symbol's transform records how many state
+// bits it emits. Every entry of both tables is written, so reused storage needs
+// no clearing.
+func fillCTable(ct *ctable, norm []int16, tableLog uint8) {
+	tableSize := uint32(1) << tableLog
+	symbolLen := len(norm)
+
+	// The spread order, and the cumulative start position per symbol. The
+	// arrays are sized for the largest alphabet and accuracy used here, so they
+	// live on the stack.
+	var tableSymbolArr [1 << maxLiteralLengthLog]byte
+	tableSymbol := tableSymbolArr[:tableSize]
+	if !spreadSymbols(tableSymbol, norm, tableLog) {
+		panic("zstd: distribution does not fill its table")
 	}
+	var cumulArr [54]int16
+	cumul := cumulArr[:symbolLen+1]
+	for i, v := range norm {
+		if v == -1 {
+			v = 1
+		}
+		cumul[i+1] = cumul[i] + v
+	}
+	cumul[symbolLen] = int16(tableSize) + 1
 
 	ct.tableLog = tableLog
 	for u, sym := range tableSymbol {

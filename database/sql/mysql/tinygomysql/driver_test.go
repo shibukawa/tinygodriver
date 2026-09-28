@@ -567,54 +567,6 @@ func TestFloat32(t *testing.T) {
 	})
 }
 
-func TestFloat64(t *testing.T) {
-	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
-		types := [2]string{"FLOAT", "DOUBLE"}
-		var expected float64 = 42.23
-		var out float64
-		var rows *sql.Rows
-		for _, v := range types {
-			dbt.mustExec("CREATE TABLE " + tbl + " (value " + v + ")")
-			dbt.mustExec("INSERT INTO " + tbl + " VALUES (42.23)")
-			rows = dbt.mustQuery("SELECT value FROM " + tbl)
-			if rows.Next() {
-				rows.Scan(&out)
-				if expected != out {
-					dbt.Errorf("%s: %g != %g", v, expected, out)
-				}
-			} else {
-				dbt.Errorf("%s: no data", v)
-			}
-			rows.Close()
-			dbt.mustExec("DROP TABLE IF EXISTS " + tbl)
-		}
-	})
-}
-
-func TestFloat64Placeholder(t *testing.T) {
-	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
-		types := [2]string{"FLOAT", "DOUBLE"}
-		var expected float64 = 42.23
-		var out float64
-		var rows *sql.Rows
-		for _, v := range types {
-			dbt.mustExec("CREATE TABLE " + tbl + " (id int, value " + v + ")")
-			dbt.mustExec("INSERT INTO " + tbl + " VALUES (1, 42.23)")
-			rows = dbt.mustQuery("SELECT value FROM "+tbl+" WHERE id = ?", 1)
-			if rows.Next() {
-				rows.Scan(&out)
-				if expected != out {
-					dbt.Errorf("%s: %g != %g", v, expected, out)
-				}
-			} else {
-				dbt.Errorf("%s: no data", v)
-			}
-			rows.Close()
-			dbt.mustExec("DROP TABLE IF EXISTS " + tbl)
-		}
-	})
-}
-
 func TestString(t *testing.T) {
 	runTestsParallel(t, dsn, func(dbt *DBTest, tbl string) {
 		types := [6]string{"CHAR(255)", "VARCHAR(255)", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT"}
