@@ -102,9 +102,16 @@ func referenceSources(t *testing.T) map[string][]byte {
 
 // assertDecodes decodes frame and compares it with want, reporting the first
 // divergence, which is the datum that tells a dropped byte from a bad copy.
-func assertDecodes(t *testing.T, frame, want []byte, maxWindow uint64) {
+func assertDecodes(t *testing.T, frame, want []byte, maxWindow int) {
 	t.Helper()
-	got, err := newDecoder(maxWindow).decodeAll(nil, frame)
+	got, err := DecodeAll(nil, frame, WithMaxWindow(maxWindow))
+	if err == nil {
+		// The same frame through a Reader, in pieces that cut every block.
+		streamed, streamErr := readInPieces(frame, 4093, WithMaxWindow(maxWindow))
+		if streamErr != nil || !bytes.Equal(streamed, got) {
+			t.Errorf("Reader: %v, %d bytes against DecodeAll's %d", streamErr, len(streamed), len(got))
+		}
+	}
 	if err != nil {
 		t.Errorf("decode: %v (after %d of %d bytes)", err, len(got), len(want))
 		return
@@ -170,7 +177,7 @@ func assertReferenceAgrees(t *testing.T, name string, frame []byte, refOK bool) 
 	case !refOK && err == nil:
 		t.Errorf("%s: the reference decoder accepts the frame", name)
 	case refOK:
-		ours, err := newDecoder(1<<30).decodeAll(nil, frame)
+		ours, err := DecodeAll(nil, frame, WithMaxWindow(1<<30))
 		if err != nil || !bytes.Equal(ours, got) {
 			t.Errorf("%s: the reference decoder produced %d bytes; this one %d, err %v", name, len(got), len(ours), err)
 		}
@@ -233,8 +240,8 @@ func TestDecodeWindowLimit(t *testing.T) {
 	src := bytes.Repeat([]byte("window limit "), 1000)
 	// From stdin the size is unknown, so level 22 declares its full 128 MiB.
 	frame := zstdCLI(t, src, false, "--ultra", "-22")
-	if _, err := newDecoder(8<<20).decodeAll(nil, frame); !errors.Is(err, errWindowTooLarge) {
-		t.Fatalf("decode with an 8 MiB limit: %v, want errWindowTooLarge", err)
+	if _, err := DecodeAll(nil, frame); !errors.Is(err, ErrWindowTooLarge) {
+		t.Fatalf("decode with the default 8 MiB limit: %v, want ErrWindowTooLarge", err)
 	}
 	assertDecodes(t, frame, src, 128<<20)
 }
@@ -296,10 +303,12 @@ func TestDecodeKlauspost(t *testing.T) {
 	}
 }
 
-// FuzzDecode mutates valid frames and holds the decoder to klauspost's: no
-// input may panic, and where both decode, they must agree. The two may still
-// disagree on whether a frame is valid -- this decoder, like the reference,
-// requires every bitstream to end exactly, where klauspost tolerates slack.
+// FuzzDecode mutates valid frames and holds the decoder to itself and to
+// klauspost. No input may panic; DecodeAll and a Reader must reach the same
+// content or the same error; and where this decoder and klauspost both
+// decode, they must agree. The last two may still differ on whether a frame is
+// valid -- this decoder, like the reference, requires every bitstream to end
+// exactly, where klauspost tolerates slack.
 func FuzzDecode(f *testing.F) {
 	f.Add(goldenSmallBlocks)
 	f.Add(goldenStdin)
@@ -319,7 +328,11 @@ func FuzzDecode(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Fuzz(func(t *testing.T, frame []byte) {
-		ours, err := newDecoder(8<<20).decodeAll(nil, frame)
+		ours, err := DecodeAll(nil, frame)
+		streamed, streamErr := readInPieces(frame, 1500)
+		if err != streamErr || (err == nil && !bytes.Equal(ours, streamed)) {
+			t.Fatalf("DecodeAll: %v, %d bytes; Reader: %v, %d bytes", err, len(ours), streamErr, len(streamed))
+		}
 		theirs, theirErr := dec.DecodeAll(frame, nil)
 		if err == nil && theirErr == nil && !bytes.Equal(ours, theirs) {
 			t.Fatalf("decoded %d bytes; klauspost decoded %d different ones", len(ours), len(theirs))
