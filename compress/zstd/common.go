@@ -12,7 +12,8 @@ import (
 const ContentEncoding = "zstd"
 
 var (
-	ErrClosed            = errors.New("zstd: writer is closed")
+	// ErrClosed reports use of a Writer or Reader after Close.
+	ErrClosed            = errors.New("zstd: use after close")
 	ErrResultUnavailable = errors.New("zstd: result is unavailable before a successful close")
 
 	// errNilWriter is reported by NewWriter and held by Reset, whose signature
@@ -156,4 +157,104 @@ func (w *outputWriter) result() Result {
 		copy(result.SHA256[:], w.hash.Sum(nil))
 	}
 	return result
+}
+
+// Decoding. Both backends decode through this API and report failures with
+// these errors, so code written against one behaves the same on the other.
+
+var (
+	// ErrCorrupt reports input that is not valid Zstandard: a bad magic
+	// number, a malformed block, a match reaching outside the output, a
+	// content size or checksum that does not match. Errors that wrap it say
+	// where the input went wrong. Input that simply ends early is reported as
+	// io.ErrUnexpectedEOF instead.
+	ErrCorrupt = errors.New("zstd: corrupt input")
+
+	// ErrWindowTooLarge reports a frame that declares a window larger than
+	// the decoder accepts; see WithMaxWindow. It is checked before the frame
+	// is decoded, so it costs no memory.
+	ErrWindowTooLarge = errors.New("zstd: frame window exceeds the limit")
+
+	// ErrOutputTooLarge reports content longer than WithMaxOutput allows.
+	ErrOutputTooLarge = errors.New("zstd: decoded content exceeds the limit")
+
+	// ErrDictionaryRequired reports a frame compressed against a dictionary,
+	// which this package does not support.
+	ErrDictionaryRequired = errors.New("zstd: frame requires a dictionary")
+
+	errNilReader        = errors.New("zstd: nil reader")
+	errInvalidMaxWindow = errors.New("zstd: WithMaxWindow must be between 1 KiB and 1 GiB")
+	errInvalidMaxOutput = errors.New("zstd: WithMaxOutput must not be negative")
+)
+
+const (
+	// defaultMaxWindow is RFC 9659's limit for the zstd content coding: a
+	// sender must not use a larger window, and a recipient may refuse one.
+	// The reference CLI stays within it up to level 19.
+	defaultMaxWindow = 8 << 20
+
+	// maxWindowCeiling bounds WithMaxWindow. It is the reference decoder's
+	// limit on 32-bit platforms, and it keeps every window size an int on
+	// TinyGo's wasm targets.
+	maxWindowCeiling = 1 << 30
+
+	minWindow = 1 << 10
+)
+
+// DecoderOption configures DecodeAll and NewReader.
+type DecoderOption interface {
+	applyDecoder(decoderOptions) decoderOptions
+}
+
+// decoderOptionFunc takes and returns the options by value: through a pointer,
+// the interface call would move them to the heap on every DecodeAll.
+type decoderOptionFunc func(decoderOptions) decoderOptions
+
+func (f decoderOptionFunc) applyDecoder(options decoderOptions) decoderOptions { return f(options) }
+
+type decoderOptions struct {
+	maxWindow int
+	maxOutput int64 // 0 means no limit
+	err       error
+}
+
+// WithMaxWindow sets the largest window a frame may declare, from 1 KiB to
+// 1 GiB. The default is 8 MiB, the limit RFC 9659 sets for HTTP. A Reader
+// keeps up to twice the window in memory, so this is what bounds its
+// footprint; a larger frame fails with ErrWindowTooLarge before it is decoded.
+func WithMaxWindow(n int) DecoderOption {
+	return decoderOptionFunc(func(options decoderOptions) decoderOptions {
+		if n < minWindow || n > maxWindowCeiling {
+			options.err = errInvalidMaxWindow
+		} else {
+			options.maxWindow = n
+		}
+		return options
+	})
+}
+
+// WithMaxOutput limits the decoded content to n bytes across all frames;
+// longer content fails with ErrOutputTooLarge, after a Reader has returned the
+// first n bytes. Zero, the default, sets no limit. Without one, a few
+// kilobytes of input can decode to gigabytes, so set it for input from
+// untrusted sources.
+func WithMaxOutput(n int64) DecoderOption {
+	return decoderOptionFunc(func(options decoderOptions) decoderOptions {
+		if n < 0 {
+			options.err = errInvalidMaxOutput
+		} else {
+			options.maxOutput = n
+		}
+		return options
+	})
+}
+
+func resolveDecoderOptions(options []DecoderOption) (decoderOptions, error) {
+	resolved := decoderOptions{maxWindow: defaultMaxWindow}
+	for _, option := range options {
+		if option != nil {
+			resolved = option.applyDecoder(resolved)
+		}
+	}
+	return resolved, resolved.err
 }

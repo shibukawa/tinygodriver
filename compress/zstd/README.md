@@ -1,9 +1,10 @@
 # compress/zstd
 
-`compress/zstd` is an encoder-only RFC 8878 package for TinyGo and Go web
-servers. It streams a valid `Content-Encoding: zstd` representation and
-calculates its SHA-256 digest during output, so cache entries can retain the
-encoded bytes and a strong ETag without hashing the bytes in a second pass.
+`compress/zstd` is an RFC 8878 package for TinyGo and Go web servers. It
+streams a valid `Content-Encoding: zstd` representation and calculates its
+SHA-256 digest during output, so cache entries can retain the encoded bytes and
+a strong ETag without hashing the bytes in a second pass. It also decodes zstd
+from any encoder; see [Decoding](#decoding).
 
 ```go
 encoded, result, err := zstd.EncodeAll(body)
@@ -67,15 +68,90 @@ defer func() { z.Close(); pool.Put(z) }()
 of that fork compress with, because klauspost's decoder is assembly TinyGo
 cannot link.
 
+## Decoding
+
+`DecodeAll` decodes a whole body; `Reader` decodes a stream a block at a time.
+Both accept every frame RFC 8878 defines except those that need a dictionary,
+skip skippable frames, run on across concatenated frames, and verify content
+checksums when a frame carries one.
+
+```go
+body, err := zstd.DecodeAll(nil, encoded, zstd.WithMaxOutput(10<<20))
+```
+
+Input from the network needs two limits, and the decoder applies both:
+
+- **Window.** A frame declares how much earlier content its matches may
+  reach, and a decoder has to keep that much. A frame declaring more than
+  `WithMaxWindow` fails with `ErrWindowTooLarge` before anything is decoded.
+  The default is 8 MiB, the limit [RFC 9659](https://www.rfc-editor.org/rfc/rfc9659)
+  sets for the zstd content coding and within which the reference CLI stays up
+  to level 19. A `Reader` holds at most twice the window plus one 128 KiB
+  block, so this bounds its memory.
+- **Output.** A few kilobytes of zstd can decode to gigabytes. `WithMaxOutput`
+  fails with `ErrOutputTooLarge` once the content passes a length; a `Reader`
+  returns the content up to it first. There is no default, so set it for
+  untrusted input.
+
+`NewReader` reads nothing until the first `Read`, so it fails only on an
+invalid option. `Reset` keeps a `Reader`'s buffers for pooling, and `Close`
+releases them without closing the underlying reader. A pool can build its
+Readers without a stream and hand them one with `Reset`:
+
+```go
+var readers = sync.Pool{New: func() any {
+	r, _ := zstd.NewReader(nil, zstd.WithMaxOutput(10<<20))
+	return r
+}}
+
+r := readers.Get().(*zstd.Reader)
+defer readers.Put(r)
+if err := r.Reset(body); err != nil {
+	return err
+}
+_, err := io.Copy(dst, r)
+```
+
+Failures are reported the same way by both implementations:
+
+| error | meaning |
+|---|---|
+| `io.ErrUnexpectedEOF` | the input ends inside a frame |
+| `ErrCorrupt` | anything else malformed, including a checksum mismatch; the wrapping error says where |
+| `ErrWindowTooLarge` | the frame's window exceeds `WithMaxWindow` |
+| `ErrOutputTooLarge` | the content exceeds `WithMaxOutput` |
+| `ErrDictionaryRequired` | the frame was compressed against a dictionary |
+
+A read error from the underlying stream is returned as it is.
+
+The TinyGo decoder is as strict as the reference implementation where
+klauspost is lenient: an entropy-coded bitstream must end exactly where its
+last symbol does, and a block may not exceed the smaller of the window and
+128 KiB. The two implementations can therefore disagree on a damaged frame that
+no encoder would write, but not on anything an encoder does write.
+
+Measured on an Apple M-series machine, over the reference CLI's frames of this
+package's own sources:
+
+| decoder | throughput |
+|---|---|
+| TinyGo decoder, host Go | 270–450 MB/s |
+| TinyGo decoder, TinyGo 0.42 | ~250 MB/s |
+| klauspost through this API, host Go | 510–960 MB/s |
+
+Neither allocates per call once its pools are warm. Under TinyGo the decoder
+adds about 92 KB to a program that uses `DecodeAll` and `Reader`, and nothing
+to one that only encodes.
+
 ## Implementation selection
 
 - normal host Go builds use `github.com/klauspost/compress/zstd`
-- TinyGo builds use this package's bounded pure-Go encoder
-- `go build -tags force_tinygo_logic` forces the TinyGo-compatible encoder
+- TinyGo builds use this package's bounded pure-Go encoder and decoder
+- `go build -tags force_tinygo_logic` forces the TinyGo-compatible code
   on host Go
 
-Both implementations expose the same `Writer`, `Result`, `Option`, and
-`EncodeAll` API, `Reset` included.
+Both implementations expose the same `Writer`, `Result`, `Option`, `EncodeAll`,
+`Reader`, `DecoderOption` and `DecodeAll` API, `Reset` included.
 Encoded bytes and therefore ETags may differ between implementations.
 
 The host backend uses the klauspost default compression level with one encoder,
@@ -130,10 +206,10 @@ than 128 KiB compresses worse than a general-purpose encoder would manage.
 
 ## Public API exclusions
 
-- decoding
-- dictionaries and the seekable format
+- dictionaries and the seekable format, for encoding and decoding
 - compression-level or dictionary options
-- frame content checksums (the cache digest is separate)
+- writing frame content checksums (the cache digest is separate); the
+  decoder verifies them
 
 The TinyGo backend additionally omits unsafe code, assembly, and CGo, and writes
 Huffman weights only in the direct representation, never FSE-compressed. That

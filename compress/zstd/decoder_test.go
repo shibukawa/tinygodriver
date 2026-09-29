@@ -16,9 +16,40 @@ import (
 	"testing"
 )
 
-// decodeAllForTest decodes with the limit HTTP clients apply, RFC 9659's 8 MiB.
-func decodeAllForTest(src []byte) ([]byte, error) {
-	return newDecoder(8<<20).decodeAll(nil, src)
+// decodeAllForTest decodes src both ways -- with DecodeAll, and through a
+// Reader read in small pieces -- and fails the test if the two disagree on the
+// content or the error. They share the frame logic but not the I/O around it,
+// so every case here holds both to the same result.
+func decodeAllForTest(t *testing.T, src []byte, options ...DecoderOption) ([]byte, error) {
+	t.Helper()
+	got, err := DecodeAll(nil, src, options...)
+	streamed, streamErr := readInPieces(src, 777, options...)
+	if err != streamErr {
+		t.Errorf("DecodeAll reports %v; Reader reports %v", err, streamErr)
+	} else if err == nil && !bytes.Equal(got, streamed) {
+		t.Errorf("DecodeAll decoded %d bytes; Reader decoded %d different ones", len(got), len(streamed))
+	}
+	return got, err
+}
+
+// readInPieces decodes src through a Reader, piece bytes per Read.
+func readInPieces(src []byte, piece int, options ...DecoderOption) ([]byte, error) {
+	r, err := NewReader(bytes.NewReader(src), options...)
+	if err != nil {
+		return nil, err
+	}
+	var out []byte
+	buf := make([]byte, piece)
+	for {
+		n, err := r.Read(buf)
+		out = append(out, buf[:n]...)
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+	}
 }
 
 // Frames from the reference CLI, v1.5.7, so that `tinygo test` reaches the parts
@@ -55,7 +86,7 @@ func TestDecodeReferenceFrames(t *testing.T) {
 		"level 19":              goldenLevel19,
 		"level 1 from stdin":    goldenStdin,
 	} {
-		got, err := decodeAllForTest(frame)
+		got, err := decodeAllForTest(t, frame)
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			continue
@@ -99,7 +130,7 @@ func TestDecodeOwnEncoder(t *testing.T) {
 			t.Errorf("%s: EncodeAll: %v", name, err)
 			continue
 		}
-		got, err := decodeAllForTest(encoded)
+		got, err := decodeAllForTest(t, encoded)
 		if err != nil {
 			t.Errorf("%s: decode: %v", name, err)
 			continue
@@ -134,7 +165,7 @@ func TestDecodeOwnEncoder(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	got, err := decodeAllForTest(out.Bytes())
+	got, err := decodeAllForTest(t, out.Bytes())
 	if err != nil || !bytes.Equal(got, src) {
 		t.Errorf("flushed stream: err %v, %d bytes decoded of %d", err, len(got), len(src))
 	}
@@ -184,7 +215,7 @@ func TestDecodeFrameHeaders(t *testing.T) {
 		{"8-byte size", concat(magic, []byte{0xc0, 0, 5, 0, 0, 0, 0, 0, 0, 0}, raw), hello, nil},
 		{"dictionary ID 0 in one byte", concat(magic, []byte{0x01, 0, 0}, raw), hello, nil},
 		{"dictionary ID 0 in four bytes", concat(magic, []byte{0x03, 0, 0, 0, 0, 0}, raw), hello, nil},
-		{"dictionary ID in two bytes", concat(magic, []byte{0x02, 0, 7, 0}, raw), nil, errDictionary},
+		{"dictionary ID in two bytes", concat(magic, []byte{0x02, 0, 7, 0}, raw), nil, ErrDictionaryRequired},
 		{"checksum", concat(magic, []byte{0x04, 0}, raw, checksumOf(hello)), hello, nil},
 		{"checksum mismatch", concat(magic, []byte{0x04, 0}, raw, checksumOf([]byte("hellO"))), nil, errChecksum},
 		{"checksum missing", concat(magic, []byte{0x04, 0}, raw, []byte{1, 2}), nil, io.ErrUnexpectedEOF},
@@ -192,7 +223,7 @@ func TestDecodeFrameHeaders(t *testing.T) {
 		{"content size exceeded", concat(magic, []byte{0x40, 0, 0, 0}, blockHeader(blockRaw, 300, true), make([]byte, 300)), nil, errContentSize},
 		{"block beyond a one-segment window", concat(magic, []byte{0x20, 4}, raw), nil, errCorruptBlock},
 		{"reserved header bit", concat(magic, []byte{0x08, 0}, raw), nil, errCorruptFrame},
-		{"window beyond the limit", concat(magic, []byte{0x00, 14 << 3}, raw), nil, errWindowTooLarge},
+		{"window beyond the limit", concat(magic, []byte{0x00, 14 << 3}, raw), nil, ErrWindowTooLarge},
 		{"block beyond the window", concat(magic, []byte{0x00, 0}, blockHeader(blockRaw, 1025, true), make([]byte, 1025)), nil, errCorruptBlock},
 		{"reserved block type", concat(magic, []byte{0x00, 0}, blockHeader(3, 1, true), []byte{0}), nil, errCorruptBlock},
 		{"empty RLE and raw blocks", concat(magic, []byte{0x20, 0}, blockHeader(blockRLE, 0, false), []byte{'x'}, blockHeader(blockRaw, 0, true)), nil, nil},
@@ -211,7 +242,7 @@ func TestDecodeFrameHeaders(t *testing.T) {
 		{"two frames", concat(magic, []byte{0x20, 5}, raw, magic, []byte{0x20, 5}, raw), []byte("hellohello"), nil},
 	}
 	for _, c := range cases {
-		got, err := decodeAllForTest(c.frame)
+		got, err := decodeAllForTest(t, c.frame)
 		if !errors.Is(err, c.err) {
 			t.Errorf("%s: err = %v, want %v", c.name, err, c.err)
 			continue
@@ -221,7 +252,7 @@ func TestDecodeFrameHeaders(t *testing.T) {
 		}
 		// The window limit is this decoder's policy, not a defect of the frame.
 		if len(c.frame) > 0 {
-			assertReferenceAgrees(t, c.name, c.frame, c.err == nil || c.err == errWindowTooLarge)
+			assertReferenceAgrees(t, c.name, c.frame, c.err == nil || c.err == ErrWindowTooLarge)
 		}
 	}
 }
@@ -269,7 +300,7 @@ func TestDecodeSequences(t *testing.T) {
 	}
 	for _, c := range cases {
 		frame := sequenceFrame(t, appendRawLiterals(nil, lits), c.seqs)
-		got, err := decodeAllForTest(frame)
+		got, err := decodeAllForTest(t, frame)
 		if !errors.Is(err, c.err) {
 			t.Errorf("%s: err = %v, want %v", c.name, err, c.err)
 			continue
@@ -282,7 +313,7 @@ func TestDecodeSequences(t *testing.T) {
 
 	// A block of literals alone ends its sequences section at the count.
 	frame := concat(frameHeader, blockHeader(blockCompressed, 12, true), appendRawLiterals(nil, lits), []byte{0})
-	if got, err := decodeAllForTest(frame); err != nil || !bytes.Equal(got, lits) {
+	if got, err := decodeAllForTest(t, frame); err != nil || !bytes.Equal(got, lits) {
 		t.Errorf("no sequences: decoded %q, err %v", got, err)
 	}
 	assertReferenceAgrees(t, "no sequences", frame, true)
@@ -291,7 +322,7 @@ func TestDecodeSequences(t *testing.T) {
 	// run, and the two that reuse tables from a block that never came.
 	rle := concat(appendLiteralHeader(nil, 10, literalsRLE), []byte{'z'})
 	frame = sequenceFrame(t, rle, []sequence{{litLen: 2, matchLen: 3, ofValue: 1}})
-	if got, err := decodeAllForTest(frame); err != nil || string(got) != strings.Repeat("z", 13) {
+	if got, err := decodeAllForTest(t, frame); err != nil || string(got) != strings.Repeat("z", 13) {
 		t.Errorf("RLE literals: decoded %q, err %v", got, err)
 	}
 	assertReferenceAgrees(t, "RLE literals", frame, true)
@@ -299,13 +330,13 @@ func TestDecodeSequences(t *testing.T) {
 	h := literalsTreeless | 10<<4 | 5<<14 // single stream, 10 literals from 5 bytes
 	treeless := concat([]byte{byte(h), byte(h >> 8), byte(h >> 16)}, []byte{1, 2, 3, 4, 5})
 	frame = sequenceFrame(t, treeless, []sequence{{litLen: 2, matchLen: 3, ofValue: 1}})
-	if _, err := decodeAllForTest(frame); !errors.Is(err, errCorruptLiterals) {
+	if _, err := decodeAllForTest(t, frame); !errors.Is(err, errCorruptLiterals) {
 		t.Errorf("treeless literals in the first block: err = %v, want %v", err, errCorruptLiterals)
 	}
 	assertReferenceAgrees(t, "treeless literals in the first block", frame, false)
 
 	repeat := concat(magic, []byte{0x00, 0}, blockHeader(blockCompressed, 4, true), []byte{0, 1, 0xfc, 0x80})
-	if _, err := decodeAllForTest(repeat); !errors.Is(err, errCorruptSequences) {
+	if _, err := decodeAllForTest(t, repeat); !errors.Is(err, errCorruptSequences) {
 		t.Errorf("repeat-mode tables in the first block: err = %v, want %v", err, errCorruptSequences)
 	}
 	assertReferenceAgrees(t, "repeat-mode tables in the first block", repeat, false)
@@ -327,7 +358,7 @@ func TestDecodeSequences(t *testing.T) {
 		t.Fatal("the sequence count did not take the three-byte form")
 		return
 	}
-	got, err := decodeAllForTest(frame)
+	got, err := decodeAllForTest(t, frame)
 	if err != nil || !bytes.Equal(got, want) {
 		t.Errorf("0x7f00+ sequences: err %v, %d bytes decoded of %d", err, len(got), len(want))
 	}
@@ -354,7 +385,7 @@ func TestDecodeMalformedDoesNotPanic(t *testing.T) {
 	for _, frame := range frames {
 		step := max(1, len(frame)/500)
 		for n := 0; n < len(frame); n += step {
-			if _, err := decodeAllForTest(frame[:n]); err == nil && n > 0 {
+			if _, err := decodeAllForTest(t, frame[:n]); err == nil && n > 0 {
 				t.Errorf("frame cut to %d of %d bytes decoded without error", n, len(frame))
 			}
 		}
@@ -367,7 +398,7 @@ func TestDecodeMalformedDoesNotPanic(t *testing.T) {
 			for range 1 + rnd.Intn(3) {
 				bad[rnd.Intn(len(bad))] ^= byte(1 << rnd.Intn(8))
 			}
-			decodeAllForTest(bad)
+			decodeAllForTest(t, bad)
 		}
 	}
 }

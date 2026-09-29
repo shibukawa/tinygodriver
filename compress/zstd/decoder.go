@@ -8,12 +8,15 @@
 // offsets across blocks, windows up to a configured limit, skippable frames,
 // and content checksums. Every length and table on the wire is checked before
 // it is used, since the input is not trusted.
+//
+// A frame is decoded in four steps -- beginFrame, then parseBlockHeader and
+// appendBlock for each block, then endFrame -- which decodeAll drives over a
+// byte slice and Reader over a stream. Both therefore apply the same checks.
 
 package zstd
 
 import (
 	"encoding/binary"
-	"errors"
 	"io"
 )
 
@@ -29,26 +32,27 @@ const (
 	skippableMagic     = 0x184d2a50 // the low four bits are free
 	skippableMagicMask = 0xfffffff0
 
+	// maxFrameHeader is the largest frame header after the magic number:
+	// descriptor, window, a four-byte dictionary ID, an eight-byte size.
+	maxFrameHeader = 14
+
 	// maxFramePrealloc bounds how much of a declared Frame_Content_Size is
 	// allocated before any of it is decoded. The field is the sender's claim,
 	// and a few bytes of header must not buy megabytes of memory.
 	maxFramePrealloc = 1 << 20
 )
 
-var (
-	errBadMagic       = errors.New("zstd: not a Zstandard frame")
-	errDictionary     = errors.New("zstd: frame requires a dictionary")
-	errWindowTooLarge = errors.New("zstd: frame window exceeds the decoder's limit")
-	errChecksum       = errors.New("zstd: content checksum mismatch")
-)
-
 // corruption reports input that violates the format, naming where the decoder
-// found it. It is a string type so that each value is a constant.
+// found it. It is a string type so that each value is a constant, and it
+// matches ErrCorrupt under errors.Is.
 type corruption string
 
 func (c corruption) Error() string { return "zstd: corrupt input: " + string(c) }
 
+func (c corruption) Is(target error) bool { return target == ErrCorrupt }
+
 const (
+	errBadMagic         corruption = "not a Zstandard frame"
 	errCorruptFrame     corruption = "frame header"
 	errCorruptBlock     corruption = "block header"
 	errCorruptLiterals  corruption = "literals section"
@@ -57,6 +61,7 @@ const (
 	errCorruptBitstream corruption = "entropy-coded bitstream"
 	errCorruptOffset    corruption = "match offset"
 	errContentSize      corruption = "content size differs from the frame header"
+	errChecksum         corruption = "content checksum mismatch"
 )
 
 // frameParams is what a frame header declares.
@@ -68,6 +73,21 @@ type frameParams struct {
 	dictID         uint32
 }
 
+// frameHeaderSize is the size of the frame header whose descriptor byte is
+// fhd, the descriptor included, which is what a streaming reader needs to know
+// before it can read the rest.
+func frameHeaderSize(fhd byte) int {
+	single := fhd&0x20 != 0
+	n := 1 + [4]int{0, 1, 2, 4}[fhd&3] + [4]int{0, 2, 4, 8}[fhd>>6]
+	if single && fhd>>6 == 0 {
+		n++ // a one-byte content size
+	}
+	if !single {
+		n++ // the window descriptor
+	}
+	return n
+}
+
 // parseFrameParams parses the frame header that follows the magic number,
 // returning it and the bytes it took.
 func parseFrameParams(src []byte) (frameParams, int, error) {
@@ -75,23 +95,22 @@ func parseFrameParams(src []byte) (frameParams, int, error) {
 	if len(src) == 0 {
 		return h, 0, io.ErrUnexpectedEOF
 	}
+	// The length comes first, as it must for a Reader, which cannot parse a
+	// header before it has all of it; both then fail a cut-off header alike.
 	fhd := src[0]
+	n := frameHeaderSize(fhd)
+	if len(src) < n {
+		return h, 0, io.ErrUnexpectedEOF
+	}
 	if fhd&8 != 0 {
 		return h, 0, errCorruptFrame // reserved bit
 	}
 	single := fhd&0x20 != 0
 	h.checksum = fhd&4 != 0
 	dictSize := [4]int{0, 1, 2, 4}[fhd&3]
-	contentSize := [4]int{0, 2, 4, 8}[fhd>>6]
-	if fhd>>6 == 0 && single {
-		contentSize = 1
-	}
-	n := 1 + dictSize + contentSize
+	contentSize := n - 1 - dictSize
 	if !single {
-		n++
-	}
-	if len(src) < n {
-		return h, 0, io.ErrUnexpectedEOF
+		contentSize--
 	}
 
 	pos := 1
@@ -133,10 +152,14 @@ func parseFrameParams(src []byte) (frameParams, int, error) {
 // reused from frame to frame. A decoder is not safe for concurrent use.
 type decoder struct {
 	maxWindow uint64
+	maxOutput int64 // 0 means no limit
 
-	// This frame's window and the largest block content it allows.
+	// The frame being decoded: its header, its window and the largest block
+	// content that allows, and how much content it has produced.
+	frame    frameParams
 	window   int
 	blockMax int
+	produced uint64
 
 	// The repeat offset slots, and whether the previous block's Huffman and
 	// sequence tables exist for a treeless or repeat-mode block to reuse. All
@@ -157,18 +180,17 @@ type decoder struct {
 	hash    xxh64
 }
 
-// maxWindowCeiling is the largest window any decoder accepts, whatever its
-// configured limit: the reference decoder's ceiling on 32-bit platforms, which
-// keeps every window size an int on TinyGo's wasm targets.
-const maxWindowCeiling = 1 << 30
-
-func newDecoder(maxWindow uint64) *decoder {
-	return &decoder{maxWindow: min(maxWindow, maxWindowCeiling)}
+// configure applies resolved options; the constructors have already checked
+// them, and the window was capped at maxWindowCeiling there.
+func (d *decoder) configure(options decoderOptions) {
+	d.maxWindow = uint64(options.maxWindow)
+	d.maxOutput = options.maxOutput
 }
 
 // decodeAll appends the content of every frame in src to dst. Skippable frames
 // are skipped; anything else that is not a whole frame is an error.
 func (d *decoder) decodeAll(dst, src []byte) ([]byte, error) {
+	origin := len(dst)
 	for len(src) > 0 {
 		if len(src) < 4 {
 			return dst, io.ErrUnexpectedEOF
@@ -189,7 +211,7 @@ func (d *decoder) decodeAll(dst, src []byte) ([]byte, error) {
 			return dst, errBadMagic
 		}
 		var err error
-		if dst, src, err = d.decodeFrame(dst, src[4:]); err != nil {
+		if dst, src, err = d.decodeFrame(dst, src[4:], int64(len(dst)-origin)); err != nil {
 			return dst, err
 		}
 	}
@@ -197,26 +219,23 @@ func (d *decoder) decodeAll(dst, src []byte) ([]byte, error) {
 }
 
 // decodeFrame decodes the frame at the front of src, which starts after the
-// magic number, and returns what follows it.
-func (d *decoder) decodeFrame(dst, src []byte) ([]byte, []byte, error) {
+// magic number, and returns what follows it. before is how much content
+// earlier frames produced, which counts against the output limit.
+func (d *decoder) decodeFrame(dst, src []byte, before int64) ([]byte, []byte, error) {
 	h, n, err := parseFrameParams(src)
 	if err != nil {
 		return dst, src, err
 	}
 	src = src[n:]
-	if h.dictID != 0 {
-		return dst, src, errDictionary
+	if err := d.beginFrame(h); err != nil {
+		return dst, src, err
 	}
-	if h.windowSize > d.maxWindow {
-		return dst, src, errWindowTooLarge
-	}
-	d.resetFrame(int(h.windowSize))
-	if h.checksum {
-		d.hash.reset()
-	}
-
-	start := len(dst)
 	if h.hasContentSize {
+		// A frame that says it will exceed the limit is refused before it is
+		// decoded; one that says otherwise is still held to it block by block.
+		if d.maxOutput > 0 && h.contentSize > uint64(d.maxOutput-before) {
+			return dst, src, ErrOutputTooLarge
+		}
 		want := int(min(h.contentSize, maxFramePrealloc))
 		if cap(dst)-len(dst) < want {
 			grown := make([]byte, len(dst), len(dst)+want)
@@ -229,72 +248,120 @@ func (d *decoder) decodeFrame(dst, src []byte) ([]byte, []byte, error) {
 		if len(src) < 3 {
 			return dst, src, io.ErrUnexpectedEOF
 		}
-		bh := uint32(src[0]) | uint32(src[1])<<8 | uint32(src[2])<<16
+		var typ, size int
+		if typ, size, last, err = d.parseBlockHeader(src); err != nil {
+			return dst, src, err
+		}
 		src = src[3:]
-		last = bh&1 != 0
-		size := int(bh >> 3)
-		// The size is the block's content for raw and RLE blocks and its
-		// encoded form for compressed ones; the format caps both the same.
-		if size > d.blockMax {
-			return dst, src, errCorruptBlock
+		payload := blockPayloadSize(typ, size)
+		if len(src) < payload {
+			return dst, src, io.ErrUnexpectedEOF
 		}
-		blockStart := len(dst)
-		switch bh >> 1 & 3 {
-		case blockRaw:
-			if len(src) < size {
-				return dst, src, io.ErrUnexpectedEOF
-			}
-			dst = append(dst, src[:size]...)
-			src = src[size:]
-		case blockRLE:
-			if len(src) < 1 {
-				return dst, src, io.ErrUnexpectedEOF
-			}
-			dst = appendRun(dst, src[0], size)
-			src = src[1:]
-		case blockCompressed:
-			if len(src) < size {
-				return dst, src, io.ErrUnexpectedEOF
-			}
-			reach := min(len(dst)-start, d.window)
-			if dst, err = d.decodeCompressed(dst, src[:size], reach); err != nil {
-				return dst, src, err
-			}
-			src = src[size:]
-		default:
-			return dst, src, errCorruptBlock // reserved type
+		start := len(dst)
+		if dst, err = d.appendBlock(dst, typ, size, src[:payload]); err != nil {
+			return dst, src, err
 		}
-		if h.hasContentSize && uint64(len(dst)-start) > h.contentSize {
-			return dst, src, errContentSize
+		src = src[payload:]
+		if err := d.blockDone(dst[start:]); err != nil {
+			return dst, src, err
 		}
-		if h.checksum {
-			d.hash.write(dst[blockStart:])
+		if d.maxOutput > 0 && before+int64(d.produced) > d.maxOutput {
+			return dst, src, ErrOutputTooLarge
 		}
 	}
 
-	if h.hasContentSize && uint64(len(dst)-start) != h.contentSize {
-		return dst, src, errContentSize
-	}
+	var sum []byte
 	if h.checksum {
 		if len(src) < 4 {
 			return dst, src, io.ErrUnexpectedEOF
 		}
-		if uint32(d.hash.sum64()) != binary.LittleEndian.Uint32(src) {
-			return dst, src, errChecksum
-		}
-		src = src[4:]
+		sum, src = src[:4], src[4:]
 	}
-	return dst, src, nil
+	return dst, src, d.endFrame(sum)
 }
 
-// resetFrame starts the per-frame state for a frame with the given window,
-// which the caller has already checked against the decoder's limit.
-func (d *decoder) resetFrame(window int) {
-	d.window = window
-	d.blockMax = min(window, maxBlockSize)
+// beginFrame checks a frame's header against what this decoder accepts and
+// starts the per-frame state.
+func (d *decoder) beginFrame(h frameParams) error {
+	if h.dictID != 0 {
+		return ErrDictionaryRequired
+	}
+	if h.windowSize > d.maxWindow {
+		return ErrWindowTooLarge
+	}
+	d.frame = h
+	d.window = int(h.windowSize)
+	d.blockMax = min(d.window, maxBlockSize)
+	d.produced = 0
 	d.rep = [3]uint32{1, 4, 8}
 	d.huffValid = false
 	d.seqValid = false
+	if h.checksum {
+		d.hash.reset()
+	}
+	return nil
+}
+
+// parseBlockHeader reads the three-byte block header at the front of b.
+func (d *decoder) parseBlockHeader(b []byte) (typ, size int, last bool, err error) {
+	bh := uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16
+	typ, size, last = int(bh>>1&3), int(bh>>3), bh&1 != 0
+	// The size is the block's content for raw and RLE blocks and its encoded
+	// form for compressed ones; the format caps both the same.
+	if typ == 3 || size > d.blockMax {
+		return 0, 0, false, errCorruptBlock // 3 is reserved
+	}
+	return typ, size, last, nil
+}
+
+// blockPayloadSize is how many bytes follow a block header: one for an RLE
+// block, its size otherwise.
+func blockPayloadSize(typ, size int) int {
+	if typ == blockRLE {
+		return 1
+	}
+	return size
+}
+
+// appendBlock appends one block's content to out. payload is what follows the
+// block header: a raw block's content, an RLE block's byte, or a compressed
+// block. out must end with this frame's content so far, or at least the last
+// window of it, since that is what matches copy from.
+func (d *decoder) appendBlock(out []byte, typ, size int, payload []byte) ([]byte, error) {
+	switch typ {
+	case blockRaw:
+		return append(out, payload...), nil
+	case blockRLE:
+		return appendRun(out, payload[0], size), nil
+	default:
+		reach := int(min(d.produced, uint64(d.window)))
+		return d.decodeCompressed(out, payload, reach)
+	}
+}
+
+// blockDone accounts for one block's decoded content: against the size the
+// frame declared, and into its checksum.
+func (d *decoder) blockDone(content []byte) error {
+	d.produced += uint64(len(content))
+	if d.frame.hasContentSize && d.produced > d.frame.contentSize {
+		return errContentSize
+	}
+	if d.frame.checksum {
+		d.hash.write(content)
+	}
+	return nil
+}
+
+// endFrame checks a finished frame's totals. sum is the frame's four checksum
+// bytes, when it carries them.
+func (d *decoder) endFrame(sum []byte) error {
+	if d.frame.hasContentSize && d.produced != d.frame.contentSize {
+		return errContentSize
+	}
+	if d.frame.checksum && uint32(d.hash.sum64()) != binary.LittleEndian.Uint32(sum) {
+		return errChecksum
+	}
+	return nil
 }
 
 // decodeCompressed appends a compressed block's content to out. reach is how
