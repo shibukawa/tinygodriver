@@ -798,6 +798,85 @@ func TestLineEndsAreNormalizedInDecodedContent(t *testing.T) {
 	}
 }
 
+func TestEntityExpansionIsBoundedForTheWholeDocument(t *testing.T) {
+	// One declared entity of a thousand bytes, referenced in many small
+	// elements: no single token nears the bound, the document as a whole
+	// does, and that is where the reader stops.
+	value := strings.Repeat("x", 1000)
+	head := `<!DOCTYPE a [<!ENTITY e "` + value + `">]><a>`
+	ref := `<b>&e;</b>`
+	opts := Options{AllowDoctype: true, MaxBufferBytes: 1 << 16}
+	within := head + strings.Repeat(ref, 50) + `</a>`
+	sourcesWith(t, within, opts, func(t *testing.T, r *Reader) {
+		got, err := tokens(r)
+		if err != nil {
+			t.Fatalf("50 references: %v", err)
+		}
+		if got[3].text != value {
+			t.Errorf("first reference decoded to %d bytes", len(got[3].text))
+		}
+	})
+	past := head + strings.Repeat(ref, 100) + `</a>`
+	sourcesWith(t, past, opts, func(t *testing.T, r *Reader) {
+		if _, err := tokens(r); !errors.Is(err, ErrTooLarge) {
+			t.Errorf("100 references: got %v, want ErrTooLarge", err)
+		}
+	})
+	// Substitution that shrinks, the usual case, counts nothing.
+	r := NewBytesReader([]byte(`<a>`+strings.Repeat("&sp;", 1000)+`</a>`), Options{Entities: func(name []byte) (string, bool) { return " ", Equal(name, "sp") }, MaxBufferBytes: 1 << 12})
+	if _, err := tokens(r); err != nil {
+		t.Errorf("shrinking substitution: %v", err)
+	}
+}
+
+func TestDoctypeIsAcceptedOnceBeforeTheRoot(t *testing.T) {
+	opts := Options{AllowDoctype: true}
+	for _, c := range []struct{ doc, msg string }{
+		{`<!-- c --> <!DOCTYPE a><a/>`, ""},
+		{`<a/><!DOCTYPE a>`, "after the root"},
+		{`<a><!DOCTYPE a></a>`, "after the root"},
+		{`<!DOCTYPE a><!DOCTYPE a><a/>`, "second DOCTYPE"},
+	} {
+		sourcesWith(t, c.doc, opts, func(t *testing.T, r *Reader) {
+			_, err := tokens(r)
+			var se *SyntaxError
+			switch {
+			case c.msg == "" && err != nil:
+				t.Errorf("%q: %v", c.doc, err)
+			case c.msg != "" && (!errors.As(err, &se) || !strings.Contains(se.Msg, c.msg)):
+				t.Errorf("%q: got %v, want a syntax error containing %q", c.doc, err, c.msg)
+			}
+		})
+	}
+}
+
+func TestOnlyTheFirstDeclarationNamesTheEncoding(t *testing.T) {
+	calls := 0
+	hook := func(label string, src io.Reader) (io.Reader, error) {
+		calls++
+		return src, nil
+	}
+	// A second <?xml ...?> is a ProcInst and nothing more; a leading newline
+	// before the declaration is tolerated.
+	doc := "\n<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><a><?xml version=\"1.0\" encoding=\"UTF-16\"?>x</a>"
+	sourcesWith(t, doc, Options{CharsetReader: hook}, func(t *testing.T, r *Reader) {
+		calls = 0
+		got, err := tokens(r)
+		if err != nil || calls != 1 {
+			t.Fatalf("got %+v, %v; hook called %d times", got, err, calls)
+		}
+		if got[1].kind != ProcInst || got[3].kind != ProcInst || got[4].text != "x" {
+			t.Errorf("tokens %+v", got)
+		}
+	})
+	// After the root element a declaration is not one, so a non-UTF-8 label
+	// there is no error even without a hook.
+	r := NewBytesReader([]byte(`<a/><?xml version="1.0" encoding="Shift_JIS"?>`), Options{})
+	if _, err := tokens(r); err != nil {
+		t.Errorf("declaration after the root: %v", err)
+	}
+}
+
 func TestUTF16InputIsDecoded(t *testing.T) {
 	// "<a x='é'>𝄞</a>" in UTF-16, with the surrogate pair, in both orders.
 	le := "\xFF\xFE<\x00a\x00 \x00x\x00=\x00'\x00\xe9\x00'\x00>\x00\x34\xd8\x1e\xdd<\x00/\x00a\x00>\x00"

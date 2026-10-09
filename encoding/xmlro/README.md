@@ -219,11 +219,15 @@ r := xmlro.NewReader(src, xmlro.Options{
   scanned, into a side buffer the `Value` then aliases, with the predefined
   references still encoded; `String`, `AppendTo`, `Equal` and `ElementText`
   decode the result as they decode anything else. The expansion is bounded
-  by `MaxBufferBytes`, so no declaration can amplify a document.
+  by `MaxBufferBytes` per token and, in total growth, for the whole
+  document, so no declaration can amplify a document in one token or over
+  many.
 - **`CharsetReader`** is `encoding/xml`'s hook: called once, with the label
-  the XML declaration names and the input after the declaration, and the
-  reader continues from what it returns. A byte-slice reader converts only
-  the bytes after the declaration. UTF-16 with a byte order mark, which
+  the first XML declaration names and the input after the declaration, and
+  the reader continues from what it returns. Only a declaration before the
+  root element counts; a later `<?xml ...?>` is a `ProcInst` and nothing
+  more, where `encoding/xml` would switch again. A byte-slice reader
+  converts only the bytes after the declaration. UTF-16 with a byte order mark, which
   Windows tools write for SVG and XMP, is decoded by the reader itself,
   either byte order, with or without the hook; `Offset` then counts decoded
   bytes.
@@ -244,8 +248,10 @@ r := xmlro.NewReader(src, xmlro.Options{
   "value">` declarations join the entity table, ahead of `Options.Entities`,
   and everything else in it is passed over with quotes, comments and
   processing instructions respected. Illustrator's `xmlns="&ns_svg;"`
-  resolves. Nothing external is fetched, a parameter entity is ignored, and
-  a declared value is not expanded further.
+  resolves. One DOCTYPE is accepted, before the root element, where XML
+  places it; a second or a later one is a `SyntaxError`. Nothing external
+  is fetched, a parameter entity is ignored, and a declared value is not
+  expanded further.
 
 With `Lenient` or `AutoClose` set, `Skip` walks the subtree token by token
 rather than scanning it raw, since the raw scan cannot know which end tags
@@ -281,9 +287,11 @@ the allocation tests here measure `runtime.MemStats.TotalAlloc` instead, and
 - The buffer grows only to hold one token or one capture, never past
   `Options.MaxBufferBytes` (1 MiB by default). A larger token is `ErrTooLarge`.
 - Nesting stops at `Options.MaxDepth` (1024 by default).
-- A `DOCTYPE` is refused unless `Options.AllowDoctype` is set. With it, the
-  internal subset is read for the general entities it declares and otherwise
-  passed over; nothing external is ever fetched or expanded.
+- A `DOCTYPE` is refused unless `Options.AllowDoctype` is set. With it, one
+  is accepted before the root element; its internal subset is read for the
+  general entities it declares and otherwise passed over; nothing external
+  is ever fetched or expanded, and substitution may grow the document by at
+  most `MaxBufferBytes` in total.
 - An XML declaration naming an encoding other than UTF-8 is `ErrEncoding`
   unless `Options.CharsetReader` converts it. UTF-16 with a byte order mark
   is decoded by the reader itself.

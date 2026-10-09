@@ -55,8 +55,10 @@ func isPredefined(name []byte) bool {
 // by its value, and reports whether any was. The five predefined references
 // and character references are left for Unescape, and a '&' or '\r' in a
 // value is written as a reference, so that decoding the result yields the
-// value itself. The result is bounded by MaxBufferBytes: no declaration can
-// amplify a document past the reader's other bounds.
+// value itself. The result is bounded by MaxBufferBytes, and so is the
+// total by which substitution has grown the document: no declaration can
+// amplify a document past the reader's other bounds, not per token and not
+// over many tokens.
 func (r *Reader) expand(dst, src []byte) ([]byte, bool, error) {
 	changed := false
 	for {
@@ -77,9 +79,13 @@ func (r *Reader) expand(dst, src []byte) ([]byte, bool, error) {
 			continue
 		}
 		if v, ok := r.lookupEntity(src[1:j]); ok {
+			before := len(dst)
 			dst = appendEscaped(dst, v)
 			changed = true
-			if len(dst) > r.opts.MaxBufferBytes {
+			if added := len(dst) - before - (j + 1); added > 0 {
+				r.grown += added
+			}
+			if len(dst) > r.opts.MaxBufferBytes || r.grown > r.opts.MaxBufferBytes {
 				return dst, changed, ErrTooLarge
 			}
 		} else {
