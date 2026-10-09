@@ -1,0 +1,65 @@
+id: requirement:cbor-error-diagnostics
+type: requirement
+title: CBOR Errors Carry A Position
+summary: >-
+  A decode failure today names a sentinel and the limit it hit, never a place. That is enough to reject
+  an attestation and not enough to diagnose a desync between two builds of a game.
+facts:
+  state: shipped 2026-08-19
+  shipped:
+    type: >
+      Error{Offset, Path, Err}, wrapping the existing sentinels so errors.Is is unaffected, with errors.As
+      reaching the position
+    offset: >
+      carried by every Reader and Profile refusal, positioned at the item that failed rather than at wherever
+      the caller started reading. Each recursion level wraps its own start and an already-positioned error
+      passes through, so the innermost frame is the one that names the offset.
+    path: >
+      a route in the shape of diagnostic notation: [i] indexes an array, {k} selects a map value under
+      key k, {#i key} names the i-th key of a map. "cbor: malformed input: reserved additional information
+      28 (at byte 5, at [2][1])" is a whole message.
+    how_it_stays_free: >
+      nothing tracks a route while decoding succeeds. The route is built after the fact, by walking the
+      input again from the start to the offset that failed. A decoder maintaining one would pay on every
+      item of every message; a failure is not the steady state and can afford one extra walk. TestTheRouteCostsNothingWhenNothingFails
+      pins that.
+    the_walk_must_stop_when_it_gives_up: >
+      found by fuzzing on 2026-08-20, as a hang rather than a wrong answer. The route walk gives up past
+      32 levels, and it declined that one item by returning neither the target nor an error, having consumed
+      nothing. A container loop asks for its next child until one reports the target or an error, so it
+      asked forever; an indefinite-length container has no count to end the loop, which made the spin
+      unbounded. A refusal became a hang. Giving up now unwinds the whole walk. The input was a map whose
+      key is thirty-two nested indefinite arrays, and it was unreachable while every profile refused indefinite
+      lengths before a route was ever computed.
+  priority: should
+  today: >
+    the sentinels are wrapped with a short label such as "input bytes" or "map pairs". Nothing carries
+    an offset, and nothing names a field.
+  needed:
+    byte_offset: the position in the input at which the failing item began
+    path: >
+      the container path where one is known, as array index and map key, so a generated decoder reports
+      which field rather than which byte
+    compatibility: >
+      errors.Is on the existing sentinels keeps working and the position is carried alongside, as requirement:error-classification
+      does for TLS
+  why: >
+    a desync between a server and a js/wasm client is the failure rule:cbor-determinism-contract exists
+    to prevent. When one happens anyway the two sides are compared byte by byte; an offset turns that
+    into a lookup.
+  cost:
+    offset: 'already available, since the decoder counts bytes read to enforce MaxInputBytes
+
+      '
+    path: >
+      not tracked today, and the part that must cost nothing in the steady state of requirement:cbor-allocation-budget
+relations:
+- relation: mentions
+  to: requirement:cbor-allocation-budget
+  resolution: resolved
+- relation: mentions
+  to: requirement:error-classification
+  resolution: resolved
+- relation: mentions
+  to: rule:cbor-determinism-contract
+  resolution: resolved

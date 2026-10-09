@@ -25,7 +25,7 @@ import (
 // asserts: every "func (c *Client) X(...)" the concept lists must exist, and
 // must agree about whether it is variadic.
 func TestConceptMatchesTheCode(t *testing.T) {
-	const conceptPath = "../../.knowledge/api/datastore-client.md"
+	const conceptPath = "../../.knowledge/concepts/api/datastore-client.yaml"
 	concept, err := os.ReadFile(conceptPath)
 	if err != nil {
 		t.Skipf("no concept catalog here: %v", err)
@@ -139,7 +139,7 @@ func notInScopeSections(t *testing.T) []scopeSection {
 		}
 	}
 
-	concepts, err := filepath.Glob(filepath.Join("../../.knowledge", "*", "*datastore*.md"))
+	concepts, err := filepath.Glob(filepath.Join("../../.knowledge", "concepts", "*", "*datastore*.yaml"))
 	if err != nil {
 		return out
 	}
@@ -216,15 +216,18 @@ func notInScopeSection(readme string) string {
 	return rest
 }
 
-// yamlBlock returns the lines under a top-level YAML key, which are the ones
-// indented past it. Good enough for the shapes this catalog uses, and a
-// mis-parse costs a missed check rather than a false failure.
+// yamlBlock returns the lines under a YAML key, which are the ones indented
+// past it. The catalog keeps every concept's fields under facts:, so the key is
+// matched at any depth and the block ends at the first line indented no deeper
+// than the key. Good enough for the shapes this catalog uses, and a mis-parse
+// costs a missed check rather than a false failure.
 func yamlBlock(body, key string) string {
 	lines := strings.Split(body, "\n")
-	start := -1
+	start, keyIndent := -1, 0
 	for i, line := range lines {
-		if strings.TrimRight(line, " \t") == key {
+		if strings.TrimSpace(line) == key {
 			start = i + 1
+			keyIndent = len(line) - len(strings.TrimLeft(line, " \t"))
 			break
 		}
 	}
@@ -237,7 +240,7 @@ func yamlBlock(body, key string) string {
 			block = append(block, line)
 			continue
 		}
-		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+		if len(line)-len(strings.TrimLeft(line, " \t")) <= keyIndent {
 			break
 		}
 		block = append(block, line)

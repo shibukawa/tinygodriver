@@ -1,0 +1,34 @@
+id: requirement:std-go-delegation
+type: requirement
+title: Standard Go Delegates to net/http
+summary: >-
+  Under standard Go the package must contain no cgo and no native TLS calls; it wraps `net/http.Transport`
+  and `crypto/tls`.
+facts:
+  priority: must
+  build_condition: '!tinygo && !force_tinygo_logic'
+  acceptance:
+  - go build and go vet succeed with CGO_ENABLED=0
+  - no import of any native backend file on this path
+  - data:https-config is translated into crypto/tls.Config
+  - behavior matches net/http including redirects, chunked bodies, and gzip
+  rationale: >
+    application and test code stays shared between compilers, which is the established repository pattern
+    in httpmux and compress/zstd
+  selection_rule: rule:build-tag-selection
+relations:
+- relation: mentions
+  to: data:https-config
+  resolution: resolved
+- relation: mentions
+  to: rule:build-tag-selection
+  resolution: resolved
+acceptance:
+  item-6526247bb8a45fea:
+    text: go build and go vet succeed with CGO_ENABLED=0
+  item-342d85def7f670b5:
+    text: no import of any native backend file on this path
+  item-b0d09a98a32a598c:
+    text: data:https-config is translated into crypto/tls.Config
+  item-de6db0c6f71cbe22:
+    text: behavior matches net/http including redirects, chunked bodies, and gzip

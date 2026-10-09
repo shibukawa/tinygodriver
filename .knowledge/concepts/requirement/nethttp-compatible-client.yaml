@@ -1,0 +1,42 @@
+id: requirement:nethttp-compatible-client
+type: requirement
+title: net/http-Compatible Client Surface
+summary: >-
+  The package must be usable by replacing the `http.` prefix with `https.` in client call sites, with
+  no change to request or response handling code.
+facts:
+  priority: must
+  acceptance:
+  - Get, Head, Post, PostForm exist with net/http-identical signatures
+  - returned type is *net/http.Response, not a package-local type
+  - Transport satisfies net/http.RoundTripper and drops into http.Client
+  - a compile-time assertion proves signature parity against net/http
+  - the same test file compiles against both net/http and this package
+  excluded_from_parity:
+  - Do, ServeMux, and other server-side surface
+  - http.Client itself; NewClient returns *http.Client rather than a new type
+  verified_by: requirement:test-strategy
+  implemented_by:
+  - api:https-functions
+  - api:https-transport
+relations:
+- relation: mentions
+  to: api:https-functions
+  resolution: resolved
+- relation: mentions
+  to: api:https-transport
+  resolution: resolved
+- relation: mentions
+  to: requirement:test-strategy
+  resolution: resolved
+acceptance:
+  item-ce47478510fc82c1:
+    text: Get, Head, Post, PostForm exist with net/http-identical signatures
+  item-33c81d731aac5b76:
+    text: returned type is *net/http.Response, not a package-local type
+  item-9da4ca9e3184b87c:
+    text: Transport satisfies net/http.RoundTripper and drops into http.Client
+  item-94bf4b73623fd684:
+    text: a compile-time assertion proves signature parity against net/http
+  item-c5375e278ead85eb:
+    text: the same test file compiles against both net/http and this package
