@@ -53,6 +53,23 @@ facts:
     purpose: this reader skips a UTF-8 byte order mark where encoding/xml reports it as text, so the
     comparison leaves such inputs out. After the fixes the target ran two minutes and 14.8 million
     inputs without a finding
+  review_2026_10_09_from_bdf:
+    raised: >
+      two points on the first cut: the entity expansion bound was per token, not for the document, and a
+      DOCTYPE was accepted anywhere; and every <?xml encoding=...?> called CharsetReader again and
+      copied the rest of the buffer
+    fixed: >
+      the bytes substitution adds to a document are summed, and past MaxBufferBytes the reader returns
+      ErrTooLarge, so a thousand-byte entity referenced in a thousand small elements stops where one
+      token of a megabyte would; one DOCTYPE is accepted, before the root element, and a second or a
+      later one is a SyntaxError; only the first <?xml ...?>, before the root element, is the declaration,
+      and a later one is a ProcInst and nothing more, where encoding/xml switches charset at every one.
+      Pinned by TestEntityExpansionIsBoundedForTheWholeDocument, TestDoctypeIsAcceptedOnceBeforeTheRoot
+      and TestOnlyTheFirstDeclarationNamesTheEncoding. The first version knew the root had been seen
+      through a compare on every start tag, which the interleaved scan benchmark put at 4 to 6 percent;
+      it is now a prolog bit in the feat byte that the first start tag clears inside startTagFeatures,
+      so once it is gone an Office reader's feat is zero and scanStartTag takes no extra branch. Measured
+      back at the level of the commit before the review
   lenient_semantics_matched: >
     encoding/xml with Strict false unwinds one element per Token on a mismatched end tag, which makes a
     stray end tag close everything and then fail, and still reports "unexpected EOF" for a document that
@@ -487,9 +504,11 @@ open_questions:
       prints a line can print an offset instead
     scope: {milestone: m3-doctype}
 constraints:
-- Every new Options field is zero-valued off, and off costs the Office path nothing measurable.
+- Every new Options field is zero-valued off, and off costs the Office path a byte test per token at most.
 - The HTML entity and auto-close tables live outside the core package so a consumer that does not import them does not link them.
 - No external entity or DTD is ever fetched or expanded; the internal subset is read only for its literal <!ENTITY> values.
+- Entity substitution may grow a document by at most MaxBufferBytes in total, so no declaration amplifies a document over many tokens.
+- One DOCTYPE and one XML declaration count, both before the root element; anything later is a SyntaxError or a plain ProcInst.
 non_goals:
 - A writer or an EscapeText; the only writer in the consumer is an unshipped generator.
 - Reflection-based struct decoding; EPUB and offcrypto move to the tree and to a hand-written Decodable.
