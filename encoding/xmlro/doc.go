@@ -3,11 +3,12 @@
 // element shapes, and a caller that wants a handful of the elements and none
 // of the rest.
 //
-// It is not a replacement for encoding/xml. It does not resolve namespaces,
-// does not decode into arbitrary Go values, and does not accept a DOCTYPE. In
-// exchange the reader allocates nothing in steady state: every name, attribute
-// and text it returns is a slice into its own buffer, valid until the next
-// call that advances the reader, and a caller copies only what it keeps.
+// It is not a replacement for encoding/xml. It does not decode into arbitrary
+// Go values, fetches nothing a DOCTYPE points at, and reads HTML only as far
+// as tokenizing it. In exchange the reader allocates nothing in steady state:
+// every name, attribute and text it returns is a slice into its own buffer,
+// valid until the next call that advances the reader, and a caller copies
+// only what it keeps.
 //
 // # Reading
 //
@@ -45,6 +46,19 @@
 // Text and Attr return the bytes as written, entities included. A Value knows
 // whether it holds any, and unescapes into a caller-owned buffer, so the
 // common case of text with no ampersand is a slice and no copy.
+//
+// # HTML-flavoured input
+//
+// SVG, draw.io, EPUB, MusicXML and XMP are XML with HTML habits: named
+// character references beyond the five, void elements without end tags,
+// mismatched end tags, DOCTYPEs with an internal subset, Latin-1 and UTF-16
+// files. Options.Entities, Options.AutoClose, Options.Lenient and
+// Options.CharsetReader read them, each off by default and each costing
+// nothing while off; together they are the reader encoding/xml builds from
+// Strict false, xml.HTMLEntity and xml.HTMLAutoClose, and the sibling package
+// htmlentity holds those two tables. With AllowDoctype the internal subset's
+// entity declarations join the table. UTF-16 with a byte order mark is
+// decoded without any option.
 //
 // # Bounds
 //

@@ -71,13 +71,23 @@ func tokens(r *Reader) ([]tok, error) {
 // delivers one byte per Read.
 func sources(t *testing.T, doc string, fn func(t *testing.T, r *Reader)) {
 	t.Helper()
-	t.Run("bytes", func(t *testing.T) { fn(t, NewBytesReader([]byte(doc), Options{})) })
-	t.Run("stream", func(t *testing.T) { fn(t, NewReader(strings.NewReader(doc), Options{})) })
-	t.Run("tiny", func(t *testing.T) {
-		fn(t, NewReader(strings.NewReader(doc), Options{BufferSize: 4, MaxBufferBytes: 1 << 16}))
-	})
+	sourcesWith(t, doc, Options{}, fn)
+}
+
+// sourcesWith is sources with the behavioural options of opts; the buffer
+// sizes are the shapes' own.
+func sourcesWith(t *testing.T, doc string, opts Options, fn func(t *testing.T, r *Reader)) {
+	t.Helper()
+	sized := func(buffer, max int) Options {
+		o := opts
+		o.BufferSize, o.MaxBufferBytes = buffer, max
+		return o
+	}
+	t.Run("bytes", func(t *testing.T) { fn(t, NewBytesReader([]byte(doc), opts)) })
+	t.Run("stream", func(t *testing.T) { fn(t, NewReader(strings.NewReader(doc), opts)) })
+	t.Run("tiny", func(t *testing.T) { fn(t, NewReader(strings.NewReader(doc), sized(4, 1<<16))) })
 	t.Run("onebyte", func(t *testing.T) {
-		fn(t, NewReader(iotest.OneByteReader(strings.NewReader(doc)), Options{BufferSize: 8, MaxBufferBytes: 1 << 16}))
+		fn(t, NewReader(iotest.OneByteReader(strings.NewReader(doc)), sized(8, 1<<16)))
 	})
 }
 
@@ -240,7 +250,7 @@ func TestElementTextJoinsRunsAndDecodesEntities(t *testing.T) {
 		{`<t>a<![CDATA[&amp;]]>b</t>`, "a&amp;b"},
 		{`<t><![CDATA[&lt;]]></t>`, "&lt;"},
 		{`<t>a<b>hidden</b>c &lt; d</t>`, "ac < d"},
-		{`<t>&#65;&#x42;&#x1F600;&unknown;&#xD800;</t>`, "AB😀&unknown;&#xD800;"},
+		{`<t>&#65;&#x42;&#x1F600;&unknown;&#xD800;&#x110000;</t>`, "AB😀&unknown;\uFFFD&#x110000;"},
 	}
 	for _, c := range cases {
 		sources(t, c.doc, func(t *testing.T, r *Reader) {
@@ -368,9 +378,11 @@ func TestDoctypeIsReportedWhenAllowed(t *testing.T) {
 	if err != nil || got[0].kind != Directive || got[0].text != " html" {
 		t.Errorf("got %+v, %v", got, err)
 	}
+	// An internal subset is passed over, and the general entities it declares
+	// decode in the document; see TestDoctypeInternalSubsetDeclaresEntities.
 	r = NewBytesReader([]byte(`<!DOCTYPE a [<!ENTITY x "y">]><a/>`), Options{AllowDoctype: true})
-	if _, err := tokens(r); err == nil {
-		t.Error("an internal subset was accepted")
+	if got, err := tokens(r); err != nil || got[0].kind != Directive || got[1].kind != StartElement {
+		t.Errorf("got %+v, %v", got, err)
 	}
 }
 
@@ -786,16 +798,27 @@ func TestLineEndsAreNormalizedInDecodedContent(t *testing.T) {
 	}
 }
 
-func TestUTF16InputIsRefused(t *testing.T) {
-	for _, bom := range []string{"\xFF\xFE", "\xFE\xFF"} {
-		r := NewBytesReader([]byte(bom+"<\x00a\x00/\x00>\x00"), Options{})
-		if _, err := r.Next(); !errors.Is(err, ErrEncoding) {
-			t.Errorf("%x: got %v, want ErrEncoding", bom, err)
+func TestUTF16InputIsDecoded(t *testing.T) {
+	// "<a x='é'>𝄞</a>" in UTF-16, with the surrogate pair, in both orders.
+	le := "\xFF\xFE<\x00a\x00 \x00x\x00=\x00'\x00\xe9\x00'\x00>\x00\x34\xd8\x1e\xdd<\x00/\x00a\x00>\x00"
+	be := "\xFE\xFF\x00<\x00a\x00 \x00x\x00=\x00'\x00\xe9\x00'\x00>\xd8\x34\xdd\x1e\x00<\x00/\x00a\x00>"
+	for _, doc := range []string{le, be} {
+		sources(t, doc, func(t *testing.T, r *Reader) {
+			got, err := tokens(r)
+			if err != nil || len(got) != 4 || got[0].name != "a" || got[1].text != "\U0001d11e" {
+				t.Fatalf("got %+v, %v", got, err)
+			}
+		})
+		r := NewBytesReader([]byte(doc), Options{})
+		r.Next()
+		if v, ok := r.Attr("x"); !ok || v.String() != "é" {
+			t.Errorf("attribute: %q %v", v, ok)
 		}
 	}
-	r := NewReader(iotest.OneByteReader(strings.NewReader("\xFF\xFE<a/>")), Options{BufferSize: 4})
-	if _, err := r.Next(); !errors.Is(err, ErrEncoding) {
-		t.Errorf("one byte at a time: got %v, want ErrEncoding", err)
+	// A declaration naming UTF-16 is not an error once the mark decoded it.
+	r := NewBytesReader([]byte("\xFF\xFE<\x00?\x00x\x00m\x00l\x00 \x00e\x00n\x00c\x00o\x00d\x00i\x00n\x00g\x00=\x00'\x00U\x00T\x00F\x00-\x001\x006\x00'\x00?\x00>\x00<\x00a\x00/\x00>\x00"), Options{})
+	if _, err := tokens(r); err != nil {
+		t.Errorf("declared UTF-16: %v", err)
 	}
 	// 0xFF alone is not a byte order mark; it is malformed text the reader passes through.
 	r = NewBytesReader([]byte("\xFF<a/>"), Options{})

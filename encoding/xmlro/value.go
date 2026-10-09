@@ -155,7 +155,7 @@ func Unescape(dst, src []byte) []byte {
 		dst = append(dst, src[:i]...)
 		src = src[i:]
 		j = bytes.IndexByte(src, ';')
-		if j < 0 || j > 10 {
+		if j < 0 || j > maxEntityName {
 			dst = append(dst, '&')
 			src = src[1:]
 			continue
@@ -164,7 +164,12 @@ func Unescape(dst, src []byte) []byte {
 		var ok bool
 		dst, ok = appendReference(dst, ref)
 		if !ok {
-			dst = append(dst, src[:j+1]...)
+			// Not a reference: the '&' stands, and the scan resumes right
+			// after it, so that an '&' inside what looked like the name gets
+			// its own turn.
+			dst = append(dst, '&')
+			src = src[1:]
+			continue
 		}
 		src = src[j+1:]
 	}
@@ -188,14 +193,19 @@ func appendReference(dst, ref []byte) ([]byte, bool) {
 	}
 	var n uint64
 	var err error
-	if ref[1] == 'x' || ref[1] == 'X' {
+	// Hexadecimal references take a lower-case x only, as XML specifies and
+	// encoding/xml enforces; &#X41; is left as written.
+	if ref[1] == 'x' {
 		n, err = strconv.ParseUint(unsafe.String(unsafe.SliceData(ref[2:]), len(ref)-2), 16, 32)
 	} else {
 		n, err = strconv.ParseUint(unsafe.String(unsafe.SliceData(ref[1:]), len(ref)-1), 10, 32)
 	}
-	if err != nil || !utf8.ValidRune(rune(n)) {
+	if err != nil || n > utf8.MaxRune {
 		return dst, false
 	}
+	// A surrogate code point becomes U+FFFD, as it does through encoding/xml
+	// and through Go's own rune conversion; a number past the last code
+	// point is left as written, as there.
 	return utf8.AppendRune(dst, rune(n)), true
 }
 
