@@ -151,7 +151,10 @@ func (c *Cell) DecodeXMLFrom(r *xmlro.Reader) error {
 entities still encoded. Its methods decode on demand: `Int`, `Float`, `Bool`
 parse the raw bytes, `Equal` compares decoded content, `String` and
 `AppendTo` decode into new or caller-owned storage. Content with no
-ampersand, which is nearly all of it, is never copied.
+ampersand, which is nearly all of it, is never copied. A `Value` knows the
+five predefined references and character references; a reference that
+`Options.Entities` or the DOCTYPE resolves is replaced by its value as the
+token is scanned, so the same methods read it (see below).
 
 `Float` converts a plain decimal of at most 15 significant digits by one
 exact division, which is bit-identical to `strconv.ParseFloat` and twice as
@@ -178,6 +181,75 @@ are copied once, when they are read, which for an Office part is a handful
 of strings at the root; every start tag after that pays one byte comparison
 per attribute to notice there are none. The `xmlns` attributes stay visible
 through `NextAttr` as well.
+
+## HTML-flavoured input
+
+SVG with HTML inside `foreignObject`, draw.io files whose labels are HTML
+fragments, EPUB package documents, MusicXML and XMP are XML by declaration
+and HTML by habit: named character references beyond the five, void
+elements without end tags, mismatched end tags, DOCTYPEs with an internal
+subset, and the occasional Latin-1 or UTF-16 file. Four options read them,
+each off by default. Together they are the reader `encoding/xml` builds from
+`Strict = false`, `Entity = xml.HTMLEntity` and `AutoClose = xml.HTMLAutoClose`,
+and a document reads the same through both; a differential fuzz target
+holds the two to the same token sequence.
+
+While they are off, the Office path pays one byte test per token for them,
+which the worksheet benchmarks put at about 3 percent on a pure token scan,
+5 on the typed decode and 7 on the shared-strings decode, interleaved
+against the previous version on the same machine. Every rare condition is
+gathered behind that byte, so a reader that never sees HTML never takes the
+branch.
+
+```go
+r := xmlro.NewReader(src, xmlro.Options{
+	Lenient:       true,
+	Entities:      htmlentity.Lookup,
+	AutoClose:     htmlentity.AutoClose,
+	CharsetReader: charset.NewReaderLabel, // golang.org/x/net/html/charset, or your own
+	AllowDoctype:  true,
+})
+```
+
+- **`Entities`** resolves a reference the five predefined ones and the
+  character references do not cover, by the name between `&` and `;`. The
+  HTML table lives in the sibling package `htmlentity`, the 252 names of
+  `encoding/xml.HTMLEntity`, so a reader of Office parts does not link it.
+  A reference a table resolves is replaced by its value as the token is
+  scanned, into a side buffer the `Value` then aliases, with the predefined
+  references still encoded; `String`, `AppendTo`, `Equal` and `ElementText`
+  decode the result as they decode anything else. The expansion is bounded
+  by `MaxBufferBytes`, so no declaration can amplify a document.
+- **`CharsetReader`** is `encoding/xml`'s hook: called once, with the label
+  the XML declaration names and the input after the declaration, and the
+  reader continues from what it returns. A byte-slice reader converts only
+  the bytes after the declaration. UTF-16 with a byte order mark, which
+  Windows tools write for SVG and XMP, is decoded by the reader itself,
+  either byte order, with or without the hook; `Offset` then counts decoded
+  bytes.
+- **`Lenient`** reads what `encoding/xml` accepts with `Strict = false`: an
+  end tag that does not match the open element ends the elements it leaves
+  open, one `EndElement` each, named as they were opened, and the tag then
+  ends its own element; a stray end tag closes everything and is then an
+  error, as there. An attribute may be written without a value, which is
+  then its name, or with an unquoted one. Input that ends inside an element
+  is still `ErrTruncated`, as it is there. A `Lenient` reader keeps the open
+  elements' names, a few bytes per level.
+- **`AutoClose`** reports the elements that end with their start tag: such an
+  element is a `StartElement` followed by an `EndElement` unless its own end
+  tag is the very next token, which is `encoding/xml`'s rule.
+  `htmlentity.AutoClose` is the 13-element list of `encoding/xml.HTMLAutoClose`,
+  compared without regard to ASCII case or a namespace prefix.
+- **`AllowDoctype`** now also reads the internal subset: `<!ENTITY name
+  "value">` declarations join the entity table, ahead of `Options.Entities`,
+  and everything else in it is passed over with quotes, comments and
+  processing instructions respected. Illustrator's `xmlns="&ns_svg;"`
+  resolves. Nothing external is fetched, a parameter entity is ignored, and
+  a declared value is not expanded further.
+
+With `Lenient` or `AutoClose` set, `Skip` walks the subtree token by token
+rather than scanning it raw, since the raw scan cannot know which end tags
+would have to be invented; the Office path keeps the raw scan.
 
 ## On TinyGo
 
@@ -209,15 +281,18 @@ the allocation tests here measure `runtime.MemStats.TotalAlloc` instead, and
 - The buffer grows only to hold one token or one capture, never past
   `Options.MaxBufferBytes` (1 MiB by default). A larger token is `ErrTooLarge`.
 - Nesting stops at `Options.MaxDepth` (1024 by default).
-- A `DOCTYPE` is refused unless `Options.AllowDoctype` is set; an internal
-  subset is refused always. There are no external entities to expand.
-- An XML declaration naming an encoding other than UTF-8, or a UTF-16 byte
-  order mark, is `ErrEncoding`.
+- A `DOCTYPE` is refused unless `Options.AllowDoctype` is set. With it, the
+  internal subset is read for the general entities it declares and otherwise
+  passed over; nothing external is ever fetched or expanded.
+- An XML declaration naming an encoding other than UTF-8 is `ErrEncoding`
+  unless `Options.CharsetReader` converts it. UTF-16 with a byte order mark
+  is decoded by the reader itself.
 - An end tag that does not match its start tag is a `SyntaxError`, checked by
-  a 32-bit hash of the name; a malformed attribute is one too. That is the
-  whole of the well-formedness checking done: duplicate attributes, the
-  characters a name or text may contain, and UTF-8 validity are not checked.
-  This is a reader for documents a writer produced, not a validator.
+  a 32-bit hash of the name, unless `Options.Lenient`; a malformed attribute
+  is one too. That is the whole of the well-formedness checking done:
+  duplicate attributes, the characters a name or text may contain, and UTF-8
+  validity are not checked. This is a reader for documents a writer
+  produced, not a validator.
 - Decoding normalizes line ends in text (`\r\n` and `\r` to `\n`) as XML
   requires; it does not apply the further whitespace normalization XML
   specifies for attribute values.
@@ -229,4 +304,6 @@ a buffer too small for any token.
 ## Not in scope
 
 Writing: this reader serves a viewer, which produces nothing. Also
-reflection-based mapping, DTDs, and encodings other than UTF-8.
+reflection-based mapping, external DTDs and entities, and HTML parsing
+proper: the options above make an HTML fragment tokenizable, as
+`encoding/xml` does, not parsed as a browser would.

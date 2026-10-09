@@ -6,7 +6,9 @@ summary: >-
   decode-on-demand accessors, and the Decodable interface that a struct reads itself through.
 facts:
   package: github.com/shibukawa/tinygodriver/encoding/xmlro
-  state: prototype, under review with requirement:xml-office-reader
+  state: >
+    shipped 2026-09-25, v1.3.0 as encoding/xml and v1.3.1 as xmlro; the Options fields requirement:xmlro-replaces-encoding-xml
+    proposes are not in it yet
   construction: |
     func NewReader(src io.Reader, opts Options) *Reader
     func NewBytesReader(data []byte, opts Options) *Reader
@@ -17,7 +19,11 @@ facts:
         BufferSize     int  // initial, 64 KiB
         MaxBufferBytes int  // bound on one token or one capture, 1 MiB
         MaxDepth       int  // 1024
-        AllowDoctype   bool
+        AllowDoctype   bool // the internal subset's <!ENTITY name "value"> join the entity table
+        Entities       func(name []byte) (string, bool)                      // beyond the five and the numeric; htmlentity.Lookup
+        CharsetReader  func(label string, src io.Reader) (io.Reader, error) // encoding/xml's hook; a UTF-16 BOM is decoded without it
+        Lenient        bool                                                  // encoding/xml's Strict = false
+        AutoClose      func(name []byte) bool                                // void elements; htmlentity.AutoClose
     }
   tokens: |
     type Kind uint8  // None, StartElement, EndElement, Text, CData, Comment, ProcInst, Directive, EOF
@@ -68,6 +74,11 @@ facts:
   errors: |
     var ErrTruncated, ErrTooLarge, ErrTooDeep, ErrDoctype, ErrEncoding, ErrNotStart error
     type SyntaxError struct{ Offset int64; Msg string }
+    type CharsetError struct{ Label string; Err error }  // CharsetReader failed or returned nil
+  html_flavoured: |
+    package htmlentity  // encoding/xmlro/htmlentity, linked only by importers
+    func Lookup(name []byte) (string, bool)  // the 252 names of encoding/xml.HTMLEntity, binary search, no allocation
+    func AutoClose(name []byte) bool         // encoding/xml.HTMLAutoClose, ASCII case and prefix ignored
   usage: |
     r := xmlro.NewReader(part, xmlro.Options{})
     for {
@@ -144,6 +155,16 @@ facts:
       string(b) == s is the idiom the Go compiler compiles to a comparison with no allocation, and TinyGo
       compiles to a copy of b every time. Equal is the one form that allocates on neither, and a Children
       loop body switching on the name needs it under TinyGo; see rule:tinygo-string-conversion-allocates
+  tables_and_values:
+    contract: >
+      a reference that Options.Entities or the DOCTYPE resolves is replaced by its value as the token is
+      scanned, into a side buffer the Value aliases, with the predefined references still encoded, so
+      Value.String, AppendTo, Equal and ElementText decode the whole with no new call. Text() and Attr()
+      return that rewritten Value; RawElement stays as written. See requirement:xmlro-replaces-encoding-xml
+      how_the_table_reaches_value for why Value did not become a struct
+    skip: >
+      with Lenient or AutoClose set, Skip walks tokens instead of scanning raw, since end tags may have
+      to be invented inside the subtree
   not_offered:
     reflection_unmarshal: see decision:xml-struct-mapping
     token_struct: >
@@ -161,4 +182,7 @@ relations:
   resolution: resolved
 - relation: mentions
   to: rule:tinygo-string-conversion-allocates
+  resolution: resolved
+- relation: mentions
+  to: requirement:xmlro-replaces-encoding-xml
   resolution: resolved

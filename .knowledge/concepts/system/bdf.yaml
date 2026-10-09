@@ -1,0 +1,41 @@
+id: system:bdf
+type: system
+title: BDF Document Converter
+summary: >-
+  `github.com/shibukawa/bdf` converts PDF, Office, CAD, image, HTML, EPUB and music formats into a document
+  format browsers draw straight onto Canvas 2D, in plain Go that also builds to WebAssembly so the conversion
+  can run inside the browser. It is the Office file viewer requirement:xml-office-reader was written for,
+  and the consumer whose remaining encoding/xml uses requirement:xmlro-replaces-encoding-xml exists to
+  retire.
+facts:
+  import_path: github.com/shibukawa/bdf
+  license: Apache-2.0, as this repository
+  pins: tinygodriver v1.3.3 as of 2026-10-09
+  why_binary_size_matters: >
+    the converters ship as a WebAssembly module the browser downloads before it can draw anything, so every
+    package init and every table a Go import links is download weight paid by every viewer
+  xml_reading:
+    on_xmlro: >
+      internal/xmltree, the Office XML tree that docx, pptx, xlsx and visio read through ooxml.ReadFrom, and
+      the xlsx sheetData and sharedStrings streams through ooxml.NewReader. xmltree.ReaderOptions sets a
+      16 KiB buffer, its own token and depth bounds, and AllowDoctype
+    comparison_test: >
+      TestTreesOfDocumentsMatch in internal/xmltree/compare_test.go reads every .xml and .rels part of the
+      repository's Office fixtures through encoding/xml and through xmlro and compares the trees. The same
+      shape is the planned guard for every further site that moves
+    where_it_lives: >
+      on a bdf branch as of 2026-10-09. bdf main at a197a47 imports encoding/xmlro nowhere and reads every
+      XML format through encoding/xml, so the "seven sites remain" count in requirement:xmlro-replaces-encoding-xml
+      describes the branch, not the released module
+    still_on_encoding_xml: requirement:xmlro-replaces-encoding-xml lists the sites and what each needs
+  charset_packages: >
+    golang.org/x/net/html/charset in webdoc, epub and the SVG rasterizer, and golang.org/x/text/encoding/htmlindex
+    in musicxml and csv. The first depends on golang.org/x/net/html and its 2,231-entry HTML5 entity table;
+    the second does not
+relations:
+- relation: mentions
+  to: requirement:xml-office-reader
+  resolution: resolved
+- relation: mentions
+  to: requirement:xmlro-replaces-encoding-xml
+  resolution: resolved

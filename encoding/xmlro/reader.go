@@ -55,9 +55,54 @@ type Options struct {
 	// MaxDepth bounds element nesting, 1024 by default.
 	MaxDepth int
 	// AllowDoctype reports a DOCTYPE as a Directive instead of refusing it.
-	// An internal subset is refused either way.
+	// An internal subset, if there is one, is read for the general entities
+	// it declares in the internal form, <!ENTITY name "value">, which then
+	// decode as the predefined ones do; the rest of it is passed over, and
+	// nothing external is fetched.
 	AllowDoctype bool
+	// Entities resolves an entity reference that is neither one of the five
+	// predefined ones nor a character reference, by the name between the '&'
+	// and the ';', after the DOCTYPE's own declarations. nil, the default,
+	// leaves such a reference as written. htmlentity.Lookup is the HTML
+	// table.
+	Entities func(name []byte) (string, bool)
+	// CharsetReader converts input in an encoding other than UTF-8, as
+	// encoding/xml's does: it is called once, with the label the XML
+	// declaration names and the input after the declaration, and the reader
+	// continues from the io.Reader it returns. nil, the default, makes such a
+	// declaration ErrEncoding. UTF-16 with a byte order mark is decoded by
+	// the reader itself, before and without it.
+	CharsetReader func(label string, src io.Reader) (io.Reader, error)
+	// Lenient reads what encoding/xml accepts with Strict false: an end tag
+	// that does not match the open element ends the elements it leaves open,
+	// one EndElement each, and an attribute may have no value or an unquoted
+	// one. Input that ends inside an element is still ErrTruncated, as it is
+	// there.
+	Lenient bool
+	// AutoClose reports the elements that end with their start tag, the void
+	// elements of HTML: such an element is a StartElement followed by an
+	// EndElement unless its own end tag is the next token. nil, the default,
+	// has every element end with an end tag. htmlentity.AutoClose is the
+	// HTML list.
+	AutoClose func(name []byte) bool
 }
+
+// The bits of Reader.flags: every rare condition next must look at before
+// it scans, gathered so that the common path tests one byte and stores
+// nothing.
+const (
+	flagUnwinding uint8 = 1 << iota // Lenient is still ending elements for an end tag
+	flagCharset                     // the declaration named an encoding to switch to
+	flagDirty                       // synthName, textAlt or alt hold the previous token's data
+)
+
+// The bits of Reader.feat: the optional behaviours in effect, gathered for
+// the same reason, next to the fields the scanners read anyway.
+const (
+	featLenient   uint8 = 1 << iota // Options.Lenient
+	featAutoClose                   // Options.AutoClose is set
+	featEntities                    // Options.Entities is set or the DOCTYPE declared entities
+)
 
 const (
 	defaultBufferSize     = 64 << 10
@@ -77,7 +122,7 @@ var (
 	// ErrDoctype is returned for a DOCTYPE unless Options.AllowDoctype is set.
 	ErrDoctype = errors.New("xml: DOCTYPE refused")
 	// ErrEncoding is returned when the XML declaration names an encoding other
-	// than UTF-8.
+	// than UTF-8 and Options.CharsetReader is nil.
 	ErrEncoding = errors.New("xml: declared encoding is not UTF-8")
 	// ErrNotStart is returned by the element-level calls when the reader is
 	// not positioned on a StartElement.
@@ -117,7 +162,7 @@ const XMLNamespace = "http://www.w3.org/XML/1998/namespace"
 // stays valid for as long as the token does.
 type attrEntry struct {
 	nameOff, nameLen int32
-	valOff, valLen   int32
+	valOff, valLen   int32 // a negative valOff locates the value in alt, at -valOff-1: a table resolved an entity in it
 }
 
 // Reader reads XML tokens from an io.Reader or from a byte slice.
@@ -138,8 +183,10 @@ type Reader struct {
 	pin   int  // an index compaction must keep, or -1
 
 	kind       Kind
-	depth      int
 	pendingEnd bool
+	flags      uint8 // rare conditions next must settle before scanning; see flagUnwinding
+	feat       uint8 // the optional behaviours in effect, from Options and the DOCTYPE; see featLenient
+	depth      int
 	stack      []uint32 // name hashes of the open elements, len == depth
 
 	tokStart int // where the current token began
@@ -152,6 +199,25 @@ type Reader struct {
 	attrs    []attrEntry // attributes of the current StartElement, offsets relative to tokStart
 	attrPos  int         // NextAttr cursor into attrs
 	ns       []nsEntry   // namespace declarations in scope, innermost last
+
+	// What the tables changed in the current token: text and attribute
+	// values in which an entity resolved, assembled here with the resolved
+	// values in place. Nothing in the Office path touches these.
+	alt     []byte
+	textAlt []byte      // the current Text when a table changed it, else nil
+	docEnts []docEntity // general entities the DOCTYPE declared
+
+	// Lenient keeps the open elements' names, to name the EndElements it
+	// invents, and an end tag it is unwinding to.
+	names        []byte
+	nameEnds     []int32
+	closeHash    uint32
+	closeLen     int
+	closeAdvance int
+	synthName    []byte // the name of an invented EndElement, else nil
+
+	pendingCharset string // an encoding the declaration named, to switch to before the next token
+	transcoded     bool   // the input was UTF-16 and is decoded on the way in
 
 	scratch []byte
 	opts    Options
@@ -189,6 +255,7 @@ func (r *Reader) init(opts Options) {
 		opts.MaxDepth = defaultMaxDepth
 	}
 	r.opts = opts
+	r.feat = r.featFromOpts()
 	r.stack = make([]uint32, 0, 32)
 	r.attrs = make([]attrEntry, 0, 8)
 	r.ns = make([]nsEntry, 0, 8)
@@ -205,7 +272,27 @@ func (r *Reader) reset() {
 	r.tokStart, r.nameOff, r.nameLen, r.attrOff, r.attrLen, r.textOff, r.textLen, r.attrPos = 0, 0, 0, 0, 0, 0, 0, 0
 	r.attrs = r.attrs[:0]
 	r.scratch = r.scratch[:0]
+	r.alt, r.textAlt = r.alt[:0], nil
+	r.docEnts = r.docEnts[:0]
+	r.names, r.nameEnds = r.names[:0], r.nameEnds[:0]
+	r.synthName = nil
+	r.pendingCharset, r.transcoded = "", false
+	r.flags, r.feat = 0, r.featFromOpts()
 	r.err = nil
+}
+
+// featFromOpts is the feat byte for the options alone, before any DOCTYPE.
+func (r *Reader) featFromOpts() (f uint8) {
+	if r.opts.Lenient {
+		f |= featLenient
+	}
+	if r.opts.AutoClose != nil {
+		f |= featAutoClose
+	}
+	if r.opts.Entities != nil {
+		f |= featEntities
+	}
+	return f
 }
 
 // Reset points the Reader at a new source, keeping its options and its
@@ -242,16 +329,22 @@ func (r *Reader) Offset() int64 { return r.base + int64(r.r) }
 
 // Name returns the qualified name of a StartElement or EndElement, or the
 // target of a ProcInst, as written.
-func (r *Reader) Name() []byte { return r.buf[r.nameOff : r.nameOff+r.nameLen] }
+func (r *Reader) Name() []byte {
+	if r.synthName != nil {
+		return r.synthName
+	}
+	return r.buf[r.nameOff : r.nameOff+r.nameLen]
+}
 
 // NameIs reports whether the qualified name equals s. It allocates nothing.
 func (r *Reader) NameIs(s string) bool { return Equal(r.Name(), s) }
 
 // LocalName returns the name after the prefix, or the whole name when there
-// is none.
+// is none. A colon that is the first or the last byte of a name does not
+// make a prefix, as encoding/xml also has it.
 func (r *Reader) LocalName() []byte {
 	n := r.Name()
-	if i := bytes.IndexByte(n, ':'); i >= 0 {
+	if i := bytes.IndexByte(n, ':'); i > 0 && i < len(n)-1 {
 		return n[i+1:]
 	}
 	return n
@@ -260,15 +353,23 @@ func (r *Reader) LocalName() []byte {
 // Prefix returns the namespace prefix of the name, or nil when there is none.
 func (r *Reader) Prefix() []byte {
 	n := r.Name()
-	if i := bytes.IndexByte(n, ':'); i >= 0 {
+	if i := bytes.IndexByte(n, ':'); i > 0 && i < len(n)-1 {
 		return n[:i]
 	}
 	return nil
 }
 
 // Text returns the body of a Text, CData, Comment, ProcInst or Directive
-// token as written. For Text the entities are still encoded; see Value.
-func (r *Reader) Text() Value { return Value(r.buf[r.textOff : r.textOff+r.textLen]) }
+// token as written. For Text the entities are still encoded; see Value. The
+// exception is a reference that Options.Entities or the DOCTYPE resolves,
+// which Text already has replaced by its value, so that Value's decoding
+// methods, which know only the predefined references, read the whole.
+func (r *Reader) Text() Value {
+	if r.textAlt != nil {
+		return Value(r.textAlt)
+	}
+	return Value(r.buf[r.textOff : r.textOff+r.textLen])
+}
 
 // Element returns a handle to the element the reader is in, for NextChild.
 // On a StartElement that is the element itself; anywhere else it is the
@@ -401,13 +502,20 @@ func (r *Reader) Next() (Kind, error) {
 
 func (r *Reader) next() (Kind, error) {
 	if r.pendingEnd {
+		// popElement, written out: this and scanEndTag are the two sites on
+		// every end tag's path, and the inliner's budget is one call short.
 		r.pendingEnd = false
 		r.depth--
 		r.stack = r.stack[:r.depth]
-		if len(r.ns) > 0 {
-			r.popNamespaces()
+		if len(r.nameEnds)+len(r.ns) > 0 {
+			r.popKept()
 		}
 		return EndElement, nil
+	}
+	if r.flags != 0 {
+		if k, done, err := r.beforeToken(); done {
+			return k, err
+		}
 	}
 	r.nameLen, r.attrLen, r.textLen, r.attrPos = 0, 0, 0, 0
 	r.attrs = r.attrs[:0]
@@ -453,12 +561,13 @@ func (r *Reader) scanText() (Kind, error) {
 				return r.next()
 			}
 		case 0xFF, 0xFE:
-			// A UTF-16 byte order mark, in either order, is a document this
-			// reader does not decode.
+			// A UTF-16 byte order mark, in either order: the rest of the
+			// input is decoded to UTF-8 on the way in.
 			if ok, err := r.avail(1); err != nil {
 				return None, err
 			} else if ok && r.buf[1] == r.buf[0]^1 {
-				return None, ErrEncoding
+				r.transcodeUTF16(r.buf[0] == 0xFE)
+				return r.next()
 			}
 		}
 	}
@@ -471,6 +580,11 @@ func (r *Reader) scanText() (Kind, error) {
 	}
 	r.textOff, r.textLen = r.r, i
 	r.r += i
+	if r.feat&featEntities != 0 && bytes.IndexByte(r.buf[r.textOff:r.textOff+i], '&') >= 0 {
+		if err := r.expandText(); err != nil {
+			return None, err
+		}
+	}
 	return Text, nil
 }
 
@@ -616,7 +730,15 @@ func (r *Reader) scanStartTag() (Kind, error) {
 			i++
 		}
 		if c != '=' {
-			return None, r.syntax(i, "attribute without a value")
+			if !r.opts.Lenient {
+				return None, r.syntax(i, "attribute without a value")
+			}
+			// The name is the value, as encoding/xml has it.
+			r.attrs = append(r.attrs, attrEntry{
+				nameOff: int32(ns), nameLen: int32(ne - ns),
+				valOff: int32(ns), valLen: int32(ne - ns),
+			})
+			continue
 		}
 		i++
 		for {
@@ -638,7 +760,20 @@ func (r *Reader) scanStartTag() (Kind, error) {
 			i++
 		}
 		if c != '"' && c != '\'' {
-			return None, r.syntax(i, "attribute value is not quoted")
+			if !r.opts.Lenient {
+				return None, r.syntax(i, "attribute value is not quoted")
+			}
+			ve, err := r.scanUnquotedValue(i)
+			if err != nil {
+				return None, err
+			}
+			r.attrs = append(r.attrs, attrEntry{
+				nameOff: int32(ns), nameLen: int32(ne - ns),
+				valOff: int32(i), valLen: int32(ve - i),
+			})
+			i = ve
+			buf = r.buf[r.r:r.w]
+			continue
 		}
 		i++
 		vs := i
@@ -665,12 +800,42 @@ func (r *Reader) scanStartTag() (Kind, error) {
 	}
 	r.nameOff, r.nameLen = r.r+1, nameLen
 	r.attrOff, r.attrLen = r.r+attrStart, attrEnd-attrStart
+	if r.feat != 0 {
+		var err error
+		if selfClose, err = r.startTagFeatures(selfClose, i, nameLen); err != nil {
+			return None, err
+		}
+	}
 	r.r += i + 1
 	r.stack = append(r.stack, h)
 	r.depth++
 	r.pendingEnd = selfClose
 	r.declareNamespaces()
 	return StartElement, nil
+}
+
+// startTagFeatures is the end of scanStartTag for a reader with one of the
+// optional behaviours on: the tag's bytes are still at r.r and its
+// attributes indexed. It reports whether the element ends here.
+func (r *Reader) startTagFeatures(selfClose bool, i, nameLen int) (bool, error) {
+	if !selfClose && r.feat&featAutoClose != 0 && r.opts.AutoClose(r.buf[r.r+1:r.r+1+nameLen]) {
+		// A void element ends here unless its own end tag follows, as in
+		// encoding/xml.
+		close, err := r.shouldAutoClose(i+1, nameLen)
+		if err != nil {
+			return false, err
+		}
+		selfClose = close
+	}
+	if r.feat&featLenient != 0 {
+		r.pushName(r.buf[r.r+1 : r.r+1+nameLen])
+	}
+	if r.feat&featEntities != 0 {
+		if err := r.expandAttrs(); err != nil {
+			return false, err
+		}
+	}
+	return selfClose, nil
 }
 
 // declareNamespaces records the xmlns attributes of the start tag just
@@ -760,14 +925,14 @@ func (r *Reader) scanEndTag() (Kind, error) {
 		return None, r.syntax(0, "end tag with no open element")
 	}
 	if r.stack[r.depth-1] != h {
-		return None, r.syntax(0, "end tag does not match open element")
+		return r.mismatchedEndTag(h, end, i)
 	}
 	r.nameOff, r.nameLen = r.r+2, end-2
 	r.r += i + 1
 	r.depth--
 	r.stack = r.stack[:r.depth]
-	if len(r.ns) > 0 {
-		r.popNamespaces()
+	if len(r.nameEnds)+len(r.ns) > 0 {
+		r.popKept()
 	}
 	return EndElement, nil
 }
@@ -792,9 +957,15 @@ func (r *Reader) scanProcInst() (Kind, error) {
 	r.textOff, r.textLen = r.attrOff, r.attrLen
 	isDecl := Equal(r.Name(), "xml")
 	r.r += i + 2
-	if isDecl {
+	if isDecl && !r.transcoded {
 		if enc, ok := r.declAttr("encoding"); ok && !enc.EqualFold("utf-8") {
-			return None, ErrEncoding
+			if r.opts.CharsetReader == nil {
+				return None, ErrEncoding
+			}
+			// Switch before the next token, so that this one can still be
+			// read from the buffer it is in.
+			r.pendingCharset = enc.String()
+			r.flags |= flagCharset
 		}
 	}
 	return ProcInst, nil
@@ -843,15 +1014,12 @@ func (r *Reader) scanBang() (Kind, error) {
 		if !r.opts.AllowDoctype {
 			return None, ErrDoctype
 		}
-		i, err := r.indexByte(9, '>')
+		i, subStart, subEnd, err := r.scanDoctype()
 		if err != nil {
 			return None, err
 		}
-		if i < 0 {
-			return None, ErrTruncated
-		}
-		if bytes.IndexByte(r.buf[r.r+9:r.r+i], '[') >= 0 {
-			return None, r.syntax(9, "DOCTYPE internal subset not supported")
+		if subStart >= 0 && subEnd > subStart {
+			r.declareEntities(r.buf[r.r+subStart : r.r+subEnd])
 		}
 		r.textOff, r.textLen = r.r+9, i-9
 		r.r += i + 1
@@ -862,8 +1030,12 @@ func (r *Reader) scanBang() (Kind, error) {
 
 func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
 
-// attrValue returns the value of entry e.
+// attrValue returns the value of entry e: the bytes as written, or, when a
+// table resolved an entity in it, the rewritten value in alt.
 func (r *Reader) attrValue(e attrEntry) Value {
+	if e.valOff < 0 {
+		return Value(r.alt[-e.valOff-1 : -e.valOff-1+e.valLen])
+	}
 	return Value(r.buf[r.tokStart+int(e.valOff) : r.tokStart+int(e.valOff+e.valLen)])
 }
 
@@ -944,7 +1116,9 @@ func (r *Reader) declAttr(name string) (Value, bool) {
 // nothing in between. It scans the subtree raw, tracking only tags, quotes
 // and depth, so it neither indexes attributes nor checks that end tags
 // match inside what it skips; the reader is left on the end tag with Name
-// set, exactly as Next would leave it.
+// set, exactly as Next would leave it. With Options.Lenient or
+// Options.AutoClose the subtree is walked token by token instead, since
+// end tags may have to be invented inside it.
 func (r *Reader) Skip() error {
 	if r.kind != StartElement {
 		return ErrNotStart
@@ -956,7 +1130,15 @@ func (r *Reader) Skip() error {
 		_, err := r.Next()
 		return err
 	}
-	if err := r.skipRaw(); err != nil {
+	var err error
+	if r.opts.Lenient || r.opts.AutoClose != nil {
+		// End tags may have to be invented inside, which the raw scan
+		// cannot do.
+		err = r.skipTokens()
+	} else {
+		err = r.skipRaw()
+	}
+	if err != nil {
 		r.err = err
 		r.kind = None
 		return err
@@ -1080,11 +1262,7 @@ func (r *Reader) skipRaw() error {
 			r.r += j + 1
 		}
 	}
-	r.depth--
-	r.stack = r.stack[:r.depth]
-	if len(r.ns) > 0 {
-		r.popNamespaces()
-	}
+	r.popElement()
 	return nil
 }
 
@@ -1159,7 +1337,12 @@ func (r *Reader) elementText() (Value, error) {
 		}
 		switch k {
 		case Text, CData:
-			if chunks == 0 {
+			if chunks == 0 && r.textAlt != nil {
+				// A table rewrote the first run; it lives in alt, which the
+				// next token reuses, so it goes to scratch now.
+				inScratch = true
+				r.scratch = Unescape(r.scratch, r.textAlt)
+			} else if chunks == 0 {
 				r.pin = r.textOff
 				firstLen = r.textLen
 				firstCData = k == CData

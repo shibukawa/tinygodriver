@@ -10,7 +10,7 @@ facts:
   priority: should
   proposed_by: the maintainer, asking for a SAX-style reader with a story for struct mapping
   consumer: >
-    an Office file viewer. It reads parts and produces none, so the reader is the whole of this package:
+    an Office file viewer, system:bdf. It reads parts and produces none, so the reader is the whole of this package:
     no writer is planned, decided 2026-09-25
   shape_of_the_input:
     parts: >
@@ -90,8 +90,9 @@ facts:
       name productions, attribute uniqueness, the character set of text, the byte after a closing bracket.
       A writer produced this document; the reader reads what the writer meant
     refused: >
-      a DOCTYPE unless AllowDoctype, an internal subset always, an encoding other than UTF-8, nesting
-      past MaxDepth. There is nothing to expand and nothing to fetch
+      a DOCTYPE unless AllowDoctype, an encoding other than UTF-8 unless CharsetReader, nesting past
+      MaxDepth. Nothing external is ever fetched. Since 2026-10-09 an internal subset is read for its
+      <!ENTITY> declarations and a UTF-16 byte order mark is decoded; see requirement:xmlro-replaces-encoding-xml
   namespaces:
     decided: >
       names are matched as written, prefix included, since Office generators emit canonical prefixes.
@@ -216,6 +217,11 @@ facts:
       Attr was 28 percent of the time, the token scan 43, ParseFloat 9. The attribute index in the scan
       and the float fast path took both; the decode now runs at 132 MB/s, 58 percent of the scan, and
       the remaining cost is the token scan itself
+  follow_up: >
+    requirement:xmlro-replaces-encoding-xml, 2026-10-09: the consumer, system:bdf, still reads XHTML, EPUB,
+    SVG, draw.io, MusicXML and XMP through encoding/xml, and asks for an entity table, a charset hook,
+    a lenient mode and DOCTYPE internal subsets so those can move too. The refused list above is what
+    that requirement relaxes, each behind an option that is off by default
 relations:
 - relation: mentions
   to: api:xml-reader
@@ -228,4 +234,10 @@ relations:
   resolution: resolved
 - relation: mentions
   to: rule:tinygo-test-constraints
+  resolution: resolved
+- relation: mentions
+  to: requirement:xmlro-replaces-encoding-xml
+  resolution: resolved
+- relation: mentions
+  to: system:bdf
   resolution: resolved
