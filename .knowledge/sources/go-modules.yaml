@@ -1,0 +1,8 @@
+id: source:go-modules
+title: Declared Go dependencies (go.mod)
+adapter: go-module
+location:
+  root: .
+  selection: git
+  include: [go.mod]
+watch: [go.mod]
