@@ -55,8 +55,9 @@ type Options struct {
 	// MaxDepth bounds element nesting, 1024 by default.
 	MaxDepth int
 	// AllowDoctype reports a DOCTYPE as a Directive instead of refusing it.
-	// An internal subset, if there is one, is read for the general entities
-	// it declares in the internal form, <!ENTITY name "value">, which then
+	// One is accepted, before the root element, where XML places it. Its
+	// internal subset, if there is one, is read for the general entities it
+	// declares in the internal form, <!ENTITY name "value">, which then
 	// decode as the predefined ones do; the rest of it is passed over, and
 	// nothing external is fetched.
 	AllowDoctype bool
@@ -64,14 +65,17 @@ type Options struct {
 	// predefined ones nor a character reference, by the name between the '&'
 	// and the ';', after the DOCTYPE's own declarations. nil, the default,
 	// leaves such a reference as written. htmlentity.Lookup is the HTML
-	// table.
+	// table. Substitution may grow a document by at most MaxBufferBytes in
+	// total; past that the reader returns ErrTooLarge.
 	Entities func(name []byte) (string, bool)
 	// CharsetReader converts input in an encoding other than UTF-8, as
-	// encoding/xml's does: it is called once, with the label the XML
+	// encoding/xml's does: it is called once, with the label the first XML
 	// declaration names and the input after the declaration, and the reader
-	// continues from the io.Reader it returns. nil, the default, makes such a
-	// declaration ErrEncoding. UTF-16 with a byte order mark is decoded by
-	// the reader itself, before and without it.
+	// continues from the io.Reader it returns. Only a declaration before the
+	// root element counts; a later <?xml ...?> is a ProcInst and nothing
+	// more. nil, the default, makes such a declaration ErrEncoding. UTF-16
+	// with a byte order mark is decoded by the reader itself, before and
+	// without it.
 	CharsetReader func(label string, src io.Reader) (io.Reader, error)
 	// Lenient reads what encoding/xml accepts with Strict false: an end tag
 	// that does not match the open element ends the elements it leaves open,
@@ -102,6 +106,7 @@ const (
 	featLenient   uint8 = 1 << iota // Options.Lenient
 	featAutoClose                   // Options.AutoClose is set
 	featEntities                    // Options.Entities is set or the DOCTYPE declared entities
+	featProlog                      // no element yet: a DOCTYPE or an XML declaration may still come
 )
 
 const (
@@ -115,7 +120,8 @@ var (
 	// open element.
 	ErrTruncated = errors.New("xml: unexpected end of input")
 	// ErrTooLarge is returned when a token or a capture does not fit in
-	// Options.MaxBufferBytes.
+	// Options.MaxBufferBytes, or when entity substitution has grown the
+	// document by more than that in total.
 	ErrTooLarge = errors.New("xml: token exceeds MaxBufferBytes")
 	// ErrTooDeep is returned when nesting exceeds Options.MaxDepth.
 	ErrTooDeep = errors.New("xml: nesting exceeds MaxDepth")
@@ -218,6 +224,9 @@ type Reader struct {
 
 	pendingCharset string // an encoding the declaration named, to switch to before the next token
 	transcoded     bool   // the input was UTF-16 and is decoded on the way in
+	doctypeSeen    bool   // the one DOCTYPE has been read
+	declSeen       bool   // the one XML declaration has been read
+	grown          int    // bytes entity substitution has added to the document, bounded by MaxBufferBytes
 
 	scratch []byte
 	opts    Options
@@ -255,7 +264,6 @@ func (r *Reader) init(opts Options) {
 		opts.MaxDepth = defaultMaxDepth
 	}
 	r.opts = opts
-	r.feat = r.featFromOpts()
 	r.stack = make([]uint32, 0, 32)
 	r.attrs = make([]attrEntry, 0, 8)
 	r.ns = make([]nsEntry, 0, 8)
@@ -277,12 +285,17 @@ func (r *Reader) reset() {
 	r.names, r.nameEnds = r.names[:0], r.nameEnds[:0]
 	r.synthName = nil
 	r.pendingCharset, r.transcoded = "", false
+	r.doctypeSeen, r.declSeen, r.grown = false, false, 0
 	r.flags, r.feat = 0, r.featFromOpts()
 	r.err = nil
 }
 
-// featFromOpts is the feat byte for the options alone, before any DOCTYPE.
+// featFromOpts is the feat byte at the start of a document: the options,
+// and the prolog bit the first start tag clears. Clearing it there costs
+// the Office path nothing: once it is gone and no option is on, feat is
+// zero and scanStartTag takes no extra branch.
 func (r *Reader) featFromOpts() (f uint8) {
+	f = featProlog
 	if r.opts.Lenient {
 		f |= featLenient
 	}
@@ -818,6 +831,7 @@ func (r *Reader) scanStartTag() (Kind, error) {
 // optional behaviours on: the tag's bytes are still at r.r and its
 // attributes indexed. It reports whether the element ends here.
 func (r *Reader) startTagFeatures(selfClose bool, i, nameLen int) (bool, error) {
+	r.feat &^= featProlog
 	if !selfClose && r.feat&featAutoClose != 0 && r.opts.AutoClose(r.buf[r.r+1:r.r+1+nameLen]) {
 		// A void element ends here unless its own end tag follows, as in
 		// encoding/xml.
@@ -955,8 +969,14 @@ func (r *Reader) scanProcInst() (Kind, error) {
 	r.nameOff, r.nameLen = r.r+2, end-2
 	r.attrOff, r.attrLen = r.r+end, i-end
 	r.textOff, r.textLen = r.attrOff, r.attrLen
-	isDecl := Equal(r.Name(), "xml")
+	// Only the first <?xml ...?>, and only before the root element, is the
+	// declaration; XML allows no other, and encoding/xml's habit of
+	// switching charset at every one is not followed.
+	isDecl := Equal(r.Name(), "xml") && !r.declSeen && r.feat&featProlog != 0
 	r.r += i + 2
+	if isDecl {
+		r.declSeen = true
+	}
 	if isDecl && !r.transcoded {
 		if enc, ok := r.declAttr("encoding"); ok && !enc.EqualFold("utf-8") {
 			if r.opts.CharsetReader == nil {
@@ -1014,6 +1034,13 @@ func (r *Reader) scanBang() (Kind, error) {
 		if !r.opts.AllowDoctype {
 			return None, ErrDoctype
 		}
+		if r.feat&featProlog == 0 {
+			return None, r.syntax(0, "DOCTYPE after the root element")
+		}
+		if r.doctypeSeen {
+			return None, r.syntax(0, "second DOCTYPE")
+		}
+		r.doctypeSeen = true
 		i, subStart, subEnd, err := r.scanDoctype()
 		if err != nil {
 			return None, err
