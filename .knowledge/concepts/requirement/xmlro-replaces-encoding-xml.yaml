@@ -70,6 +70,27 @@ facts:
       it is now a prolog bit in the feat byte that the first start tag clears inside startTagFeatures,
       so once it is gone an Office reader's feat is zero and scanStartTag takes no extra branch. Measured
       back at the level of the commit before the review
+  review_2026_10_14_from_bdf:
+    raised: >
+      Unescape took the square of its input: at every '&' it searched the rest of the text for a '\r'
+      and for a ';', and at every '\r' for an '&', so text with many of one and none of the other was
+      read to its end each time. 200,000 ampersands took 0.6 s and ten times as many a hundred times
+      that, through every Text and attribute value a consumer decodes, Office included. The report also
+      named BoundEntities and undeclare, which are bdf's own, in its internal/xmltree/open.go
+    fixed: >
+      Unescape remembers the offset of the next '&' and the next '\r' and looks for each again only once
+      the scan has passed it, and looks for the ';' of a reference within maxEntityName bytes of its '&',
+      past which it was never a reference; 200,000 ampersands take 2 ms, and ordinary text decodes as
+      fast as before or faster. A sweep of thirty adversarial shapes through the reader at three sizes
+      found one more of the kind: lookupEntity compared a name with every DOCTYPE declaration, so n
+      declarations and n references cost n squared, 0.5 s at 20,000. The declarations are now sorted by
+      name once the DOCTYPE is read, a name declared twice in the order of its declarations so that the
+      first still wins, and found by halving. The sort is a heapsort written out, 2.9 KB less wasm than
+      slices.SortStableFunc and no worse in its worst case; a hash index was set aside because the
+      reader's FNV is unseeded and a document could choose its collisions. Pinned by
+      TestUnescapeMatchesSearch, which decodes every string of up to six of the bytes that matter both
+      ways, TestUnescapeNameBound, TestUnescapeIsLinear, TestEntityLookupIsLinear, TestSortEntities and
+      TestEntityLookupAmongMany; the linear tests compare n with 8n and fail the old code on every shape
   lenient_semantics_matched: >
     encoding/xml with Strict false unwinds one element per Token on a mismatched end tag, which makes a
     stray end tag close everything and then fail, and still reports "unexpected EOF" for a document that
@@ -509,6 +530,7 @@ constraints:
 - No external entity or DTD is ever fetched or expanded; the internal subset is read only for its literal <!ENTITY> values.
 - Entity substitution may grow a document by at most MaxBufferBytes in total, so no declaration amplifies a document over many tokens.
 - One DOCTYPE and one XML declaration count, both before the root element; anything later is a SyntaxError or a plain ProcInst.
+- Decoding and entity lookup take time linear in the document, or n log n in its declarations, whatever it holds; no search restarts from a position it has already covered.
 non_goals:
 - A writer or an EscapeText; the only writer in the consumer is an unshipped generator.
 - Reflection-based struct decoding; EPUB and offcrypto move to the tree and to a hand-written Decodable.
