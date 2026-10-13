@@ -6,19 +6,72 @@ import (
 )
 
 // docEntity is a general entity the DOCTYPE's internal subset declared, with
-// its value decoded.
+// its value decoded, and its place among the declarations. Reader.docEnts
+// holds them sorted by name, a name declared more than once in the order of
+// its declarations.
 type docEntity struct {
 	name  string
 	value string
+	order int
+}
+
+// before is the order docEnts is sorted in.
+func (a *docEntity) before(b *docEntity) bool {
+	c := strings.Compare(a.name, b.name)
+	return c < 0 || c == 0 && a.order < b.order
+}
+
+// sortEntities sorts the declarations once the DOCTYPE has been read, so
+// that lookupEntity finds one by halving. It is a heapsort: in place, and
+// n log n whatever the document declares and in whatever order.
+func (r *Reader) sortEntities() {
+	e := r.docEnts
+	for i := len(e)/2 - 1; i >= 0; i-- {
+		siftDown(e, i)
+	}
+	for n := len(e) - 1; n > 0; n-- {
+		e[0], e[n] = e[n], e[0]
+		siftDown(e[:n], 0)
+	}
+}
+
+// siftDown moves e[i] down the heap, the last in order at its top, to where
+// neither of its children comes after it.
+func siftDown(e []docEntity, i int) {
+	for {
+		c := 2*i + 1
+		if c >= len(e) {
+			return
+		}
+		if c+1 < len(e) && e[c].before(&e[c+1]) {
+			c++
+		}
+		if !e[i].before(&e[c]) {
+			return
+		}
+		e[i], e[c] = e[c], e[i]
+		i = c
+	}
 }
 
 // lookupEntity resolves name through the DOCTYPE's declarations, the first
-// of which wins as XML requires, and then through Options.Entities.
+// of which wins as XML requires, and then through Options.Entities. It does
+// not compare name with every declaration: a document may declare as many
+// entities as it has room for and refer to them as often, and the product
+// of the two counts is the square of its length.
 func (r *Reader) lookupEntity(name []byte) (string, bool) {
-	for i := range r.docEnts {
-		if Equal(name, r.docEnts[i].name) {
-			return r.docEnts[i].value, true
+	s := Value(name).str()
+	lo, hi := 0, len(r.docEnts)
+	for lo < hi {
+		m := int(uint(lo+hi) >> 1)
+		if r.docEnts[m].name < s {
+			lo = m + 1
+		} else {
+			hi = m
 		}
+	}
+	if lo < len(r.docEnts) && r.docEnts[lo].name == s {
+		return r.docEnts[lo].value, true
 	}
 	if r.opts.Entities != nil {
 		return r.opts.Entities(name)

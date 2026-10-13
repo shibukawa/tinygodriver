@@ -133,7 +133,7 @@ func (r *Reader) declareEntities(sub []byte) {
 				if len(name) > 0 && j < len(rest) && (rest[j] == '"' || rest[j] == '\'') {
 					q := rest[j]
 					if k := bytes.IndexByte(rest[j+1:], q); k >= 0 {
-						r.docEnts = append(r.docEnts, docEntity{name: string(name), value: string(Unescape(nil, rest[j+1:j+1+k]))})
+						r.docEnts = append(r.docEnts, docEntity{name: string(name), value: string(Unescape(nil, rest[j+1:j+1+k])), order: len(r.docEnts)})
 						r.feat |= featEntities
 					}
 				}

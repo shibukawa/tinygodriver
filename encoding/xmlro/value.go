@@ -135,44 +135,59 @@ func (v Value) Bool() (bool, error) {
 
 // Unescape appends src to dst with the five predefined entities and numeric
 // character references decoded and line ends normalized to "\n". A
-// reference it does not recognize is copied as written.
+// reference it does not recognize is copied as written. The time it takes
+// is linear in src, whatever src holds.
 func Unescape(dst, src []byte) []byte {
+	// amp and cr are the offsets of the next '&' and '\r' at or after p, or
+	// len(src) when there is none. Each is looked for again only once the
+	// scan has passed it: looking for both at every step read text with many
+	// of one and none of the other to its end each time, the square of its
+	// length in all.
+	p, amp, cr := 0, -1, -1
 	for {
-		i := bytes.IndexByte(src, '&')
-		j := bytes.IndexByte(src, '\r')
-		if i < 0 && j < 0 {
-			return append(dst, src...)
+		if amp < p {
+			amp = indexFrom(src, p, '&')
 		}
-		if i < 0 || (j >= 0 && j < i) {
-			dst = append(dst, src[:j]...)
+		if cr < p {
+			cr = indexFrom(src, p, '\r')
+		}
+		if cr < amp {
+			dst = append(dst, src[p:cr]...)
 			dst = append(dst, '\n')
-			src = src[j+1:]
-			if len(src) > 0 && src[0] == '\n' {
-				src = src[1:]
+			p = cr + 1
+			if p < len(src) && src[p] == '\n' {
+				p++
 			}
 			continue
 		}
-		dst = append(dst, src[:i]...)
-		src = src[i:]
-		j = bytes.IndexByte(src, ';')
-		if j < 0 || j > maxEntityName {
-			dst = append(dst, '&')
-			src = src[1:]
-			continue
+		if amp == len(src) {
+			return append(dst, src[p:]...)
 		}
-		ref := src[1:j]
-		var ok bool
-		dst, ok = appendReference(dst, ref)
-		if !ok {
-			// Not a reference: the '&' stands, and the scan resumes right
-			// after it, so that an '&' inside what looked like the name gets
-			// its own turn.
-			dst = append(dst, '&')
-			src = src[1:]
-			continue
+		dst = append(dst, src[p:amp]...)
+		// The ';' of a reference is within maxEntityName bytes of its '&',
+		// and is looked for no further.
+		if j := bytes.IndexByte(src[amp:min(len(src), amp+maxEntityName+1)], ';'); j >= 0 {
+			var ok bool
+			if dst, ok = appendReference(dst, src[amp+1:amp+j]); ok {
+				p = amp + j + 1
+				continue
+			}
 		}
-		src = src[j+1:]
+		// Not a reference: the '&' stands, and the scan resumes right after
+		// it, so that an '&' inside what looked like the name gets its own
+		// turn.
+		dst = append(dst, '&')
+		p = amp + 1
 	}
+}
+
+// indexFrom returns the offset of the first c in b at or after p, or len(b)
+// when there is none.
+func indexFrom(b []byte, p int, c byte) int {
+	if i := bytes.IndexByte(b[p:], c); i >= 0 {
+		return p + i
+	}
+	return len(b)
 }
 
 func appendReference(dst, ref []byte) ([]byte, bool) {
