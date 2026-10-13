@@ -139,6 +139,9 @@ func FuzzUnescapeNeverPanics(f *testing.F) {
 		if !v.HasEntities() && out != string(in) {
 			t.Errorf("HasEntities false but decoding changed %q", in)
 		}
+		if want := unescapeBySearch(nil, in); out != string(want) {
+			t.Errorf("Unescape(%q) = %q, the searching version %q", in, out, want)
+		}
 	})
 }
 

@@ -211,7 +211,7 @@ type Reader struct {
 	// values in place. Nothing in the Office path touches these.
 	alt     []byte
 	textAlt []byte      // the current Text when a table changed it, else nil
-	docEnts []docEntity // general entities the DOCTYPE declared
+	docEnts []docEntity // general entities the DOCTYPE declared, sorted by name
 
 	// Lenient keeps the open elements' names, to name the EndElements it
 	// invents, and an end tag it is unwinding to.
@@ -1047,6 +1047,7 @@ func (r *Reader) scanBang() (Kind, error) {
 		}
 		if subStart >= 0 && subEnd > subStart {
 			r.declareEntities(r.buf[r.r+subStart : r.r+subEnd])
+			r.sortEntities()
 		}
 		r.textOff, r.textLen = r.r+9, i-9
 		r.r += i + 1
