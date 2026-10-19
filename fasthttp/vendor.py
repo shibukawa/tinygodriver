@@ -126,6 +126,14 @@ def rewrite(text):
 # version bump that moves the anchor fails loudly instead of dropping a patch.
 
 PATCHES = {
+    "http.go": [
+        ('\t"encoding/base64"\n', '', 1),
+        (
+            '\t"github.com/valyala/bytebufferpool"\n',
+            '\t"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.\n\t"github.com/valyala/bytebufferpool"\n',
+            1,
+        ),
+    ],
     # sync.RWMutex deadlocks on TinyGo (<= 0.42) whenever a reader arrives
     # while a writer waits; see internal/syncx. HostClient.mLock takes a
     # writer on every new host while requests read it, so it is swapped for

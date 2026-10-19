@@ -13,6 +13,10 @@ readable.
 
 ## Why any patch is needed
 
+`http.go` also uses `../encoding/base64` for the API-compatible Go SIMD and
+TinyGo vector backends. `vendor.py` records this import substitution, including
+its `PETITWEB:` marker. The codec produces the same wire bytes on both compilers.
+
 Two reasons, and they are unrelated. One is `crypto/tls`, below. The other is
 that upstream's zstd does not link under TinyGo at all — section 6, and the only
 one of the two that stops a build outright.

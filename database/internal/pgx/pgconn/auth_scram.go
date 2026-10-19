@@ -19,13 +19,13 @@ import (
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgproto3"
+	"github.com/shibukawa/tinygodriver/encoding/base64" // Local patch: shared SIMD Base64 backend.
 	"golang.org/x/text/secure/precis"
 )
 

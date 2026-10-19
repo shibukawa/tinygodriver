@@ -8,11 +8,12 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha1"
-	"encoding/base64"
 	"io"
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.
 )
 
 var keyGUID = []byte("258EAFA5-E914-47DA-95CA-C5AB0DC85B11")

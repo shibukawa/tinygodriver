@@ -15,7 +15,9 @@ Upstream cannot be used here even though it compiles under standard Go: its
 `*RequestCtx`, and Go treats that as a different type from the fork's. Beyond
 the import rewrite, five compile errors and one panicking stub needed patching;
 [PATCHES.md](./PATCHES.md) records all of them. The whole server side —
-`FastHTTPUpgrader` and the framing code under it — needed **no patches at all**.
+`FastHTTPUpgrader` and the framing code under it — needed **no compatibility patches**.
+The shared key and proxy helpers use the repository's optimized
+[`encoding/base64`](../encoding/base64) on both compilers.
 
 If an application targets standard Go only, use upstream `fasthttp/websocket`
 with upstream fasthttp; this fork is for TinyGo builds and for code shared

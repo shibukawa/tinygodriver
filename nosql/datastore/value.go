@@ -1,12 +1,13 @@
 package datastore
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/encoding/base64"
 )
 
 // Codec failures. A Value carries exactly one member on the wire, because it is

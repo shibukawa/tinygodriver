@@ -22,12 +22,19 @@ Two further sites were patched until TinyGo 0.42, which now defines
 shim returned — and `(*tls.Config).Clone`. Both call sites are back on
 upstream's own code, and the shims are gone.
 
-Nothing else needed touching. There is no assembly, so no `noasm` tag, and no
-external dependencies to fork: the SOCKS5 support in `x_net_proxy.go` is
+No other compatibility changes were needed. There is no assembly, so no
+`noasm` tag, and no external dependencies to fork: the SOCKS5 support in `x_net_proxy.go` is
 vendored by upstream already.
 
-Under standard Go every patch below resolves to upstream behaviour, through
-`compat_std.go`. The divergence lives in `compat_tinygo.go`.
+Under standard Go the compatibility patches resolve to upstream behaviour
+through `compat_std.go`. Base64 uses the shared codec below on both compilers.
+
+## Shared Base64 backend
+
+`util.go` and `proxy.go` import `../encoding/base64` for handshake keys and
+proxy credentials. It preserves the standard API and bytes while selecting
+Go's experimental SIMD or TinyGo's C vector backend. `vendor.py` checks both
+import anchors and reapplies the substitutions on an upstream refresh.
 
 ## The server needs `httpserver`
 
