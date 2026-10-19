@@ -31,12 +31,12 @@ var decodeOffsets = [2][16]byte{
 }
 
 func validateVector(x, lo, hi, mask archsimd.Uint8x16) (archsimd.Uint8x16, archsimd.Uint8x16) {
-	valid := lookup(lo, x.And(mask)).And(lookup(hi, x.ShiftAllRight(3)))
+	valid := lo.LookupOrZero(x.And(mask)).And(hi.LookupOrZero(x.ShiftAllRight(3)))
 	return valid, valid
 }
 
 func translateVector(x, class, delta, special, correction archsimd.Uint8x16) archsimd.Uint8x16 {
-	return x.Add(lookup(delta, class.LeadingZeros()))
+	return x.Add(delta.LookupOrZero(class.LeadingZeros()))
 }
 
 var decodeA = [16]byte{0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 255, 255, 255, 255}
@@ -60,7 +60,7 @@ func newDecodePacker() bytePacker {
 	return bytePacker{archsimd.LoadUint8x16Array(&decodeA), archsimd.LoadUint8x16Array(&decodeB), archsimd.LoadInt8x16Array(&decodeShiftA), archsimd.LoadInt8x16Array(&decodeShiftB)}
 }
 func (p bytePacker) pack(x archsimd.Uint8x16) archsimd.Uint8x16 {
-	return lookup(x, p.a).Shift(p.sa).Or(lookup(x, p.b).Shift(p.sb))
+	return x.LookupOrZero(p.a).Shift(p.sa).Or(x.LookupOrZero(p.b).Shift(p.sb))
 }
 
 // Keep the value receiver within Go's four-field struct SSA limit. Adding

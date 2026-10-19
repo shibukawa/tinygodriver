@@ -168,6 +168,27 @@ func TestBatchDecodeCompatibility(t *testing.T) {
 	}
 }
 
+func TestMixedLineWidths(t *testing.T) {
+	for _, pair := range encodings() {
+		plain := []byte(pair.std.EncodeToString(randomBytes(1024)))
+		for _, widths := range [][]int{{76, 32, 64, 12}, {64, 76, 4, 8}, {32, 76, 76}} {
+			for _, separator := range []string{"\n", "\r\n", "\r"} {
+				src := []byte(separator)
+				for start, line := 0, 0; start < len(plain); line++ {
+					end := min(start+widths[line%len(widths)], len(plain))
+					src = append(src, plain[start:end]...)
+					src = append(src, separator...)
+					start = end
+				}
+				checkDecode(t, pair, src)
+				for _, suffix := range []string{"!", "A", "AA==A"} {
+					checkDecode(t, pair, append(bytes.Clone(src), suffix...))
+				}
+			}
+		}
+	}
+}
+
 func TestBatchBufferEdges(t *testing.T) {
 	if !vectorAvailable {
 		t.Log("SIMD backend unavailable; scalar compatibility tests apply")
@@ -200,6 +221,43 @@ func TestBatchBufferEdges(t *testing.T) {
 							!bytes.Equal(backing[offset+dlen:], bytes.Repeat([]byte{0xa5}, 16)) || !bytes.Equal(src, before) {
 							t.Fatal("batch kernel wrote outside dst or modified src")
 						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// Exercise the encoder with incomplete source and destination blocks. The
+// kernel must stop before either bound, including at unaligned addresses.
+func TestEncodeKernelBufferEdges(t *testing.T) {
+	if !vectorAvailable {
+		t.Log("SIMD backend unavailable; scalar compatibility tests apply")
+		return
+	}
+	lengths := []int{95, 96, 97, 99, 100, 101, 143, 144, 145, 255, 256, 257}
+	for n := 47; n <= 65; n++ {
+		lengths = append(lengths, n)
+	}
+	for _, pair := range encodings()[:4] {
+		for offset := 0; offset < 16; offset++ {
+			for _, slen := range lengths {
+				raw := randomBytes(slen)
+				src := append(make([]byte, offset), raw...)[offset:]
+				want := []byte(pair.std.EncodeToString(raw))
+				for _, dlen := range []int{0, 15, 16, 31, 32, 63, 64, 65, 127, 128, 129, 192, 193} {
+					backing := bytes.Repeat([]byte{0xa5}, offset+dlen+16)
+					consumed := encodeVector(backing[offset:offset+dlen], src, pair.ours.kind == 2)
+					produced := consumed / 3 * 4
+					if consumed < 0 || consumed > slen || consumed%12 != 0 || produced > dlen {
+						t.Fatal("invalid encoder counts", pair.name, offset, slen, dlen, consumed)
+					}
+					if !bytes.Equal(backing[offset:offset+produced], want[:produced]) || !bytes.Equal(src, raw) {
+						t.Fatal("encoder prefix mismatch or modified source", pair.name, offset, slen, dlen)
+					}
+					if !bytes.Equal(backing[:offset], bytes.Repeat([]byte{0xa5}, offset)) ||
+						!bytes.Equal(backing[offset+dlen:], bytes.Repeat([]byte{0xa5}, 16)) {
+						t.Fatal("encoder wrote outside dst", pair.name, offset, slen, dlen)
 					}
 				}
 			}

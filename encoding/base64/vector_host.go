@@ -14,6 +14,8 @@ var encodeOffsets = [2][16]byte{
 // decodeVector consumes complete, valid, unpadded quanta and CR/LF at quantum
 // boundaries, returning separate source and output counts. A full vector
 // store produces 12 useful bytes and four scratch bytes inside dst's length.
+// Array load/store intrinsics avoid inline-marker NOPs left by Go 1.27's
+// slice convenience wrappers, even after their bounds checks are eliminated.
 func decodeVector(dst, src []byte, url bool) (read, written int) {
 	k := 0
 	if url {
@@ -49,26 +51,22 @@ func decodeVector(dst, src []byte, url bool) (read, written int) {
 		if len(remaining) >= 80 && len(dst) >= 57 && (remaining[76] == '\n' || remaining[76] == '\r') {
 			block := (*[80]byte)(remaining)
 			out := (*[57]byte)(dst)
-			x0 := archsimd.LoadUint8x16(block[0:16])
-			x1 := archsimd.LoadUint8x16(block[16:32])
-			x2 := archsimd.LoadUint8x16(block[32:48])
-			x3 := archsimd.LoadUint8x16(block[48:64])
-			x4 := archsimd.LoadUint8x16(block[64:80])
+			x0 := archsimd.LoadUint8x16Array((*[16]byte)(block[0:16]))
+			x1 := archsimd.LoadUint8x16Array((*[16]byte)(block[16:32]))
+			x2 := archsimd.LoadUint8x16Array((*[16]byte)(block[32:48]))
+			x3 := archsimd.LoadUint8x16Array((*[16]byte)(block[48:64]))
+			x4 := archsimd.LoadUint8x16Array((*[16]byte)(block[64:80]))
 			h0, v0 := validateVector(x0, lo, hi, mask15)
 			h1, v1 := validateVector(x1, lo, hi, mask15)
 			h2, v2 := validateVector(x2, lo, hi, mask15)
 			h3, v3 := validateVector(x3, lo, hi, mask15)
 			h4, v4 := validateVector(x4, lo, hi, mask15)
 			if allNonzero(v0.Min(v1).Min(v2.Min(v3)).Min(v4.Or(tail4))) {
-				p0 := packer.pack(translateVector(x0, h0, delta, specialV, correctionV))
-				p1 := packer.pack(translateVector(x1, h1, delta, specialV, correctionV))
-				p2 := packer.pack(translateVector(x2, h2, delta, specialV, correctionV))
-				p3 := packer.pack(translateVector(x3, h3, delta, specialV, correctionV))
 				p4 := packer.pack(translateVector(x4, h4, delta, specialV, correctionV))
-				p0.Store(out[0:16])
-				p1.Store(out[12:28])
-				p2.Store(out[24:40])
-				p3.Store(out[36:52])
+				packer.pack(translateVector(x0, h0, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[0:16]))
+				packer.pack(translateVector(x1, h1, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[12:28]))
+				packer.pack(translateVector(x2, h2, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[24:40]))
+				packer.pack(translateVector(x3, h3, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[36:52]))
 				p4.StorePart(out[48:57])
 				separator := block[76]
 				read += 77
@@ -85,23 +83,21 @@ func decodeVector(dst, src []byte, url bool) (read, written int) {
 		// preserving the standard library's decoded prefix and error offset.
 		block := (*[64]byte)(remaining)
 		out := (*[52]byte)(dst)
-		x0 := archsimd.LoadUint8x16(block[0:16])
-		x1 := archsimd.LoadUint8x16(block[16:32])
-		x2 := archsimd.LoadUint8x16(block[32:48])
-		x3 := archsimd.LoadUint8x16(block[48:64])
+		x0 := archsimd.LoadUint8x16Array((*[16]byte)(block[0:16]))
+		x1 := archsimd.LoadUint8x16Array((*[16]byte)(block[16:32]))
+		x2 := archsimd.LoadUint8x16Array((*[16]byte)(block[32:48]))
+		x3 := archsimd.LoadUint8x16Array((*[16]byte)(block[48:64]))
 		h0, v0 := validateVector(x0, lo, hi, mask15)
 		h1, v1 := validateVector(x1, lo, hi, mask15)
 		h2, v2 := validateVector(x2, lo, hi, mask15)
 		h3, v3 := validateVector(x3, lo, hi, mask15)
 		if allNonzero(v0.Min(v1).Min(v2.Min(v3))) {
-			p0 := packer.pack(translateVector(x0, h0, delta, specialV, correctionV))
-			p1 := packer.pack(translateVector(x1, h1, delta, specialV, correctionV))
-			p2 := packer.pack(translateVector(x2, h2, delta, specialV, correctionV))
-			p3 := packer.pack(translateVector(x3, h3, delta, specialV, correctionV))
-			p0.Store(out[0:16])
-			p1.Store(out[12:28])
-			p2.Store(out[24:40])
-			p3.Store(out[36:52])
+			// Keep the pack/translate calls on the store expression so their
+			// inline markers share a real instruction instead of padding NOPs.
+			packer.pack(translateVector(x0, h0, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[0:16]))
+			packer.pack(translateVector(x1, h1, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[12:28]))
+			packer.pack(translateVector(x2, h2, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[24:40]))
+			packer.pack(translateVector(x3, h3, delta, specialV, correctionV)).StoreArray((*[16]byte)(out[36:52]))
 			read += 64
 			written += 48
 			dst = dst[48:]
@@ -112,7 +108,7 @@ func decodeVector(dst, src []byte, url bool) (read, written int) {
 		break
 	}
 	for len(src)-read >= 16 && len(dst) >= 16 {
-		x := archsimd.LoadUint8x16(src[read:])
+		x := archsimd.LoadUint8x16Array((*[16]byte)(src[read:]))
 		h, valid := validateVector(x, lo, hi, mask15)
 		digits := 16
 		if !allNonzero(valid) {
@@ -136,7 +132,7 @@ func decodeVector(dst, src []byte, url bool) (read, written int) {
 		v := translateVector(x, h, delta, specialV, correctionV)
 		packed := packer.pack(v)
 		if digits == 16 {
-			packed.Store(dst)
+			packed.StoreArray((*[16]byte)(dst))
 			read += 16
 			written += 12
 			dst = dst[12:]
@@ -170,26 +166,26 @@ func encodeVector(dst, src []byte, url bool) int {
 	for len(src)-n >= 52 && len(dst) >= 64 {
 		block := (*[52]byte)(src[n:])
 		out := (*[64]byte)(dst)
-		v0 := packer.pack(archsimd.LoadUint8x16(block[0:16]), mask63)
-		v1 := packer.pack(archsimd.LoadUint8x16(block[12:28]), mask63)
-		v2 := packer.pack(archsimd.LoadUint8x16(block[24:40]), mask63)
-		v3 := packer.pack(archsimd.LoadUint8x16(block[36:52]), mask63)
+		v0 := packer.pack(archsimd.LoadUint8x16Array((*[16]byte)(block[0:16])), mask63)
+		v1 := packer.pack(archsimd.LoadUint8x16Array((*[16]byte)(block[12:28])), mask63)
+		v2 := packer.pack(archsimd.LoadUint8x16Array((*[16]byte)(block[24:40])), mask63)
+		v3 := packer.pack(archsimd.LoadUint8x16Array((*[16]byte)(block[36:52])), mask63)
 		i0 := v0.SubSaturated(v51).Add(one.Masked(v0.BitsToInt8().Greater(v25)))
 		i1 := v1.SubSaturated(v51).Add(one.Masked(v1.BitsToInt8().Greater(v25)))
 		i2 := v2.SubSaturated(v51).Add(one.Masked(v2.BitsToInt8().Greater(v25)))
 		i3 := v3.SubSaturated(v51).Add(one.Masked(v3.BitsToInt8().Greater(v25)))
-		v0.Add(lookup(offsets, i0)).Store(out[0:16])
-		v1.Add(lookup(offsets, i1)).Store(out[16:32])
-		v2.Add(lookup(offsets, i2)).Store(out[32:48])
-		v3.Add(lookup(offsets, i3)).Store(out[48:64])
+		v0.Add(lookup(offsets, i0)).StoreArray((*[16]byte)(out[0:16]))
+		v1.Add(lookup(offsets, i1)).StoreArray((*[16]byte)(out[16:32]))
+		v2.Add(lookup(offsets, i2)).StoreArray((*[16]byte)(out[32:48]))
+		v3.Add(lookup(offsets, i3)).StoreArray((*[16]byte)(out[48:64]))
 		n += 48
 		dst = dst[64:]
 	}
 	for len(src)-n >= 16 && len(dst) >= 16 {
-		v := packer.pack(archsimd.LoadUint8x16(src[n:]), mask63)
+		v := packer.pack(archsimd.LoadUint8x16Array((*[16]byte)(src[n:])), mask63)
 		index := v.SubSaturated(v51)
 		index = index.Add(one.Masked(v.BitsToInt8().Greater(v25)))
-		v.Add(lookup(offsets, index)).Store(dst)
+		v.Add(lookup(offsets, index)).StoreArray((*[16]byte)(dst))
 		n += 12
 		dst = dst[16:]
 	}
