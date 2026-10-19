@@ -119,7 +119,9 @@ func TestEveryByteInEveryVectorLane(t *testing.T) {
 		if pair.ours.kind == 0 {
 			continue
 		}
-		original := []byte(pair.std.EncodeToString(randomBytes(96)))
+		// Reach the C backend's bulk threshold as well as Go's, so every
+		// byte is checked by the new classifier before any fallback.
+		original := []byte(pair.std.EncodeToString(randomBytes(192)))
 		for lane := 0; lane < 16; lane++ {
 			for c := 0; c < 256; c++ {
 				src := bytes.Clone(original)
@@ -128,6 +130,77 @@ func TestEveryByteInEveryVectorLane(t *testing.T) {
 				got, gotErr := pair.ours.DecodeString(string(src))
 				if !bytes.Equal(got, want) || fmt.Sprint(gotErr) != fmt.Sprint(wantErr) {
 					t.Fatalf("%s lane=%d byte=%02x: got %x %v want %x %v", pair.name, lane, c, got, gotErr, want, wantErr)
+				}
+			}
+		}
+	}
+}
+
+// Batch rejection must preserve valid output before an error in any of the
+// four bulk vectors or the fifth MIME fringe vector. The last four lanes of
+// the MIME load belong to the separator/next line and must be retried later.
+func TestBatchDecodeCompatibility(t *testing.T) {
+	for _, pair := range encodings() {
+		if pair.ours.kind == 0 {
+			continue
+		}
+		plain := pair.std.EncodeToString(randomBytes(384))
+		for _, separator := range []string{"", "\n", "\r\n", "\r"} {
+			src := []byte(plain)
+			start := 64
+			if separator != "" {
+				src = nil
+				for i := 0; i < len(plain); i += 76 {
+					src = append(src, plain[i:min(i+76, len(plain))]...)
+					src = append(src, separator...)
+				}
+				start = 76 + len(separator)
+			}
+			checkDecode(t, pair, src)
+			for lane := 0; lane < 80; lane++ {
+				for _, c := range []byte{0, '!', ' ', '=', 0x80, 0xff, '\r', '\n'} {
+					mutated := bytes.Clone(src)
+					mutated[start+lane] = c
+					checkDecode(t, pair, mutated)
+				}
+			}
+		}
+	}
+}
+
+func TestBatchBufferEdges(t *testing.T) {
+	if !vectorAvailable {
+		t.Log("SIMD backend unavailable; scalar compatibility tests apply")
+		return
+	}
+	lengths := []int{255, 256, 257, 319, 320, 321}
+	for n := 63; n <= 81; n++ {
+		lengths = append(lengths, n)
+	}
+	for _, pair := range encodings()[:4] {
+		plain := []byte(pair.std.EncodeToString(randomBytes(256)))
+		mime := append(bytes.Clone(plain[:76]), '\r', '\n')
+		mime = append(mime, plain[76:]...)
+		for _, input := range [][]byte{plain, mime} {
+			for offset := 0; offset < 16; offset++ {
+				for _, slen := range lengths {
+					for dlen := 47; dlen <= 61; dlen++ {
+						src := append(make([]byte, offset), input[:slen]...)[offset:]
+						before := bytes.Clone(src)
+						backing := bytes.Repeat([]byte{0xa5}, offset+dlen+16)
+						consumed, produced := decodeVector(backing[offset:offset+dlen], src, pair.ours.kind == 2)
+						if consumed < 0 || consumed > slen || produced < 0 || produced > dlen {
+							t.Fatal("invalid kernel counts", consumed, produced)
+						}
+						want, err := pair.std.DecodeString(string(src[:consumed]))
+						if err != nil || !bytes.Equal(backing[offset:offset+produced], want) {
+							t.Fatal("batch fringe mismatch", pair.name, offset, slen, dlen, err)
+						}
+						if !bytes.Equal(backing[:offset], bytes.Repeat([]byte{0xa5}, offset)) ||
+							!bytes.Equal(backing[offset+dlen:], bytes.Repeat([]byte{0xa5}, 16)) || !bytes.Equal(src, before) {
+							t.Fatal("batch kernel wrote outside dst or modified src")
+						}
+					}
 				}
 			}
 		}
@@ -285,5 +358,32 @@ func BenchmarkBase64(b *testing.B) {
 				})
 			}
 		}
+	}
+}
+
+func BenchmarkBase64LineBreaks(b *testing.B) {
+	raw := randomBytes(65536)
+	plain := StdEncoding.EncodeToString(raw)
+	for _, layout := range []struct {
+		name, separator string
+		width           int
+	}{{"width32", "\n", 32}, {"width64", "\n", 64}, {"mimeCRLF", "\r\n", 76}} {
+		var src []byte
+		for start := 0; start < len(plain); start += layout.width {
+			src = append(src, plain[start:min(start+layout.width, len(plain))]...)
+			src = append(src, layout.separator...)
+		}
+		b.Run(layout.name, func(b *testing.B) {
+			dst := make([]byte, StdEncoding.DecodedLen(len(src)))
+			b.SetBytes(int64(len(raw)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				n, err := StdEncoding.Decode(dst, src)
+				if err != nil || n != len(raw) {
+					b.Fatal(n, err)
+				}
+			}
+		})
 	}
 }

@@ -12,7 +12,32 @@ func lookup(table, indices archsimd.Uint8x16) archsimd.Uint8x16 {
 
 func allNonzero(x archsimd.Uint8x16) bool { return x.ReduceMin() != 0 }
 
-func highNibbles(x archsimd.Uint8x16) archsimd.Uint8x16 { return x.ShiftAllRight(4) }
+// Classifier tables adapted from simdutf; see NOTICE. Control/space entries
+// are cleared and the URL punctuation class rejects the standard alphabet.
+// Every valid character maps to a single class bit. CLZ selects its decoding
+// offset, including distinct classes for '+' and '/'; this avoids a separate
+// comparison and correction for '/'. Control characters and space map to zero.
+var highBits = [2][16]byte{
+	{0, 0, 0, 0, 0, 6, 8, 8, 16, 32, 32, 16, 64, 128, 128, 64},
+	{0, 0, 0, 0, 0, 4, 8, 8, 16, 32, 32, 18, 64, 128, 128, 64},
+}
+var lowBits = [2][16]byte{
+	{169, 248, 248, 248, 248, 248, 248, 248, 248, 249, 241, 162, 161, 161, 160, 164},
+	{169, 248, 248, 248, 248, 248, 248, 248, 248, 249, 241, 160, 161, 165, 160, 162},
+}
+var decodeOffsets = [2][16]byte{
+	{185, 185, 191, 191, 4, 16, 19},
+	{185, 185, 191, 191, 4, 17, 224},
+}
+
+func validateVector(x, lo, hi, mask archsimd.Uint8x16) (archsimd.Uint8x16, archsimd.Uint8x16) {
+	valid := lookup(lo, x.And(mask)).And(lookup(hi, x.ShiftAllRight(3)))
+	return valid, valid
+}
+
+func translateVector(x, class, delta, special, correction archsimd.Uint8x16) archsimd.Uint8x16 {
+	return x.Add(lookup(delta, class.LeadingZeros()))
+}
 
 var decodeA = [16]byte{0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 255, 255, 255, 255}
 var decodeB = [16]byte{1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 255, 255, 255, 255}
@@ -38,14 +63,14 @@ func (p bytePacker) pack(x archsimd.Uint8x16) archsimd.Uint8x16 {
 	return lookup(x, p.a).Shift(p.sa).Or(lookup(x, p.b).Shift(p.sb))
 }
 
-type encodePacker struct {
-	bytePacker
-	mask archsimd.Uint8x16
-}
+// Keep the value receiver within Go's four-field struct SSA limit. Adding
+// a fifth vector here spills the whole packer to the stack on every iteration.
+type encodePacker struct{ bytePacker }
 
 func newEncodePacker() encodePacker {
-	return encodePacker{bytePacker{archsimd.LoadUint8x16Array(&encodeA), archsimd.LoadUint8x16Array(&encodeB), archsimd.LoadInt8x16Array(&encodeShiftA), archsimd.LoadInt8x16Array(&encodeShiftB)}, archsimd.BroadcastUint8x16(63)}
+	return encodePacker{bytePacker{archsimd.LoadUint8x16Array(&encodeA), archsimd.LoadUint8x16Array(&encodeB), archsimd.LoadInt8x16Array(&encodeShiftA), archsimd.LoadInt8x16Array(&encodeShiftB)}}
 }
-func (p encodePacker) pack(x archsimd.Uint8x16) archsimd.Uint8x16 {
-	return p.bytePacker.pack(x).And(p.mask)
+
+func (p encodePacker) pack(x, mask archsimd.Uint8x16) archsimd.Uint8x16 {
+	return p.bytePacker.pack(x).And(mask)
 }

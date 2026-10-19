@@ -1,7 +1,7 @@
 //go:build (tinygo || base64_c) && cgo && (arm64 || amd64) && (darwin || linux || windows)
 
 /* TinyGo does not lower Go's archsimd intrinsics. Use clang vector operations
- * instead. The two instruction wrappers below avoid depending on arm_neon.h
+ * instead. The instruction wrappers below avoid depending on arm_neon.h
  * or x86 intrinsic headers missing from TinyGo's trimmed clang resources.
  * All loads/stores are bounded by the Go slices' lengths. */
 #include <stdint.h>
@@ -40,6 +40,53 @@ static inline int all_nonzero(u8x16 v) {
 #endif
 }
 
+static inline u8x16 min16(u8x16 a, u8x16 b) { return __builtin_elementwise_min(a, b); }
+
+/* TinyGo's default -Oz otherwise outlines this helper and calls it for
+ * every vector, serializing the four independent lanes of the bulk loop. */
+static inline __attribute__((always_inline)) u8x16 decode_pack(u8x16 v) {
+#if defined(__aarch64__)
+    const u8x16 select_a = {0,1,2,4,5,6,8,9,10,12,13,14,255,255,255,255};
+    const u8x16 select_b = {1,2,3,5,6,7,9,10,11,13,14,15,255,255,255,255};
+    const i8x16 shift_a = {2,4,6,2,4,6,2,4,6,2,4,6};
+    const i8x16 shift_b = {-4,-2,0,-4,-2,0,-4,-2,0,-4,-2,0};
+    u8x16 a = lookup(v, select_a), b = lookup(v, select_b);
+    __asm__("ushl %0.16b, %1.16b, %2.16b" : "=w"(a) : "w"(a), "w"(shift_a));
+    __asm__("ushl %0.16b, %1.16b, %2.16b" : "=w"(b) : "w"(b), "w"(shift_b));
+    return a | b;
+#else
+    const u8x16 pack = {2,1,0,6,5,4,10,9,8,14,13,12,255,255,255,255};
+    u32x4 w = (u32x4)v;
+    u32x4 pairs = ((w & splat32(0x003f003f)) << 6) | ((w >> 8) & splat32(0x003f003f));
+    u32x4 out = ((pairs & splat32(0x00000fff)) << 12) | (pairs >> 16);
+    return lookup((u8x16)out, pack);
+#endif
+}
+
+static inline u8x16 high_bits(u8x16 x) {
+#if defined(__aarch64__)
+    return x >> 3;
+#else
+    return (x >> 4) & splat8(15);
+#endif
+}
+
+static inline u8x16 translate(u8x16 x, u8x16 h, u8x16 valid, u8x16 delta, u8x16 special, u8x16 correction) {
+#if defined(__aarch64__)
+    /* The class bit from validation also selects the decoding offset. */
+    __asm__("clz %0.16b, %1.16b" : "=w"(valid) : "w"(valid));
+    return x + lookup(delta, valid);
+#else
+    return x + lookup(delta, h) + (((u8x16)(x == special)) & correction);
+#endif
+}
+
+static inline void store9(uint8_t *dst, u8x16 v) {
+    uint8_t scratch[16];
+    store16(scratch, v);
+    __builtin_memcpy(dst, scratch, 9);
+}
+
 int tinygodriver_base64_available(void) {
 #if defined(__aarch64__)
     return 1;
@@ -50,7 +97,9 @@ int tinygodriver_base64_available(void) {
 #endif
 }
 
-tinygodriver_base64_result tinygodriver_base64_decode(uint8_t *dst, size_t dlen, const uint8_t *src, size_t slen, int url) {
+/* Keep the fallback's constants and compact loop independent of bulk-kernel
+ * register allocation. This preserves throughput on short/irregular lines. */
+static inline __attribute__((aligned(64))) tinygodriver_base64_result decode_small(uint8_t *dst, size_t dlen, const uint8_t *src, size_t slen, int url) {
     const u8x16 hi = {0,0,1,2,4,8,16,32,0,0,0,0,0,0,0,0};
     const u8x16 lo_std = {42,62,62,62,62,62,62,62,62,62,60,21,20,20,20,21};
     const u8x16 lo_url = {42,62,62,62,62,62,62,62,62,62,60,20,20,21,20,28};
@@ -109,6 +158,92 @@ tinygodriver_base64_result tinygodriver_base64_decode(uint8_t *dst, size_t dlen,
         dlen -= produced;
     }
     return (tinygodriver_base64_result){n, written};
+}
+
+tinygodriver_base64_result tinygodriver_base64_decode(uint8_t *dst, size_t dlen, const uint8_t *src, size_t slen, int url) {
+    /* Small messages do not amortize two sets of vector constants. The
+     * direct return also permits a tail call to the compact SIMD decoder. */
+    if (slen < 256) return decode_small(dst, dlen, src, slen, url);
+#if defined(__aarch64__)
+    /* Classifier tables adapted from simdutf; see NOTICE. Clear control and
+     * space classes, and reject standard punctuation in the URL alphabet. */
+    const u8x16 hi_std = {0,0,0,0,0,6,8,8,16,32,32,16,64,128,128,64};
+    const u8x16 hi_url = {0,0,0,0,0,4,8,8,16,32,32,18,64,128,128,64};
+    const u8x16 hi = url ? hi_url : hi_std;
+    const u8x16 lo_std = {169,248,248,248,248,248,248,248,248,249,241,162,161,161,160,164};
+    const u8x16 lo_url = {169,248,248,248,248,248,248,248,248,249,241,160,161,165,160,162};
+    const u8x16 delta_std = {185,185,191,191,4,16,19};
+    const u8x16 delta_url = {185,185,191,191,4,17,224};
+#else
+    const u8x16 hi = {0,0,1,2,4,8,16,32,0,0,0,0,0,0,0,0};
+    const u8x16 lo_std = {42,62,62,62,62,62,62,62,62,62,60,21,20,20,20,21};
+    const u8x16 lo_url = {42,62,62,62,62,62,62,62,62,62,60,20,20,21,20,28};
+    const u8x16 delta_std = {0,0,19,4,191,191,185,185};
+    const u8x16 delta_url = {0,0,17,4,191,191,185,185};
+#endif
+    const u8x16 lo = url ? lo_url : lo_std;
+    const u8x16 delta = url ? delta_url : delta_std;
+    const u8x16 special = splat8(url ? '_' : '/');
+    const u8x16 correction = splat8(url ? 33 : 253);
+    const u8x16 tail4 = {0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1};
+    size_t n = 0, written = 0;
+    while (slen-n >= 64 && dlen >= 52) {
+        if (src[n] == '\r' || src[n] == '\n') {
+            do { n++; } while (n < slen && (src[n] == '\r' || src[n] == '\n'));
+            continue;
+        }
+        /* A complete MIME line shares one validity decision, including its
+         * twelve-digit fringe. Load before storing to support in-place use. */
+        if (slen-n >= 80 && dlen >= 57 && (src[n+76] == '\n' || src[n+76] == '\r')) {
+            u8x16 x0 = load16(src+n), x1 = load16(src+n+16);
+            u8x16 x2 = load16(src+n+32), x3 = load16(src+n+48), x4 = load16(src+n+64);
+            u8x16 h0 = high_bits(x0), h1 = high_bits(x1);
+            u8x16 h2 = high_bits(x2), h3 = high_bits(x3), h4 = high_bits(x4);
+            u8x16 v0 = lookup(lo, x0 & splat8(15)) & lookup(hi, h0);
+            u8x16 v1 = lookup(lo, x1 & splat8(15)) & lookup(hi, h1);
+            u8x16 v2 = lookup(lo, x2 & splat8(15)) & lookup(hi, h2);
+            u8x16 v3 = lookup(lo, x3 & splat8(15)) & lookup(hi, h3);
+            u8x16 v4 = lookup(lo, x4 & splat8(15)) & lookup(hi, h4);
+            if (all_nonzero(min16(min16(v0, v1), min16(min16(v2, v3), v4 | tail4)))) {
+                u8x16 p0 = decode_pack(translate(x0, h0, v0, delta, special, correction));
+                u8x16 p1 = decode_pack(translate(x1, h1, v1, delta, special, correction));
+                u8x16 p2 = decode_pack(translate(x2, h2, v2, delta, special, correction));
+                u8x16 p3 = decode_pack(translate(x3, h3, v3, delta, special, correction));
+                u8x16 p4 = decode_pack(translate(x4, h4, v4, delta, special, correction));
+                store16(dst, p0); store16(dst+12, p1); store16(dst+24, p2); store16(dst+36, p3);
+                store9(dst+48, p4);
+                n += 77;
+                if (src[n-1] == '\r' && src[n] == '\n') n++;
+                written += 57; dst += 57; dlen -= 57;
+                continue;
+            }
+        }
+        /* Four vectors share one reduction/branch. Rejected batches leave
+         * output untouched and are retried by the single-vector path. */
+        u8x16 x0 = load16(src+n), x1 = load16(src+n+16);
+        u8x16 x2 = load16(src+n+32), x3 = load16(src+n+48);
+        u8x16 h0 = high_bits(x0), h1 = high_bits(x1);
+        u8x16 h2 = high_bits(x2), h3 = high_bits(x3);
+        u8x16 v0 = lookup(lo, x0 & splat8(15)) & lookup(hi, h0);
+        u8x16 v1 = lookup(lo, x1 & splat8(15)) & lookup(hi, h1);
+        u8x16 v2 = lookup(lo, x2 & splat8(15)) & lookup(hi, h2);
+        u8x16 v3 = lookup(lo, x3 & splat8(15)) & lookup(hi, h3);
+        if (all_nonzero(min16(min16(v0, v1), min16(v2, v3)))) {
+            u8x16 p0 = decode_pack(translate(x0, h0, v0, delta, special, correction));
+            u8x16 p1 = decode_pack(translate(x1, h1, v1, delta, special, correction));
+            u8x16 p2 = decode_pack(translate(x2, h2, v2, delta, special, correction));
+            u8x16 p3 = decode_pack(translate(x3, h3, v3, delta, special, correction));
+            store16(dst, p0); store16(dst+12, p1); store16(dst+24, p2); store16(dst+36, p3);
+            n += 64; written += 48; dst += 48; dlen -= 48;
+            continue;
+        }
+        /* No more bulk-loop overhead for short or irregular lines. */
+        break;
+    }
+    tinygodriver_base64_result tail = decode_small(dst, dlen, src+n, slen-n, url);
+    tail.read += n;
+    tail.written += written;
+    return tail;
 }
 
 size_t tinygodriver_base64_encode(uint8_t *dst, size_t dlen, const uint8_t *src, size_t slen, int url) {
