@@ -12,6 +12,15 @@ func FuzzDecodeCompatibility(f *testing.F) {
 	for _, seed := range [][]byte{nil, []byte("Zg=="), []byte("AB=="), []byte("aGVsbG8=\r\n"), []byte(StdEncoding.EncodeToString(randomBytes(128)))} {
 		f.Add(seed)
 	}
+	plain := StdEncoding.EncodeToString(randomBytes(384))
+	for _, separator := range []string{"\n", "\r\n"} {
+		var mime []byte
+		for i := 0; i < len(plain); i += 76 {
+			mime = append(mime, plain[i:min(i+76, len(plain))]...)
+			mime = append(mime, separator...)
+		}
+		f.Add(mime)
+	}
 	f.Fuzz(func(t *testing.T, src []byte) {
 		if len(src) > 16384 {
 			return

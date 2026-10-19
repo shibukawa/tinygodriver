@@ -7,6 +7,28 @@ import "simd/archsimd"
 // Guard every entry to the AVX kernel, including on GOAMD64=v1 builds.
 var vectorAvailable = archsimd.X86.AVX2()
 
+var highBits = [2][16]byte{
+	{0, 0, 1, 2, 4, 8, 16, 32},
+	{0, 0, 1, 2, 4, 8, 16, 32},
+}
+var lowBits = [2][16]byte{
+	{42, 62, 62, 62, 62, 62, 62, 62, 62, 62, 60, 21, 20, 20, 20, 21},
+	{42, 62, 62, 62, 62, 62, 62, 62, 62, 62, 60, 20, 20, 21, 20, 28},
+}
+var decodeOffsets = [2][16]byte{
+	{0, 0, 19, 4, 191, 191, 185, 185},
+	{0, 0, 17, 4, 191, 191, 185, 185},
+}
+
+func validateVector(x, lo, hi, mask archsimd.Uint8x16) (archsimd.Uint8x16, archsimd.Uint8x16) {
+	h := highNibbles(x)
+	return h, lookup(lo, x.And(mask)).And(lookup(hi, h))
+}
+
+func translateVector(x, h, delta, special, correction archsimd.Uint8x16) archsimd.Uint8x16 {
+	return x.Add(lookup(delta, h)).Add(correction.Masked(x.Equal(special)))
+}
+
 func lookup(table, indices archsimd.Uint8x16) archsimd.Uint8x16 {
 	// Callers provide indices in 0..15 or 0xff (zero fill), so the x86
 	// modulo-16 behavior and ARM's out-of-range behavior agree here.
@@ -37,14 +59,16 @@ func (p decodePacker) pack(v archsimd.Uint8x16) archsimd.Uint8x16 {
 }
 
 type encodePacker struct {
-	expand         archsimd.Uint8x16
-	m0, m1, m2, m3 archsimd.Uint32x4
+	expand archsimd.Uint8x16
+	m1, m2 archsimd.Uint32x4
 }
 
 func newEncodePacker() encodePacker {
-	return encodePacker{archsimd.LoadUint8x16Array(&encodeExpand), archsimd.BroadcastUint32x4(0x0000003f), archsimd.BroadcastUint32x4(0x00003f00), archsimd.BroadcastUint32x4(0x003f0000), archsimd.BroadcastUint32x4(0x3f000000)}
+	return encodePacker{archsimd.LoadUint8x16Array(&encodeExpand), archsimd.BroadcastUint32x4(0x0000ff00), archsimd.BroadcastUint32x4(0x00ff0000)}
 }
-func (p encodePacker) pack(v archsimd.Uint8x16) archsimd.Uint8x16 {
+func (p encodePacker) pack(v, mask archsimd.Uint8x16) archsimd.Uint8x16 {
 	x := lookup(v, p.expand).ReshapeToUint32s()
-	return x.ShiftAllRight(18).And(p.m0).Or(x.ShiftAllRight(4).And(p.m1)).Or(x.ShiftAllLeft(10).And(p.m2)).Or(x.ShiftAllLeft(24).And(p.m3)).ReshapeToUint8s()
+	// The shuffle clears each word's high byte, so x>>18 already fits six
+	// bits. Masking once at the end keeps this receiver below four vectors.
+	return x.ShiftAllRight(18).Or(x.ShiftAllRight(4).And(p.m1)).Or(x.ShiftAllLeft(10).And(p.m2)).Or(x.ShiftAllLeft(24)).ReshapeToUint8s().And(mask)
 }

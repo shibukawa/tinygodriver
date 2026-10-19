@@ -34,29 +34,71 @@ tinygo build -opt=2 -o app ./your/app
 TinyGo does not implement Go's `archsimd` compiler intrinsics. With TinyGo
 0.42.0 and Go 1.27.0, a direct `archsimd.BroadcastUint8x16(...).StoreArray(...)`
 probe fails to link the intrinsic symbols, even with `GOEXPERIMENT=simd`.
-The TinyGo backend therefore uses C vector types. Three small inline assembly
-wrappers provide table lookup, byte shifts and the x86 mask extraction where
-needed; it requires neither an external library nor compiler-version-specific
-intrinsic headers. The normal TinyGo build selects this backend automatically.
+The TinyGo backend therefore uses C vector types. Small inline assembly
+wrappers provide table lookup, byte shifts, leading-zero count and x86 mask
+extraction where needed; it requires neither an external library nor
+compiler-version-specific intrinsic headers. The normal TinyGo build selects
+this backend automatically.
 
 The optional `base64_c` build tag selects that same C backend with host Go for
-additional testing. It does not select `archsimd`.
+additional testing with Clang. It does not select `archsimd`.
 
 ## Algorithm and compatibility
 
-The decoder validates 16 ASCII characters with two nibble lookup tables,
-translates them to six-bit values and packs them into 12 output bytes. NEON
-packs bytes with table lookups and per-byte shifts; x86 packs with 32-bit
-operations and a byte shuffle. The encoder expands 12 input bytes into 16
-six-bit values and translates them through a vector offset table.
+The bulk decoder validates 64 ASCII characters with four independent 16-byte
+vectors, sharing one scalar validity check. Rejected batches retry the
+single-vector path before committing any output. NEON uses the class bits
+from validation with CLZ to select decoding offsets, avoiding a separate
+punctuation correction. Its classifier tables are adapted from
+[simdutf](https://github.com/simdutf/simdutf/blob/master/src/arm64/arm_base64.cpp);
+see [NOTICE](NOTICE). Go's NEON backend packs bytes with table lookups and
+per-byte shifts; x86 packs with 32-bit operations and a byte shuffle. The Go
+bulk encoder expands 48 input bytes into 64 output characters using four
+independent vectors.
+TinyGo's NEON bulk decoder instead uses LD4 to separate each quantum's four
+characters. Two immediate right shifts and three shift-inserts combine their
+sextets, and ST3 writes exactly 48 decoded bytes. This removes eight TBL, eight
+variable shifts and four OR operations from each 64-character block's packing
+stage. Its bulk encoder uses LD3, a four-register alphabet lookup and ST4 to
+encode exactly 48 input bytes into 64 characters. Clang's NEON builtins provide
+these operations without an intrinsic header. The encoder retains its compact
+12-byte loop on x86 and for ARM64 inputs below 256 raw bytes.
 
-CR and LF between complete quanta are skipped inside the SIMD loop. A line
-fringe of 4, 8 or 12 valid characters is also processed there, so MIME's
-76-character lines do not repeatedly exit and re-enter the backend. A quantum
-split by whitespace, final padding and errors go through the standard library,
-preserving decoded prefixes and absolute `CorruptInputError` offsets. Partial
-vector stores preserve in-place decoding; no load or store crosses a slice's
-length, including when spare capacity exists.
+MIME's 76-character lines have a separate fast path: five vectors validate
+the complete line, decode its 57 bytes and consume LF, CR/LF or CR together.
+The twelve-character fringe uses an exact nine-byte store. Other CR/LF between
+complete quanta and fringes of 4, 8 or 12 valid characters use the single-vector
+path. TinyGo selects the MIME loop before entering its plain bulk loop, so
+plain input pays no MIME lookahead per block. After a rejected bulk block, an
+independent small loop processes the remaining input. Short or irregular lines
+then avoid repeated bulk validation and bulk-loop bookkeeping.
+A quantum split by whitespace, final padding and errors go through the
+standard library, preserving decoded prefixes and absolute `CorruptInputError`
+offsets. Partial vector stores preserve in-place decoding; no load or store
+crosses a slice's length, including when spare capacity exists.
+
+The Go encoder keeps its packer within the compiler's four-field SSA limit
+and holds constants outside the loop. Inspection of the arm64 instructions
+confirmed that the previous five vector reloads from the stack per iteration
+are gone. Fixed-size array views of already-checked slices also remove
+redundant bounds checks and pointer adjustment for each vector in a batch.
+The direct Array load/store intrinsics and combined translate/pack/store
+expressions also avoid NOPs that Go 1.27 inserts for unmatched inline markers.
+Disassembly on arm64 shows 21 → 4 NOPs per plain decode iteration, 25 → 8 per
+MIME iteration, and 8 → 0 per bulk encode iteration. The remaining host gap
+includes an intrinsic API limitation: `archsimd` exposes neither structured
+loads/stores nor shift-insert, so its kernel still uses more table lookups.
+TinyGo explicitly inlines the packing helpers: its default size optimization
+otherwise outlines them and inserts a function call for every vector. Its
+fallback keeps the previous 16-byte loop and constants in a separate function
+so bulk-kernel register allocation does not penalize short or irregular lines.
+Inputs shorter than 256 encoded bytes go directly to that compact SIMD loop
+to avoid setting up both decoders for one small message. Its 3-, 6- and 9-byte
+fringes use constant-size copies. With `-opt=z` this eliminates a `memcpy` call
+and reduces the compact decoder's stack frame from 304 to 16 bytes. Complete
+vectors also use fixed 16-to-12 strides, leaving variable digit bookkeeping
+only on the fringe path. The full-vector loop falls from 46 to 36 instructions
+in the inspected `-opt=z` binary.
 
 `WithPadding`, `Strict`, custom alphabets and zero-value encodings retain
 standard-library semantics. Custom alphabets and small inputs use scalar code.
@@ -73,15 +115,20 @@ use this package. Mbed TLS's internal PEM codec is separate and unchanged.
 ```sh
 go test ./encoding/base64
 GOEXPERIMENT=simd go test ./encoding/base64
-go test -tags=base64_c ./encoding/base64
+CC=clang go test -tags=base64_c ./encoding/base64
 tinygo test ./encoding/base64
+clang -O2 -g -fsanitize=address,undefined \
+  encoding/base64/testdata/vector_bounds.c -o /tmp/base64-bounds
+/tmp/base64-bounds
 GOEXPERIMENT=simd go test ./encoding/base64 -run '^$' \
   -fuzz FuzzDecodeCompatibility -fuzztime=10s -parallel=2
 
 GOEXPERIMENT=simd go test ./encoding/base64 -run '^$' \
-  -bench 'BenchmarkBase64/65536/' -benchtime=300ms -count=3
-tinygo test -opt=2 ./encoding/base64 -run '^$' \
-  -bench 'BenchmarkBase64/65536/' -benchtime=300ms -count=3
+  -bench 'BenchmarkBase64/65536/' -benchtime=300ms -count=5
+tinygo test -opt=2 -run '^$' \
+  -bench 'BenchmarkBase64/65536/' -benchtime=300ms -count=5 ./encoding/base64
+GOEXPERIMENT=simd go test ./encoding/base64 -run '^$' \
+  -bench '^BenchmarkBase64LineBreaks$' -benchtime=100ms -count=3
 ```
 
 Tests compare output, partial output, error types and error positions against
@@ -89,7 +136,17 @@ the standard library, including every byte value in every vector lane, CR/LF
 inside quanta, padding, strict trailing bits, exact-length buffers, canaries,
 in-place decoding, append methods and streaming adapters. `TestVectorKernels`
 also checks the selected SIMD kernel directly when a vector backend is available.
-The fuzz target uses the standard library as its oracle.
+`TestBatchDecodeCompatibility` puts invalid bytes and CR/LF in all 80 positions
+of a later batch, including the MIME fringe and next-line lookahead.
+`TestBatchBufferEdges` checks input/output lengths around the batch and C
+dispatch thresholds at all 16 alignments. `TestEncodeKernelBufferEdges` also
+checks incomplete source/output blocks at those alignments, preserving source
+bytes and destination canaries. The standalone sanitizer harness allocates
+exact object lengths to check source reads as well as destination writes.
+`TestMixedLineWidths` exercises transitions between MIME, plain and compact
+loops, including leading separators and malformed suffixes.
+The fuzz target uses the standard library as
+its oracle and seeds both LF and CR/LF MIME input.
 
 The native tests ran on darwin/arm64 with both compilers, including TinyGo's
 default `-opt=z` and `-opt=2`. Go and TinyGo also passed the WASI scalar path.
@@ -110,7 +167,7 @@ tinygo test -ldflags="-extldflags '-F${base64_test_sdk}/System/Library/Framework
   ./websocket ./fasthttpwebsocket ./fasthttp
 ```
 
-The benchmarks compare each compiler's standard library with its optimized
+The benchmarks include each compiler's standard library and optimized
 backend on the same data. They reuse destination buffers, use one processing
 loop, and report decoded/binary bytes per second for both operations. MIME
 input uses LF after every 76 encoded characters. Allocating Python APIs in
@@ -118,15 +175,51 @@ input uses LF after every 76 encoded characters. Allocating Python APIs in
 are a different measurement condition.
 
 Measured on 2026-10-20, Apple M3, darwin/arm64, Go 1.27.0, TinyGo 0.42.0 /
-LLVM 22.1.4. Each row uses 64 KiB of binary data. Speeds are decimal GB/s,
-standard library → this package, with zero allocations per operation:
+LLVM 22.1.4. The baseline is the previous bulk implementation at `9f7123a`.
+Baseline and updated binaries ran sequentially with the same benchmark
+functions. Each row uses 64 KiB of binary data. Speeds are decimal GB/s,
+baseline → updated, with zero allocations per operation:
 
 | Operation | Go, `GOEXPERIMENT=simd` | TinyGo, default `-opt=z` | TinyGo, `-opt=2` |
 |---|---:|---:|---:|
-| Encode | 3.03 → 10.28 | 2.95 → 16.01 | 2.91 → 16.13 |
-| Decode, no newlines | 2.64 → 8.88 | 3.30 → 9.11 | 3.26 → 8.94 |
-| Decode, MIME 76/LF | 1.96 → 5.04 | 2.47 → 6.41 | 2.57 → 5.03 |
+| Encode | 13.12 → 14.56 | 15.33 → 21.93 | 16.00 → 21.71 |
+| Decode, no newlines | 10.05 → 11.04 | 11.18 → 12.99 | 11.66 → 12.39 |
+| Decode, MIME 76/LF | 9.08 → 9.67 | 10.32 → 11.50 | 10.38 → 11.66 |
 
-These are medians of three measurements for Go and TinyGo `-opt=2`, and five
-for TinyGo `-opt=z`, without CPU pinning. TinyGo's default was faster on MIME
-decoding in this run; compare optimization settings with your own workload.
+These are medians of five 300 ms measurements without CPU pinning. The
+64-byte benchmark also checks dispatch overhead. TinyGo's new encoder
+selection costs about 0.7 ns (`-opt=z`) or 1.1 ns (`-opt=2`) at that size;
+encoding remains on the compact loop. Plain decoding improves from 2.41 to
+2.49 GB/s with `-opt=z` and from 3.12 to 3.47 GB/s with `-opt=2`.
+
+For a same-machine reference, Python 3.14.7 with fastpybase64 0.1.1,
+simdutf 9.3.2 and its `arm64` kernel measured 19.80 GB/s encoding,
+12.44 GB/s decoding plain data and 9.62 GB/s decoding MIME 76/LF. The Python
+measurement uses the identical xorshift payload, five samples of at least
+300 ms, and includes result allocation and interpreter-loop overhead. Both
+benchmarks use one thread; their API costs differ. TinyGo is now comparable
+to this reference for plain decoding and faster for encoding and MIME in
+this run. General single-core CPU benchmark ratios do not predict Base64
+throughput: SIMD width, instruction selection, validation and packing matter.
+
+Reproduce the Python reference in an optional virtual environment:
+
+```sh
+python3 -m venv /tmp/tinygodriver-base64-reference
+/tmp/tinygodriver-base64-reference/bin/python -m pip install fastpybase64==0.1.1
+/tmp/tinygodriver-base64-reference/bin/python \
+  encoding/base64/testdata/bench_fastpybase64.py
+```
+
+Additional line layouts also use 64 KiB binary payloads and medians of five
+300 ms samples, baseline → updated in GB/s:
+
+| Line layout | Go, `GOEXPERIMENT=simd` | TinyGo, default `-opt=z` | TinyGo, `-opt=2` |
+|---|---:|---:|---:|
+| 32 characters, LF | 5.80 → 5.82 | 7.93 → 9.67 | 7.90 → 7.97 |
+| 64 characters, LF | 8.20 → 8.69 | 9.51 → 12.38 | 10.11 → 11.67 |
+| 76 characters, CR/LF | 8.83 → 9.19 | 10.11 → 10.82 | 10.11 → 11.52 |
+
+CPU scheduling and code layout affect absolute results; compare optimization
+settings with your own workload. Short 100 ms samples showed large outliers
+on this machine, so these line-layout comparisons use the longer samples above.
