@@ -33,6 +33,7 @@ and tests between both compilers.
 | [`cloud/google`](./cloud/google) | `github.com/shibukawa/tinygodriver/cloud/google` | Google credentials and bearer tokens, RSA signed by the OS on TinyGo |
 | [`jwt`](./jwt) | `github.com/shibukawa/tinygodriver/jwt` | Bounded signed JWT subset, HS256 and RS256 |
 | [`encoding/xmlro`](./encoding/xmlro) | `github.com/shibukawa/tinygodriver/encoding/xmlro` | Read-only, allocation-free pull reader for Office Open XML parts, ten times `encoding/xml` |
+| [`encoding/base64`](./encoding/base64) | `github.com/shibukawa/tinygodriver/encoding/base64` | Base64 with Go's experimental SIMD API and a separate TinyGo vector backend |
 
 ## Quick start
 
@@ -118,7 +119,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`https`](./https/README.md): HTTPS client backends, configuration, and limitations
 - [`httpmux`](./httpmux/README.md): supported patterns and implementation selection
 - [`httpserver`](./httpserver/README.md): why `Hijack` deadlocks, what the demultiplexer does, and when the package stops being needed
-- [`websocket`](./websocket/README.md): the two patch sites, reaching `wss://`, and what is verified
+- [`websocket`](./websocket/README.md): compatibility patches, shared Base64, reaching `wss://`, and what is verified
 - [`httprevproxy`](./httprevproxy/README.md): proxy features and unsupported protocols
 - [`fasthttp`](./fasthttp/README.md): build tags, why TLS and HTTP/2 cannot work, and how dropping zstd halves the binary
 - [`fasthttprouter`](./fasthttprouter/README.md): why the router needs a fork of its own, and what it costs
@@ -129,6 +130,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`cloud/aws`](./cloud/aws/README.md): signing another AWS service with this signer
 - [`cloud/google`](./cloud/google/README.md): token sources, clock skew, and where the RSA code goes
 - [`encoding/xmlro`](./encoding/xmlro/README.md): what is borrowed, what is bounded, and the measured gap to the standard library
+- [`encoding/base64`](./encoding/base64/README.md): selecting Go SIMD or TinyGo vectors, compatibility and benchmarks
 
 - **IPv4 only** (matches TinyGo’s net port).
 - **HTTPS client (`https`)**: Network.framework on macOS, Schannel on Windows,

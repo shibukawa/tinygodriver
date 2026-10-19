@@ -8,6 +8,12 @@ hunk that no longer applies. See `rule:pgx-vendoring`.
 
 Upstream is otherwise untouched — 145 sources, import paths rewritten only.
 
+`pgconn/auth_scram.go` uses
+`github.com/shibukawa/tinygodriver/encoding/base64` for its nonce, salt and
+proof codec. The standard Base64 API and bytes are preserved, with Go SIMD
+and TinyGo C vector backends selected by the codec. `patch_auth_scram` records
+and reapplies this import change alongside the TLS compatibility patches.
+
 ## Why any patch is needed
 
 `requirement:no-crypto-tls-on-tinygo` forbids `crypto/tls` and `crypto/x509` on

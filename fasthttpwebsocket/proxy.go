@@ -8,13 +8,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.
 	"golang.org/x/net/proxy"
 )
 

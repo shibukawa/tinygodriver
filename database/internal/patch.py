@@ -276,6 +276,17 @@ def patch_auth_scram():
     body = read(path)
     require(body, "func getTLSCertificateHash(", "auth_scram.go")
 
+    base64_import = '\t"encoding/base64"\n'
+    require(body, base64_import, "auth_scram.go")
+    body = body.replace(base64_import, "")
+    precis_import = '\t"golang.org/x/text/secure/precis"\n'
+    require(body, precis_import, "auth_scram.go")
+    body = body.replace(
+        precis_import,
+        '\t"github.com/shibukawa/tinygodriver/encoding/base64" // Local patch: shared SIMD Base64 backend.\n'
+        + precis_import,
+    )
+
     body = replace_func(
         body,
         "func getTLSCertificateHash(",

@@ -150,11 +150,27 @@ def rewrite(text):
 # Each entry is (old, new, expected_count). An unexpected count aborts, so a
 # version bump that moves the anchor fails loudly instead of dropping a patch.
 #
-# Two sites, one in client.go and one in conn.go, neither a design conflict.
-# The replacements live in compat_std.go and compat_tinygo.go, so host Go keeps
-# upstream behaviour exactly.
+# Two compatibility sites, one in client.go and one in conn.go. Their
+# replacements live in compat_std.go and compat_tinygo.go. The Base64 import
+# substitutions additionally select the shared codec on both compilers.
 
 PATCHES = {
+    "util.go": [
+        ('\t"encoding/base64"\n', '', 1),
+        (
+            '\t"unicode/utf8"\n)',
+            '\t"unicode/utf8"\n\n\t"github.com/shibukawa/tinygodriver/encoding/base64" // TINYGODRIVER: shared SIMD Base64 backend.\n)',
+            1,
+        ),
+    ],
+    "proxy.go": [
+        ('\t"encoding/base64"\n', '', 1),
+        (
+            '\t"strings"\n)',
+            '\t"strings"\n\n\t"github.com/shibukawa/tinygodriver/encoding/base64" // TINYGODRIVER: shared SIMD Base64 backend.\n)',
+            1,
+        ),
+    ],
     "client.go": [
         # 1. TinyGo's tls.Client does not handshake: it returns the plaintext
         # connection and reports success, so unpatched upstream would complete a

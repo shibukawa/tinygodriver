@@ -4,9 +4,10 @@
 package authn
 
 import (
-	"encoding/base64"
 	"errors"
 	"strings"
+
+	"github.com/shibukawa/tinygodriver/encoding/base64"
 )
 
 var (

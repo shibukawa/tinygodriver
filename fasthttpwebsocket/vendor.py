@@ -135,10 +135,26 @@ def rewrite(text):
 # version bump that moves the anchor fails loudly instead of dropping a patch.
 #
 # The anchors match upstream's text *after* the import rewrite and *before*
-# gofmt, which main() runs last. None of them contains a module path, so the
-# rewrite never disturbs them.
+# gofmt, which main() runs last. Base64's import anchors refer to standard
+# library or x/net paths, which the local-module rewrite does not disturb.
 
 PATCHES = {
+    "util.go": [
+        ('\t"encoding/base64"\n', '', 1),
+        (
+            '\t"unicode/utf8"\n)',
+            '\t"unicode/utf8"\n\n\t"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.\n)',
+            1,
+        ),
+    ],
+    "proxy.go": [
+        ('\t"encoding/base64"\n', '', 1),
+        (
+            '\t"golang.org/x/net/proxy"\n',
+            '\t"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.\n\t"golang.org/x/net/proxy"\n',
+            1,
+        ),
+    ],
     "client.go": [
         # TinyGo's http.Transport is an empty struct, so ProxyFromEnvironment
         # does not exist. defaultProxy reads the same variables with the same

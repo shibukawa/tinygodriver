@@ -6,12 +6,13 @@ package websocket
 
 import (
 	"bufio"
-	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/shibukawa/tinygodriver/encoding/base64" // TINYGODRIVER: shared SIMD Base64 backend.
 )
 
 type netDialerFunc func(network, addr string) (net.Conn, error)

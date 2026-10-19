@@ -8,15 +8,19 @@ import "github.com/shibukawa/tinygodriver/websocket"
 ```
 
 The API is upstream's, unchanged. Under standard Go the behaviour is upstream's
-too; the divergences are gated on the `tinygo` build tag and listed in
+too; the compatibility divergences are gated on the `tinygo` build tag and listed in
 [PATCHES.md](./PATCHES.md).
 
-Upstream needs two edits: one because TinyGo's `tls.Client` returns the
+Upstream needs two compatibility edits: one because TinyGo's `tls.Client` returns the
 plaintext connection instead of handshaking, and one seam so a test can fix the
 frame mask. Two more were needed until TinyGo 0.42, which now defines
 `http.ProxyFromEnvironment` and `(*tls.Config).Clone`. There is no assembly, so
 no `noasm` tag, and no external dependencies: upstream vendors its own SOCKS5
 support.
+
+The shared Base64 helpers additionally use
+[`encoding/base64`](../encoding/base64) for Go SIMD and TinyGo vector
+acceleration, with the same protocol bytes on both compilers.
 
 ## The server needs `httpserver`
 
