@@ -1,4 +1,4 @@
-//go:build ((!goexperiment.simd || (!arm64 && !amd64)) && !tinygo && !base64_c) || ((tinygo || base64_c) && (!cgo || (!arm64 && !amd64) || (!darwin && !linux && !windows)))
+//go:build (!tinygo && !base64_c && ((arm64 && purego) || (amd64 && !goexperiment.simd) || (!arm64 && !amd64))) || ((tinygo || base64_c) && (!cgo || (!arm64 && !amd64) || (!darwin && !linux && !windows)))
 
 package base64
 
