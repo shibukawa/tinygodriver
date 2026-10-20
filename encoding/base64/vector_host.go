@@ -1,4 +1,4 @@
-//go:build goexperiment.simd && (arm64 || amd64) && !tinygo && !base64_c
+//go:build goexperiment.simd && amd64 && !tinygo && !base64_c
 
 package base64
 

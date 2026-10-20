@@ -1,6 +1,6 @@
-The NEON character-classification tables in vector_arm64.go and
-vector_tinygo.c and the structured load/store algorithms in vector_tinygo.c
-are adapted from simdutf's src/arm64/arm_base64.cpp:
+The NEON character-classification tables and the structured load/store
+algorithms in vector_arm64.s and vector_tinygo.c are adapted from simdutf's
+src/arm64/arm_base64.cpp:
 https://github.com/simdutf/simdutf/blob/master/src/arm64/arm_base64.cpp
 
 Copyright 2020 The simdutf authors
