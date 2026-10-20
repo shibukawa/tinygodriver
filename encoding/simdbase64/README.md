@@ -1,15 +1,21 @@
-# encoding/base64
+# encoding/simdbase64
 
 Base64 encoding and decoding with the `encoding/base64` API, accelerated with
 separate SIMD backends for Go and TinyGo. Standard, URL, padded and unpadded
-encodings use the same fast path. Change the import to use it:
+encodings use the same fast path. The package has its own name so that it can
+be imported next to the standard library's `encoding/base64` without an
+alias:
 
 ```go
-import "github.com/shibukawa/tinygodriver/encoding/base64"
+import "github.com/shibukawa/tinygodriver/encoding/simdbase64"
 
-encoded := base64.RawURLEncoding.EncodeToString(payload)
-decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+encoded := simdbase64.RawURLEncoding.EncodeToString(payload)
+decoded, err := simdbase64.RawURLEncoding.DecodeString(encoded)
 ```
+
+Existing code can switch by aliasing the import as `base64`, which keeps every
+call site unchanged; the repository's vendored HTTP, WebSocket and PostgreSQL
+packages do this.
 
 For reusable output buffers, use `Encode`, `Decode`, `AppendEncode` or
 `AppendDecode`. `DecodeString` allocates its output and borrows the immutable
@@ -128,22 +134,22 @@ use this package. Mbed TLS's internal PEM codec is separate and unchanged.
 ## Verification and benchmarks
 
 ```sh
-go test ./encoding/base64
-go test -tags=purego ./encoding/base64
-GOEXPERIMENT=simd go test ./encoding/base64
-CC=clang go test -tags=base64_c ./encoding/base64
-tinygo test ./encoding/base64
+go test ./encoding/simdbase64
+go test -tags=purego ./encoding/simdbase64
+GOEXPERIMENT=simd go test ./encoding/simdbase64
+CC=clang go test -tags=base64_c ./encoding/simdbase64
+tinygo test ./encoding/simdbase64
 clang -O2 -g -fsanitize=address,undefined \
-  encoding/base64/testdata/vector_bounds.c -o /tmp/base64-bounds
+  encoding/simdbase64/testdata/vector_bounds.c -o /tmp/base64-bounds
 /tmp/base64-bounds
-go test ./encoding/base64 -run '^$' \
+go test ./encoding/simdbase64 -run '^$' \
   -fuzz FuzzDecodeCompatibility -fuzztime=10s -parallel=2
 
-go test ./encoding/base64 -run '^$' \
+go test ./encoding/simdbase64 -run '^$' \
   -bench 'BenchmarkBase64/65536/' -benchtime=300ms -count=5
-tinygo test -opt=2 -run '^$' \
-  -bench 'BenchmarkBase64/65536/' -benchtime=300ms -count=5 ./encoding/base64
-go test ./encoding/base64 -run '^$' \
+tinygo test -opt=2 -run '^$' -bench 'BenchmarkBase64/65536/' \
+  -benchtime=300ms -count=5 ./encoding/simdbase64
+go test ./encoding/simdbase64 -run '^$' \
   -bench '^BenchmarkBase64LineBreaks$' -benchtime=300ms -count=5
 ```
 
@@ -195,30 +201,49 @@ input uses LF after every 76 encoded characters. Allocating Python APIs in
 are a different measurement condition.
 
 Measured on 2026-10-20, Apple M3, darwin/arm64, Go 1.27.0, TinyGo 0.42.0 /
-LLVM 22.1.4. Each row uses 64 KiB of binary data. Speeds are decimal GB/s with
-zero allocations per operation. The Go column compares the previous
-`archsimd` backend (`9157612`, built with `GOEXPERIMENT=simd`) with the
-assembly backend (default build); the two binaries ran alternately in five
-rounds. The TinyGo backend is unchanged; its columns repeat the measurement
-taken when its NEON kernel last changed (`8a8b983`).
+LLVM 22.1.4. Every row uses 64 KiB of binary data; the last three rows decode
+input with line breaks every 32, 64 or 76 characters. Speeds are decimal GB/s
+with zero allocations per operation, as medians of five 300 ms samples without
+CPU pinning. All binaries ran alternately in the same five rounds. The
+standard library column is the same compiler's `encoding/base64`. The previous
+Go `archsimd` backend is `9157612`, built with `GOEXPERIMENT=simd`; the
+assembly backend is a default build.
 
-| Operation | Go, `archsimd` → assembly | TinyGo, default `-opt=z` | TinyGo, `-opt=2` |
-|---|---:|---:|---:|
-| Encode | 14.63 → 21.49 | 21.93 | 21.71 |
-| Decode, no newlines | 11.10 → 13.33 | 12.99 | 12.39 |
-| Decode, MIME 76/LF | 9.68 → 11.70 | 11.50 | 11.66 |
+| Go | `encoding/base64` | previous `archsimd` | assembly | vs. `encoding/base64` |
+|---|---:|---:|---:|---:|
+| Encode | 2.97 | 14.63 | 21.59 | 7.3× |
+| Decode, no newlines | 2.61 | 11.07 | 13.25 | 5.1× |
+| Decode, MIME 76/LF | 1.94 | 9.73 | 11.69 | 6.0× |
+| Decode, 32 characters/LF | 1.02 | 5.90 | 7.40 | 7.3× |
+| Decode, 64 characters/LF | 1.44 | 8.82 | 12.59 | 8.7× |
+| Decode, 76 characters/CR-LF | 1.82 | 9.43 | 11.10 | 6.1× |
 
-These are medians of five 300 ms measurements without CPU pinning. At 1 KiB, Go
-improves from 13.45 to 19.68 GB/s encoding, 9.59 to 11.33 GB/s decoding plain
-data and 8.53 to 9.64 GB/s decoding MIME. The 64-byte benchmark also checks
-dispatch overhead. There, Go encoding improves from 5.93 to 6.79 GB/s and plain
-decoding from 3.20 to 3.37 GB/s. The 64-byte MIME input, one full line and a
-short one, decodes slightly slower, 3.00 → 2.91 GB/s (about 0.7 ns): the
-assembly loads all ten decoder table vectors for so little input, and the call
-goes through Go's ABI0 assembly wrapper. TinyGo's encoder selection costs about
-0.7 ns (`-opt=z`) or 1.1 ns (`-opt=2`) at that size; encoding remains on the
-compact loop. Its plain decoding measured 2.49 GB/s with `-opt=z` and 3.47 GB/s
-with `-opt=2`.
+| TinyGo | `encoding/base64`, `-opt=z` | `simdbase64`, `-opt=z` | `encoding/base64`, `-opt=2` | `simdbase64`, `-opt=2` |
+|---|---:|---:|---:|---:|
+| Encode | 2.91 | 21.89 | 2.95 | 22.18 |
+| Decode, no newlines | 3.29 | 13.33 | 3.22 | 13.36 |
+| Decode, MIME 76/LF | 2.45 | 11.69 | 2.55 | 11.99 |
+| Decode, 32 characters/LF | 1.10 | 9.82 | 1.23 | 7.93 |
+| Decode, 64 characters/LF | 1.75 | 12.41 | 1.87 | 11.85 |
+| Decode, 76 characters/CR-LF | 2.41 | 11.00 | 2.44 | 11.66 |
+
+TinyGo compiles the same standard-library source; it encodes at Go's speed but
+decodes 8–34% faster, which reflects LLVM's code generation for the scalar
+loop. TinyGo's `-opt=z` compact loop handles short lines better than Go's
+assembly and TinyGo's own `-opt=2` build (9.82 against 7.40 and 7.93 GB/s for
+32-character lines).
+
+A separate run of the previous and assembly Go binaries measured smaller
+inputs. At 1 KiB, Go improves from 13.45 to 19.68 GB/s encoding, 9.59 to 11.33
+GB/s decoding plain data and 8.53 to 9.64 GB/s decoding MIME. The 64-byte
+benchmark also checks dispatch overhead. There, Go encoding improves from 5.93
+to 6.79 GB/s and plain decoding from 3.20 to 3.37 GB/s. The 64-byte MIME input,
+one full line and a short one, decodes slightly slower, from 3.00 to 2.91 GB/s
+(about 0.7 ns): the assembly loads all ten decoder table vectors for so little
+input, and the call goes through Go's ABI0 assembly wrapper. In an earlier
+TinyGo measurement, its encoder selection cost about 0.7 ns (`-opt=z`) or 1.1
+ns (`-opt=2`) at that size, and plain decoding measured 2.49 GB/s with `-opt=z`
+and 3.47 GB/s with `-opt=2`.
 
 For a same-machine reference, Python 3.14.7 with fastpybase64 0.1.1, simdutf
 9.3.2 and its `arm64` kernel measured 19.80 GB/s encoding, 12.44 GB/s decoding
@@ -227,9 +252,9 @@ identical xorshift payload, five samples of at least 300 ms, and includes
 result allocation and interpreter-loop overhead. Both benchmarks use one
 thread; their API costs differ. Go's `archsimd` backend reached 74% of this
 reference for encoding and 89% for plain decoding. Go's assembly backend and
-TinyGo are now faster for encoding and MIME, and comparable or faster for plain
-decoding. General single-core CPU benchmark ratios do not predict Base64
-throughput: SIMD width, instruction selection, validation and packing matter.
+TinyGo are now faster than it in all three operations. General single-core
+CPU benchmark ratios do not predict Base64 throughput: SIMD width, instruction
+selection, validation and packing matter.
 
 Reproduce the Python reference in an optional virtual environment:
 
@@ -237,19 +262,9 @@ Reproduce the Python reference in an optional virtual environment:
 python3 -m venv /tmp/tinygodriver-base64-reference
 /tmp/tinygodriver-base64-reference/bin/python -m pip install fastpybase64==0.1.1
 /tmp/tinygodriver-base64-reference/bin/python \
-  encoding/base64/testdata/bench_fastpybase64.py
+  encoding/simdbase64/testdata/bench_fastpybase64.py
 ```
-
-Additional line layouts also use 64 KiB binary payloads and medians of five
-300 ms samples in GB/s, with the same Go comparison and TinyGo measurement as
-above:
-
-| Line layout | Go, `archsimd` → assembly | TinyGo, default `-opt=z` | TinyGo, `-opt=2` |
-|---|---:|---:|---:|
-| 32 characters, LF | 5.89 → 7.43 | 9.67 | 7.97 |
-| 64 characters, LF | 8.78 → 12.64 | 12.38 | 11.67 |
-| 76 characters, CR/LF | 9.40 → 11.07 | 10.82 | 11.52 |
 
 CPU scheduling and code layout affect absolute results; compare optimization
 settings with your own workload. Short 100 ms samples showed large outliers
-on this machine, so these line-layout comparisons use the longer samples above.
+on this machine, so these comparisons use the longer samples above.

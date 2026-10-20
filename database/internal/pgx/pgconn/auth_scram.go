@@ -25,7 +25,7 @@ import (
 	"strconv"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgproto3"
-	"github.com/shibukawa/tinygodriver/encoding/base64" // Local patch: shared SIMD Base64 backend.
+	base64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // Local patch: shared SIMD Base64 backend.
 	"golang.org/x/text/secure/precis"
 )
 

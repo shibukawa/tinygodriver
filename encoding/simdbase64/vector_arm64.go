@@ -1,6 +1,6 @@
 //go:build arm64 && !tinygo && !base64_c && !purego
 
-package base64
+package simdbase64
 
 // The Go assembler exposes NEON's structured loads/stores (LD3/LD4/ST3/ST4),
 // four-register TBL and shift-insert, which simd/archsimd does not. This

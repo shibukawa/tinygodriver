@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/shibukawa/tinygodriver/encoding/base64"
+	"github.com/shibukawa/tinygodriver/encoding/simdbase64"
 )
 
 type Signer interface {
@@ -81,7 +81,7 @@ func Sign(header Header, claims Claims, signer Signer) (string, error) {
 	if len(claimsJSON) > maxMaxSegmentBytes {
 		return "", ErrLimitExceeded
 	}
-	encode := base64.RawURLEncoding.EncodeToString
+	encode := simdbase64.RawURLEncoding.EncodeToString
 	signingInput := encode(headerJSON) + "." + encode(claimsJSON)
 	signature, err := signer.Sign([]byte(signingInput))
 	if err != nil {

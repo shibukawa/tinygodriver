@@ -14,7 +14,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.
+	base64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // PETITWEB: shared SIMD Base64 backend.
 	"golang.org/x/net/proxy"
 )
 

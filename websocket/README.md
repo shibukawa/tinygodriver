@@ -19,7 +19,7 @@ no `noasm` tag, and no external dependencies: upstream vendors its own SOCKS5
 support.
 
 The shared Base64 helpers additionally use
-[`encoding/base64`](../encoding/base64) for Go SIMD and TinyGo vector
+[`encoding/simdbase64`](../encoding/simdbase64) for Go SIMD and TinyGo vector
 acceleration, with the same protocol bytes on both compilers.
 
 ## The server needs `httpserver`

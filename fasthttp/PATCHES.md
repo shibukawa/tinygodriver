@@ -13,7 +13,7 @@ readable.
 
 ## Why any patch is needed
 
-`http.go` also uses `../encoding/base64` for the API-compatible Go SIMD and
+`http.go` also uses `../encoding/simdbase64` for the API-compatible Go SIMD and
 TinyGo vector backends. `vendor.py` records this import substitution, including
 its `PETITWEB:` marker. The codec produces the same wire bytes on both compilers.
 

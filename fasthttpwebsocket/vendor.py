@@ -143,7 +143,7 @@ PATCHES = {
         ('\t"encoding/base64"\n', '', 1),
         (
             '\t"unicode/utf8"\n)',
-            '\t"unicode/utf8"\n\n\t"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.\n)',
+            '\t"unicode/utf8"\n\n\tbase64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // PETITWEB: shared SIMD Base64 backend.\n)',
             1,
         ),
     ],
@@ -151,7 +151,7 @@ PATCHES = {
         ('\t"encoding/base64"\n', '', 1),
         (
             '\t"golang.org/x/net/proxy"\n',
-            '\t"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.\n\t"golang.org/x/net/proxy"\n',
+            '\tbase64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // PETITWEB: shared SIMD Base64 backend.\n\t"golang.org/x/net/proxy"\n',
             1,
         ),
     ],

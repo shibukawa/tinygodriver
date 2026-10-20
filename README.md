@@ -33,7 +33,7 @@ and tests between both compilers.
 | [`cloud/google`](./cloud/google) | `github.com/shibukawa/tinygodriver/cloud/google` | Google credentials and bearer tokens, RSA signed by the OS on TinyGo |
 | [`jwt`](./jwt) | `github.com/shibukawa/tinygodriver/jwt` | Bounded signed JWT subset, HS256 and RS256 |
 | [`encoding/xmlro`](./encoding/xmlro) | `github.com/shibukawa/tinygodriver/encoding/xmlro` | Read-only, allocation-free pull reader for Office Open XML parts, ten times `encoding/xml` |
-| [`encoding/base64`](./encoding/base64) | `github.com/shibukawa/tinygodriver/encoding/base64` | Base64 with Go's experimental SIMD API and a separate TinyGo vector backend |
+| [`encoding/simdbase64`](./encoding/simdbase64) | `github.com/shibukawa/tinygodriver/encoding/simdbase64` | `encoding/base64`-compatible Base64 with NEON assembly on arm64, Go SIMD on amd64 and a TinyGo vector backend |
 
 ## Quick start
 
@@ -130,7 +130,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`cloud/aws`](./cloud/aws/README.md): signing another AWS service with this signer
 - [`cloud/google`](./cloud/google/README.md): token sources, clock skew, and where the RSA code goes
 - [`encoding/xmlro`](./encoding/xmlro/README.md): what is borrowed, what is bounded, and the measured gap to the standard library
-- [`encoding/base64`](./encoding/base64/README.md): selecting Go SIMD or TinyGo vectors, compatibility and benchmarks
+- [`encoding/simdbase64`](./encoding/simdbase64/README.md): selecting the Go or TinyGo vector backend, compatibility and benchmarks
 
 - **IPv4 only** (matches TinyGo’s net port).
 - **HTTPS client (`https`)**: Network.framework on macOS, Schannel on Windows,
