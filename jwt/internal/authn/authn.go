@@ -7,7 +7,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/shibukawa/tinygodriver/encoding/base64"
+	"github.com/shibukawa/tinygodriver/encoding/simdbase64"
 )
 
 var (
@@ -29,7 +29,7 @@ func DecodeBase64URL(value string, maxEncodedBytes, maxDecodedBytes int) ([]byte
 	if maxEncodedBytes <= 0 || maxDecodedBytes <= 0 {
 		return nil, ErrInvalidSize
 	}
-	if len(value) > maxEncodedBytes || base64.RawURLEncoding.DecodedLen(len(value)) > maxDecodedBytes {
+	if len(value) > maxEncodedBytes || simdbase64.RawURLEncoding.DecodedLen(len(value)) > maxDecodedBytes {
 		return nil, ErrLimitExceeded
 	}
 	if strings.ContainsAny(value, "=\r\n") {
@@ -48,7 +48,7 @@ func DecodeBase64URL(value string, maxEncodedBytes, maxDecodedBytes int) ([]byte
 			return nil, ErrInvalidEncoding
 		}
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	decoded, err := simdbase64.RawURLEncoding.DecodeString(value)
 	if err != nil {
 		return nil, ErrInvalidEncoding
 	}

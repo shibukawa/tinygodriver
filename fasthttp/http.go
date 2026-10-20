@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.
+	base64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // PETITWEB: shared SIMD Base64 backend.
 	"github.com/valyala/bytebufferpool"
 )
 

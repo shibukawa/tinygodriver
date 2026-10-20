@@ -283,7 +283,7 @@ def patch_auth_scram():
     require(body, precis_import, "auth_scram.go")
     body = body.replace(
         precis_import,
-        '\t"github.com/shibukawa/tinygodriver/encoding/base64" // Local patch: shared SIMD Base64 backend.\n'
+        '\tbase64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // Local patch: shared SIMD Base64 backend.\n'
         + precis_import,
     )
 

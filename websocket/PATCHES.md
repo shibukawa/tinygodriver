@@ -31,9 +31,9 @@ through `compat_std.go`. Base64 uses the shared codec below on both compilers.
 
 ## Shared Base64 backend
 
-`util.go` and `proxy.go` import `../encoding/base64` for handshake keys and
+`util.go` and `proxy.go` import `../encoding/simdbase64` for handshake keys and
 proxy credentials. It preserves the standard API and bytes while selecting
-Go's experimental SIMD or TinyGo's C vector backend. `vendor.py` checks both
+the Go or TinyGo vector backend. `vendor.py` checks both
 import anchors and reapplies the substitutions on an upstream refresh.
 
 ## The server needs `httpserver`

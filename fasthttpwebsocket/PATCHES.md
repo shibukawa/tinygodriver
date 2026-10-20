@@ -13,7 +13,7 @@ readable.
 
 ## Why any patch is needed
 
-`util.go` and `proxy.go` also use `../encoding/base64` for the API-compatible
+`util.go` and `proxy.go` also use `../encoding/simdbase64` for the API-compatible
 Go SIMD and TinyGo vector backends. `vendor.py` records both import
 substitutions and their `PETITWEB:` markers; handshake and proxy credential
 bytes remain identical to the standard library's output.
