@@ -84,12 +84,21 @@ func upgradeConn(ctx context.Context, conn net.Conn, cfg *TLSConfig) (net.Conn, 
 	if cfg == nil {
 		return nil, ErrTLSUnsupported
 	}
-	return https.Upgrade(ctx, conn, cfg.Host, &https.Config{
+	return https.Upgrade(ctx, conn, cfg.Host, toHTTPSConfig(cfg))
+}
+
+// toHTTPSConfig is the single adapter between the vendored pgx configuration
+// shape and the repository's backend-neutral TLS configuration.
+func toHTTPSConfig(cfg *TLSConfig) *https.Config {
+	if cfg == nil {
+		return nil
+	}
+	return &https.Config{
 		RootCAs:            cfg.RootCAsPEM,
 		RootCAsOnly:        cfg.RootCAsOnly,
 		InsecureSkipVerify: cfg.InsecureSkipVerify,
 		ServerName:         cfg.ServerName,
-	})
+	}
 }
 
 // hostResolver defers name resolution to the dialer. TinyGo has no
@@ -98,6 +107,62 @@ type hostResolver struct{}
 
 func (hostResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
 	return []string{host}, nil
+}
+'''
+
+# The adapter's field-inventory test (decision:pgx-tls-config-boundary) is
+# repository-authored; vendor.py drops upstream tests, so write it here too.
+TLS_SHIM_TEST = '''package pgconn
+
+import (
+	"reflect"
+	"slices"
+	"testing"
+
+	"github.com/shibukawa/tinygodriver/https"
+)
+
+func TestHTTPSConfigAdapter(t *testing.T) {
+	pem := []byte("pem")
+	in := &TLSConfig{
+		Host:               "db.example",
+		ServerName:         "verify.example",
+		RootCAsPEM:         [][]byte{pem},
+		RootCAsOnly:        true,
+		InsecureSkipVerify: true,
+	}
+	out := toHTTPSConfig(in)
+	if out.ServerName != in.ServerName || out.RootCAsOnly != in.RootCAsOnly ||
+		out.InsecureSkipVerify != in.InsecureSkipVerify ||
+		len(out.RootCAs) != 1 || !slices.Equal(out.RootCAs[0], pem) {
+		t.Fatalf("adapter output = %#v, input = %#v", out, in)
+	}
+	if out.Certificates != nil || out.MinVersion != 0 {
+		t.Fatal("adapter populated intentionally unsupported HTTPS fields")
+	}
+}
+
+func TestHTTPSConfigAdapterFieldInventory(t *testing.T) {
+	assertExportedFields(t, reflect.TypeFor[TLSConfig](), []string{
+		"Host", "ServerName", "RootCAsPEM", "RootCAsOnly", "InsecureSkipVerify",
+	})
+	assertExportedFields(t, reflect.TypeFor[https.Config](), []string{
+		"RootCAs", "RootCAsOnly", "Certificates", "InsecureSkipVerify", "ServerName", "MinVersion",
+	})
+}
+
+func assertExportedFields(t *testing.T, typ reflect.Type, want []string) {
+	t.Helper()
+	var got []string
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.IsExported() {
+			got = append(got, field.Name)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("%s exported fields = %v, want %v; update the adapter and inventory", typ, got, want)
+	}
 }
 '''
 
@@ -558,6 +623,7 @@ def main():
         sys.exit("patch.py: run vendor.py first")
 
     write(os.path.join(PGCONN, "tinygo_tls.go"), TLS_SHIM)
+    write(os.path.join(PGCONN, "tinygo_tls_test.go"), TLS_SHIM_TEST)
     patch_config()
     patch_pgconn()
     patch_auth_scram()

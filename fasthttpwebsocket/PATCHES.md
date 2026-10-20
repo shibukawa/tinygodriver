@@ -128,8 +128,8 @@ neither `cookiejar` nor a `tls.Server` for `httptest.NewTLSServer` to use, so
 the file carries `//go:build !tinygo`. Twenty-four tests are host-Go only as a
 result.
 
-Every other upstream test file is vendored unchanged and runs under both
-compilers.
+Every other upstream test file runs under both compilers. Section 5 lists the
+two upstream tests that are removed.
 
 The gap is not left open. `compat_test.go`, hand-written, covers the fasthttp
 side over real sockets on both compilers — echo across every frame-length
@@ -138,6 +138,16 @@ compression negotiation, the handshake rejections, an upgrade sharing a listener
 with ordinary HTTP, and eight concurrent connections. Upstream has **no tests at
 all** for `FastHTTPUpgrader`, so this is new coverage rather than a
 reimplementation of something lost.
+
+## 5. `example_test.go`, `server_test.go` — two upstream tests removed
+
+The repository's 2026-09-12 test cleanup (commit `13a89f2`) removed two
+upstream tests, and vendor.py now reapplies that removal. `TestX` is an empty
+function whose only purpose is a godoc layout workaround. `xTestBufioReuse`,
+which upstream already disables, asserts which `bufio` buffers `Upgrade`
+reuses: an implementation detail rather than behaviour. Removing it also drops
+the imports that only it used. Both edits are anchored on the exact upstream
+text, so an upstream change to either test fails the vendor run.
 
 ## Not patched, worth knowing
 
