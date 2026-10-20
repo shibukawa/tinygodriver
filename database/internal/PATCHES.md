@@ -31,7 +31,11 @@ Measured on the unpatched tree: three non-test files, all in `pgconn`.
   public `Config.TLSConfig` field keeps its shape without linking `crypto/tls`.
   The type lives in `tinygo_tls.go`, a file patch.py writes whole, together
   with `upgradeConn` — the bridge into the `https` package — and the
-  `ErrTLSUnsupported` sentinel its nil-config branch returns.
+  `ErrTLSUnsupported` sentinel its nil-config branch returns. `upgradeConn`
+  converts through `toHTTPSConfig`, the single adapter required by
+  `decision:pgx-tls-config-boundary`. patch.py also writes that adapter's
+  field-inventory test, `tinygo_tls_test.go`, because vendor.py drops every
+  upstream test file and would otherwise delete it.
 - Replace the body of `configTLS` with the libpq sslmode matrix expressed as
   `TLSConfig` values: `disable`, `allow`, `prefer`, `require`, `verify-ca` and
   `verify-full` all work, including `sslrootcert` (a file, or `system`),

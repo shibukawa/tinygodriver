@@ -23,7 +23,8 @@ run under `tinygo test` as vendored; `client_server_test.go` builds real TLS
 servers through net/http/httptest and pulls in net/http/cookiejar, which TinyGo
 does not ship, so it is constrained to standard Go. The fasthttp side of the
 library has no upstream tests at all, so compat_test.go supplies them and runs
-on both compilers.
+on both compilers. Two redundant or implementation-coupled upstream tests are
+removed (PATCHES.md, section 5).
 
 The external dependencies -- klauspost/compress, savsgio/gotils, and
 golang.org/x/net for the SOCKS and environment proxy support -- stay ordinary
@@ -241,6 +242,116 @@ PATCHES = {
             "// PETITWEB: added a build constraint; see PATCHES.md.\n"
             "//go:build !tinygo\n\n"
             "package websocket",
+            1,
+        ),
+    ],
+    # Upstream tests removed by the repository on 2026-09-12 (commit 13a89f2,
+    # "remove redundant and implementation-coupled cases"); see PATCHES.md.
+    # TestX is an empty godoc workaround. xTestBufioReuse, already disabled
+    # upstream, asserts which bufio buffers Upgrade reuses, an implementation
+    # detail.
+    "example_test.go": [
+        (
+            """import (
+	"log"
+	"net/http"
+	"testing"
+
+	"github.com/shibukawa/tinygodriver/fasthttpwebsocket"
+)
+""",
+            """import (
+	"log"
+	"net/http"
+
+	"github.com/shibukawa/tinygodriver/fasthttpwebsocket"
+)
+""",
+            1,
+        ),
+        (
+            """
+// TestX prevents godoc from showing this entire file in the example. Remove
+// this function when a second example is added.
+func TestX(t *testing.T) {}
+""",
+            "",
+            1,
+        ),
+    ],
+    "server_test.go": [
+        (
+            """import (
+	"bufio"
+	"bytes"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"testing"
+)
+""",
+            """import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"testing"
+)
+""",
+            1,
+        ),
+        (
+            """type reuseTestResponseWriter struct {
+	brw *bufio.ReadWriter
+	http.ResponseWriter
+}
+
+func (resp *reuseTestResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return fakeNetConn{strings.NewReader(""), &bytes.Buffer{}}, resp.brw, nil
+}
+
+var bufioReuseTests = []struct {
+	n     int
+	reuse bool
+}{
+	{4096, true},
+	{128, false},
+}
+
+func xTestBufioReuse(t *testing.T) {
+	for i, tt := range bufioReuseTests {
+		br := bufio.NewReaderSize(strings.NewReader(""), tt.n)
+		bw := bufio.NewWriterSize(&bytes.Buffer{}, tt.n)
+		resp := &reuseTestResponseWriter{
+			brw: bufio.NewReadWriter(br, bw),
+		}
+		upgrader := Upgrader{}
+		c, err := upgrader.Upgrade(resp, &http.Request{
+			Method: http.MethodGet,
+			Header: http.Header{
+				"Upgrade":               []string{"websocket"},
+				"Connection":            []string{"upgrade"},
+				"Sec-Websocket-Key":     []string{"dGhlIHNhbXBsZSBub25jZQ=="},
+				"Sec-Websocket-Version": []string{"13"},
+			}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reuse := c.br == br; reuse != tt.reuse {
+			t.Errorf("%d: buffered reader reuse=%v, want %v", i, reuse, tt.reuse)
+		}
+		writeBuf := bw.AvailableBuffer()
+		if reuse := &c.writeBuf[0] == &writeBuf[0]; reuse != tt.reuse {
+			t.Errorf("%d: write buffer reuse=%v, want %v", i, reuse, tt.reuse)
+		}
+	}
+}
+
+""",
+            "",
             1,
         ),
     ],

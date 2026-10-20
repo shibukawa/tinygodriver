@@ -110,6 +110,17 @@ earns its place: without it the fork loses the check that prepared messages and
 normal writes produce identical bytes, on exactly the masked path that matters
 most under TinyGo.
 
+## 3. `example_test.go`, `server_test.go` — two upstream tests removed
+
+The repository's 2026-09-12 test cleanup (commit `13a89f2`) removed two
+upstream tests, and vendor.py now reapplies that removal. `TestX` is an empty
+function whose only purpose is a godoc layout workaround. `TestBufioReuse`
+asserts which `bufio` buffers `Upgrade` reuses from a hijacked connection, an
+implementation detail rather than behaviour. Removing it also drops the
+`bufio`, `bytes`, `net` and `strings` imports that only it used. Both edits are
+anchored on the exact upstream text, so an upstream change to either test
+fails the vendor run instead of silently keeping it.
+
 ## Files not vendored
 
 `examples/` is a directory of standalone programs with their own dependencies.
