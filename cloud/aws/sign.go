@@ -3,13 +3,14 @@ package aws
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 const algorithm = "AWS4-HMAC-SHA256"

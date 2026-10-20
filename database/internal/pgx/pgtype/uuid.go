@@ -3,8 +3,9 @@ package pgtype
 import (
 	"bytes"
 	"database/sql/driver"
-	"encoding/hex"
 	"fmt"
+
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 type UUIDScanner interface {

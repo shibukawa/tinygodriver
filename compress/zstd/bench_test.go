@@ -12,7 +12,6 @@ package zstd
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math/rand"
 	"testing"
 )
@@ -99,48 +98,6 @@ func BenchmarkWriterReuse(b *testing.B) {
 					b.Fatal(err)
 				}
 				if err := z.Close(); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}
-
-// BenchmarkDecode decodes the reference CLI's frames from decoder_test.go,
-// which exercise the whole format rather than the subset this encoder writes,
-// through DecodeAll and through a Reset Reader.
-func BenchmarkDecode(b *testing.B) {
-	for _, c := range []struct {
-		name  string
-		frame []byte
-	}{
-		{"level6-1k-blocks", goldenSmallBlocks},
-		{"level19", goldenLevel19},
-		{"level1-stdin", goldenStdin},
-	} {
-		b.Run("DecodeAll/"+c.name, func(b *testing.B) {
-			var dst []byte
-			b.SetBytes(goldenSize)
-			b.ReportAllocs()
-			for range b.N { // TinyGo does not implement b.Loop
-				var err error
-				if dst, err = DecodeAll(dst[:0], c.frame); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-		b.Run("Reader/"+c.name, func(b *testing.B) {
-			var src bytes.Reader
-			r, err := NewReader(&src)
-			if err != nil {
-				b.Fatal(err)
-			}
-			b.SetBytes(goldenSize)
-			b.ReportAllocs()
-			for range b.N {
-				src.Reset(c.frame)
-				r.Reset(&src)
-				if _, err := io.Copy(io.Discard, r); err != nil {
 					b.Fatal(err)
 				}
 			}

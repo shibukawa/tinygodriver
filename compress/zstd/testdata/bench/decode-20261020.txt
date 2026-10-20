@@ -1,0 +1,353 @@
+Zstd decoding measurements, 2026-10-20 (Asia/Tokyo)
+Apple M3; darwin/arm64; Go 1.27.0; TinyGo 0.42.0 / LLVM 22.1.4.
+GOMAXPROCS=1; one benchmark at a time; 500 ms per sample; five samples.
+Backend order rotated each round: host, purego, tinygo-z, tinygo-2.
+All frames decode to the same 57,705 bytes and carry XXH64 checksums.
+Throughput is decoded bytes in decimal MB/s; buffers and decoders warmed.
+The profiles use force_tinygo_logic compiled with Go, not native TinyGo.
+
+=== host ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    5379	    111965 ns/op	 515.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    5392	    109209 ns/op	 528.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    5707	     97275 ns/op	 593.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    6331	     95831 ns/op	 602.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	   10000	     55544 ns/op	1038.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	   10000	     55169 ns/op	1045.97 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    5167	    109354 ns/op	 527.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    4879	    109327 ns/op	 527.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    5713	    101741 ns/op	 567.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    6270	     99059 ns/op	 582.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	   10000	     57388 ns/op	1005.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	   10000	     57029 ns/op	1011.85 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    4681	    122466 ns/op	 471.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    5445	    116719 ns/op	 494.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    5739	     95869 ns/op	 601.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    6352	     96475 ns/op	 598.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	   10000	     55097 ns/op	1047.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	   10000	     56922 ns/op	1013.76 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    5152	    109506 ns/op	 526.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    5550	    109834 ns/op	 525.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    5889	    100559 ns/op	 573.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    6362	     94958 ns/op	 607.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	   10000	     55833 ns/op	1033.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	   10000	     55872 ns/op	1032.80 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    5272	    108953 ns/op	 529.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    5623	    107672 ns/op	 535.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    5850	     96306 ns/op	 599.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    6232	     96975 ns/op	 595.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	   10000	     56143 ns/op	1027.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	   10000	     55707 ns/op	1035.87 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== purego ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    4364	    134486 ns/op	 429.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    4418	    136948 ns/op	 421.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    4249	    125636 ns/op	 459.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    4824	    125764 ns/op	 458.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3259	    180688 ns/op	 319.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    3280	    211860 ns/op	 272.37 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    4464	    131878 ns/op	 437.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    4447	    133131 ns/op	 433.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    4782	    121920 ns/op	 473.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    4815	    124717 ns/op	 462.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3228	    260001 ns/op	 221.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    3241	    182285 ns/op	 316.57 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    3824	    134711 ns/op	 428.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    4327	    135155 ns/op	 426.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    4749	    145354 ns/op	 397.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    4666	    126264 ns/op	 457.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3186	    180293 ns/op	 320.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    3358	    179808 ns/op	 320.93 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    3957	    132508 ns/op	 435.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    4514	    134230 ns/op	 429.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    4699	    123294 ns/op	 468.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    4708	    123956 ns/op	 465.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3218	    180043 ns/op	 320.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    3325	    179739 ns/op	 321.05 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    4069	    135839 ns/op	 424.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    4479	    132202 ns/op	 436.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    4182	    126062 ns/op	 457.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    4844	    126410 ns/op	 456.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3204	    181362 ns/op	 318.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    3314	    180411 ns/op	 319.85 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== tinygo-z ===
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2666	    224419 ns/op	 257.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2703	    222720 ns/op	 259.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2521	    221648 ns/op	 260.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2704	    221504 ns/op	 260.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2682	    208725 ns/op	 276.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3025	    197912 ns/op	 291.57 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2594	    217504 ns/op	 265.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2763	    216693 ns/op	 266.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2787	    212527 ns/op	 271.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2834	    216220 ns/op	 266.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2824	    199777 ns/op	 288.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2962	    202992 ns/op	 284.27 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2661	    215462 ns/op	 267.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2791	    215115 ns/op	 268.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2794	    212952 ns/op	 270.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2798	    212929 ns/op	 271.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2883	    200788 ns/op	 287.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2859	    204988 ns/op	 281.50 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2568	    213994 ns/op	 269.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2809	    215405 ns/op	 267.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2786	    213471 ns/op	 270.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2784	    221204 ns/op	 260.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2880	    199947 ns/op	 288.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2928	    202474 ns/op	 285.00 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2610	    215444 ns/op	 267.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2683	    219729 ns/op	 262.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2762	    224333 ns/op	 257.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2767	    211628 ns/op	 272.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2898	    199837 ns/op	 288.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2917	    201151 ns/op	 286.87 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== tinygo-2 ===
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    3292	    155778 ns/op	 370.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    3852	    155154 ns/op	 371.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    3712	    150887 ns/op	 382.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    3982	    148118 ns/op	 389.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3228	    166066 ns/op	 347.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3666	    165997 ns/op	 347.63 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    3789	    154895 ns/op	 372.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    3963	    156134 ns/op	 369.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    3738	    151408 ns/op	 381.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    4032	    151204 ns/op	 381.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3469	    165822 ns/op	 347.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3436	    164198 ns/op	 351.43 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    3552	    156609 ns/op	 368.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    3909	    157736 ns/op	 365.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    3703	    151453 ns/op	 381.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    3934	    149104 ns/op	 387.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3452	    165099 ns/op	 349.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3685	    171273 ns/op	 336.92 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    3333	    157884 ns/op	 365.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    3836	    160128 ns/op	 360.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    3512	    150340 ns/op	 383.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    4120	    150774 ns/op	 382.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3412	    167245 ns/op	 345.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3621	    175239 ns/op	 329.29 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    3376	    158535 ns/op	 363.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    3858	    154851 ns/op	 372.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    3810	    151319 ns/op	 381.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    4066	    147211 ns/op	 391.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3420	    166883 ns/op	 345.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3610	    167670 ns/op	 344.16 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== Go profile of TinyGo-compatible decoder: level6-1k-blocks ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	   75958	    134869 ns/op	 427.86 MB/s	       0 B/op	       0 allocs/op
+PASS
+File: purego.test
+Type: cpu
+Time: 2026-10-20 12:37:44 JST
+Duration: 12s, Total samples = 10.23s (85.24%)
+Showing nodes accounting for 10s, 97.75% of 10.23s total
+Dropped 14 nodes (cum <= 0.05s)
+      flat  flat%   sum%        cum   cum%
+     3.08s 30.11% 30.11%      6.91s 67.55%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeSequences
+     2.59s 25.32% 55.43%      2.68s 26.20%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).fill (inline)
+     1.30s 12.71% 68.13%      1.30s 12.71%  runtime.memmove
+     1.28s 12.51% 80.65%      2.73s 26.69%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).decodeStream
+     0.41s  4.01% 84.65%      0.41s  4.01%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).peek (inline)
+     0.41s  4.01% 88.66%      0.41s  4.01%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).resolveOffset
+     0.19s  1.86% 90.52%      0.97s  9.48%  github.com/shibukawa/tinygodriver/compress/zstd.appendMatch (inline)
+     0.18s  1.76% 92.28%      0.26s  2.54%  github.com/shibukawa/tinygodriver/compress/zstd.(*xxh64).stripes
+     0.16s  1.56% 93.84%      0.16s  1.56%  runtime.asyncPreempt
+     0.10s  0.98% 94.82%      0.13s  1.27%  github.com/shibukawa/tinygodriver/compress/zstd.(*fseDecTable).build
+     0.08s  0.78% 95.60%      0.08s  0.78%  github.com/shibukawa/tinygodriver/compress/zstd.xxRound (inline)
+     0.06s  0.59% 96.19%      0.06s  0.59%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).build
+     0.04s  0.39% 96.58%      0.07s  0.68%  github.com/shibukawa/tinygodriver/compress/zstd.readFSEDescription
+     0.03s  0.29% 96.87%      0.31s  3.03%  github.com/shibukawa/tinygodriver/compress/zstd.(*xxh64).write
+     0.02s   0.2% 97.07%      0.38s  3.71%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).blockDone
+     0.02s   0.2% 97.26%      0.11s  1.08%  runtime.goschedImpl
+     0.01s 0.098% 97.36%      0.42s  4.11%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).bits (inline)
+     0.01s 0.098% 97.46%      9.79s 95.70%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).appendBlock
+     0.01s 0.098% 97.56%      9.78s 95.60%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeCompressed
+     0.01s 0.098% 97.65%      2.86s 27.96%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeLiterals
+     0.01s 0.098% 97.75%      0.13s  1.27%  runtime.newstack
+         0     0% 97.75%     10.17s 99.41%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeAll
+         0     0% 97.75%     10.17s 99.41%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeFrame
+         0     0% 97.75%      0.11s  1.08%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).readHuffTable
+         0     0% 97.75%      0.20s  1.96%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).readSeqTable
+         0     0% 97.75%      0.43s  4.20%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).decode4
+         0     0% 97.75%     10.17s 99.41%  github.com/shibukawa/tinygodriver/compress/zstd.BenchmarkDecode.func1
+         0     0% 97.75%     10.17s 99.41%  github.com/shibukawa/tinygodriver/compress/zstd.DecodeAll
+         0     0% 97.75%      0.11s  1.08%  runtime.gopreempt_m (inline)
+         0     0% 97.75%      0.06s  0.59%  runtime.morestack
+         0     0% 97.75%     10.17s 99.41%  testing.(*B).launch
+         0     0% 97.75%     10.17s 99.41%  testing.(*B).runN
+
+=== Go profile of TinyGo-compatible decoder: level19 ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level19         	   90979	    124112 ns/op	 464.94 MB/s	       0 B/op	       0 allocs/op
+PASS
+File: purego.test
+Type: cpu
+Time: 2026-10-20 12:37:56 JST
+Duration: 12.77s, Total samples = 11.10s (86.94%)
+Showing nodes accounting for 10.98s, 98.92% of 11.10s total
+Dropped 24 nodes (cum <= 0.06s)
+      flat  flat%   sum%        cum   cum%
+     3.40s 30.63% 30.63%      8.38s 75.50%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeSequences
+     2.52s 22.70% 53.33%      2.64s 23.78%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).fill (inline)
+     1.66s 14.95% 68.29%      1.66s 14.95%  runtime.memmove
+     1.11s 10.00% 78.29%      2.24s 20.18%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).decodeStream
+     0.54s  4.86% 83.15%      0.58s  5.23%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).resolveOffset
+     0.44s  3.96% 87.12%      0.45s  4.05%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).peek (inline)
+     0.32s  2.88% 90.00%      1.31s 11.80%  github.com/shibukawa/tinygodriver/compress/zstd.appendMatch (inline)
+     0.28s  2.52% 92.52%      0.28s  2.52%  runtime.asyncPreempt
+     0.20s  1.80% 94.32%      0.29s  2.61%  github.com/shibukawa/tinygodriver/compress/zstd.(*fseDecTable).build
+     0.15s  1.35% 95.68%      0.32s  2.88%  github.com/shibukawa/tinygodriver/compress/zstd.(*xxh64).stripes
+     0.14s  1.26% 96.94%      0.14s  1.26%  github.com/shibukawa/tinygodriver/compress/zstd.xxRound (inline)
+     0.09s  0.81% 97.75%      0.09s  0.81%  github.com/shibukawa/tinygodriver/compress/zstd.spreadSymbols
+     0.07s  0.63% 98.38%      0.52s  4.68%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).bits (inline)
+     0.06s  0.54% 98.92%      0.06s  0.54%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).build
+         0     0% 98.92%     10.73s 96.67%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).appendBlock
+         0     0% 98.92%      0.32s  2.88%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).blockDone
+         0     0% 98.92%     11.06s 99.64%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeAll
+         0     0% 98.92%     10.73s 96.67%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeCompressed
+         0     0% 98.92%     11.06s 99.64%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeFrame
+         0     0% 98.92%      2.35s 21.17%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeLiterals
+         0     0% 98.92%      0.11s  0.99%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).readHuffTable
+         0     0% 98.92%      0.30s  2.70%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).readSeqTable
+         0     0% 98.92%      2.24s 20.18%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).decode4
+         0     0% 98.92%      0.32s  2.88%  github.com/shibukawa/tinygodriver/compress/zstd.(*xxh64).write
+         0     0% 98.92%     11.06s 99.64%  github.com/shibukawa/tinygodriver/compress/zstd.BenchmarkDecode.func1
+         0     0% 98.92%     11.06s 99.64%  github.com/shibukawa/tinygodriver/compress/zstd.DecodeAll
+         0     0% 98.92%     11.06s 99.64%  testing.(*B).launch
+         0     0% 98.92%     11.06s 99.64%  testing.(*B).runN
+
+=== Go profile of TinyGo-compatible decoder: level1-stdin ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level1-stdin         	   66091	    179897 ns/op	 320.77 MB/s	       0 B/op	       0 allocs/op
+PASS
+File: purego.test
+Type: cpu
+Time: 2026-10-20 12:38:09 JST
+Duration: 13.87s, Total samples = 12.07s (87.00%)
+Showing nodes accounting for 12s, 99.42% of 12.07s total
+Dropped 18 nodes (cum <= 0.06s)
+      flat  flat%   sum%        cum   cum%
+     4.92s 40.76% 40.76%      5.10s 42.25%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).fill (inline)
+     3.93s 32.56% 73.32%      8.47s 70.17%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).decodeStream
+     1.10s  9.11% 82.44%      3.09s 25.60%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeSequences
+     0.54s  4.47% 86.91%      0.54s  4.47%  runtime.memmove
+     0.33s  2.73% 89.64%      0.33s  2.73%  runtime.asyncPreempt
+     0.28s  2.32% 91.96%      0.29s  2.40%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).resolveOffset
+     0.18s  1.49% 93.45%      0.23s  1.91%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).peek (inline)
+     0.14s  1.16% 94.61%      0.15s  1.24%  github.com/shibukawa/tinygodriver/compress/zstd.xxRound (inline)
+     0.13s  1.08% 95.69%      0.29s  2.40%  github.com/shibukawa/tinygodriver/compress/zstd.(*xxh64).stripes
+     0.12s  0.99% 96.69%      0.49s  4.06%  github.com/shibukawa/tinygodriver/compress/zstd.appendMatch (inline)
+     0.11s  0.91% 97.60%      0.11s  0.91%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).build
+     0.10s  0.83% 98.43%      0.10s  0.83%  github.com/shibukawa/tinygodriver/compress/zstd.spreadSymbols
+     0.08s  0.66% 99.09%      0.18s  1.49%  github.com/shibukawa/tinygodriver/compress/zstd.(*fseDecTable).build
+     0.02s  0.17% 99.25%      0.25s  2.07%  github.com/shibukawa/tinygodriver/compress/zstd.(*backReader).bits (inline)
+     0.02s  0.17% 99.42%      0.08s  0.66%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).readFSEWeights
+         0     0% 99.42%     11.75s 97.35%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).appendBlock
+         0     0% 99.42%      0.30s  2.49%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).blockDone
+         0     0% 99.42%     12.05s 99.83%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeAll
+         0     0% 99.42%     11.75s 97.35%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeCompressed
+         0     0% 99.42%     12.05s 99.83%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeFrame
+         0     0% 99.42%      8.66s 71.75%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).decodeLiterals
+         0     0% 99.42%      0.19s  1.57%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).readHuffTable
+         0     0% 99.42%      0.18s  1.49%  github.com/shibukawa/tinygodriver/compress/zstd.(*decoder).readSeqTable
+         0     0% 99.42%      8.47s 70.17%  github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).decode4
+         0     0% 99.42%      0.29s  2.40%  github.com/shibukawa/tinygodriver/compress/zstd.(*xxh64).write
+         0     0% 99.42%     12.05s 99.83%  github.com/shibukawa/tinygodriver/compress/zstd.BenchmarkDecode.func1
+         0     0% 99.42%     12.05s 99.83%  github.com/shibukawa/tinygodriver/compress/zstd.DecodeAll
+         0     0% 99.42%     12.05s 99.83%  testing.(*B).launch
+         0     0% 99.42%     12.05s 99.83%  testing.(*B).runN
+
+=== Huffman source attribution, level1-stdin ===
+Total: 12.07s
+ROUTINE ======================== github.com/shibukawa/tinygodriver/compress/zstd.(*huffDecTable).decodeStream in /Users/shibukawayoshiki/.codex/worktrees/95fc/tinygodriver/compress/zstd/decode_huffman.go
+     3.93s      8.47s (flat, cum) 70.17% of Total
+         .          .    282:func (t *huffDecTable) decodeStream(dst, src []byte) error {
+         .          .    283:	var br backReader
+         .          .    284:	if err := br.init(src); err != nil {
+         .          .    285:		return err
+         .          .    286:	}
+         .          .    287:	shift := 64 - uint(t.maxBits)
+         .          .    288:	i := 0
+         .          .    289:	// A fill leaves at least 56 bits, and four codes take at most 44.
+     280ms      290ms    290:	for ; i+4 <= len(dst); i += 4 {
+         .      4.48s    291:		br.fill()
+     180ms      180ms    292:		for k := range 4 {
+     1.88s      1.91s    293:			e := t.entries[br.value<<br.consumed>>shift]
+     350ms      360ms    294:			dst[i+k] = e.symbol
+     1.24s      1.25s    295:			br.consumed += uint(e.nbBits)
+         .          .    296:		}
+         .          .    297:	}
+         .          .    298:	for ; i < len(dst); i++ {
+         .          .    299:		br.fill()
+         .          .    300:		e := t.entries[br.value<<br.consumed>>shift]

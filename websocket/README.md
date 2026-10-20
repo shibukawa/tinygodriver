@@ -22,6 +22,10 @@ The shared Base64 helpers additionally use
 [`encoding/simdbase64`](../encoding/simdbase64) for Go SIMD and TinyGo vector
 acceleration, with the same protocol bytes on both compilers.
 
+Frame masking also uses the shared [byte kernels](../internal/bytealg) for
+Go SIMD and TinyGo vector acceleration on buffers of at least 64 bytes.
+Short frames and tails keep the scalar path, including split-frame key position.
+
 ## The server needs `httpserver`
 
 `Upgrader.Upgrade` asks the `http.ResponseWriter` for `http.Hijacker`. Under

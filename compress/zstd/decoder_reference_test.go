@@ -328,10 +328,22 @@ func FuzzDecode(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Fuzz(func(t *testing.T, frame []byte) {
-		ours, err := DecodeAll(nil, frame)
-		streamed, streamErr := readInPieces(frame, 1500)
+		// Mutations can turn a tiny seed into a decompression bomb. Bound
+		// both APIs so fuzzing spends its time on decoder states, not output.
+		options := []DecoderOption{WithMaxOutput(1 << 20)}
+		ours, err := DecodeAll(nil, frame, options...)
+		streamed, streamErr := readInPieces(frame, 1500, options...)
+		// DecodeAll can reject a declared content size before reading any
+		// blocks; Reader checks the limit as it produces output. Truncation
+		// can therefore win over the limit in just the streaming API.
+		if errors.Is(err, ErrOutputTooLarge) || errors.Is(streamErr, ErrOutputTooLarge) {
+			return
+		}
 		if err != streamErr || (err == nil && !bytes.Equal(ours, streamed)) {
 			t.Fatalf("DecodeAll: %v, %d bytes; Reader: %v, %d bytes", err, len(ours), streamErr, len(streamed))
+		}
+		if err != nil {
+			return // output agreement only applies when both decoders accept
 		}
 		theirs, theirErr := dec.DecodeAll(frame, nil)
 		if err == nil && theirErr == nil && !bytes.Equal(ours, theirs) {

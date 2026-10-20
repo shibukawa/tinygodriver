@@ -13,6 +13,11 @@ shared. On standard Go this is upstream fasthttp, behaviour for behaviour — th
 divergences are all on the TinyGo side, and [PATCHES.md](./PATCHES.md) lists
 every one.
 
+Long header and trailer values use the shared [byte kernels](../internal/bytealg)
+for SIMD validation. Short values retain the inline scalar table scan.
+See [measurements](../SIMD_BENCHMARKS.md) for the validation kernel's results;
+these are separate from complete HTTP request throughput.
+
 There is no wrapper package selecting between this fork and upstream, unlike
 `database/sql/mysql` and `database/pgx`. Those wrap a `database/sql` driver,
 whose whole surface is nine interfaces; an application using fasthttp names

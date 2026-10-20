@@ -55,9 +55,19 @@ func (b *backReader) init(in []byte) error {
 }
 
 // fill loads bytes until at least 56 bits are unread or the stream has no more
-// bytes. Every read here is at most 32 bits, and a sequence's three state
+// bytes. Every bits call reads at most 32 bits, and a sequence's three state
 // updates at most 26, so one fill before each group is always enough.
 func (b *backReader) fill() {
+	if reloadBitWindow && b.off >= 8 {
+		// Reload the unread bits together with every whole byte consumed.
+		// The window overlaps the previous load, replacing several bytewise
+		// shifts with one unaligned load. At most 64 bits are consumed before
+		// a refill while this much input remains.
+		b.off -= int(b.consumed >> 3)
+		b.value = binary.LittleEndian.Uint64(b.in[b.off:])
+		b.consumed &= 7
+		return
+	}
 	if b.consumed >= 32 && b.off >= 4 {
 		b.off -= 4
 		b.value = b.value<<32 | uint64(binary.LittleEndian.Uint32(b.in[b.off:]))

@@ -52,6 +52,7 @@ KEEP_DIRS = {""}
 
 # Written by hand, not by this script: clean() must leave them alone.
 LOCAL_FILES = {
+    "mask_vector_test.go",
     "vendor.py",
     "PATCHES.md",
     "README.md",
@@ -156,6 +157,23 @@ def rewrite(text):
 # substitutions additionally select the shared codec on both compilers.
 
 PATCHES = {
+    "mask.go": [
+        ('import "unsafe"\n', """import (
+	"unsafe"
+
+	"github.com/shibukawa/tinygodriver/internal/bytealg"
+)
+""", 1),
+        ('func maskBytes(key [4]byte, pos int, b []byte) int {\n', """func maskBytes(key [4]byte, pos int, b []byte) int {
+	if bytealg.Available && len(b) >= 64 {
+		k := uint32(key[pos&3]) | uint32(key[(pos+1)&3])<<8 |
+			uint32(key[(pos+2)&3])<<16 | uint32(key[(pos+3)&3])<<24
+		n := bytealg.Mask(b, k)
+		b = b[n:]
+		// A whole vector spans four complete keys, preserving pos modulo 4.
+	}
+""", 1),
+    ],
     "util.go": [
         ('\t"encoding/base64"\n', '', 1),
         (

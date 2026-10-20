@@ -101,3 +101,13 @@ TinyGo binary even after patch 4. The module's whole useful surface is a
 equivalent against upstream over escaped/wildcard/malformed lines) and
 `config.go` calls it instead of the module. The std-Go backend still uses
 upstream pgx and its pgpassfile, so the go.mod requirement stays.
+
+## Shared hexadecimal backend
+
+The vendored pgx's hexadecimal helpers import
+`github.com/shibukawa/tinygodriver/encoding/hex`. This retains the standard
+hex API and errors while selecting Go SIMD or TinyGo vectors where available.
+Both bytea text encoders use `AppendEncode` to write into the caller's buffer,
+avoiding their previous intermediate hex string. `patch_hex` in `patch.py`
+reapplies the import rewrites and both anchored bytea edits after vendoring,
+and writes the local bytea regression test that vendor.py would otherwise drop.

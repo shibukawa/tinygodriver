@@ -7,11 +7,22 @@
 
 package websocket
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/shibukawa/tinygodriver/internal/bytealg"
+)
 
 const wordSize = int(unsafe.Sizeof(uintptr(0)))
 
 func maskBytes(key [4]byte, pos int, b []byte) int {
+	if bytealg.Available && len(b) >= 64 {
+		k := uint32(key[pos&3]) | uint32(key[(pos+1)&3])<<8 |
+			uint32(key[(pos+2)&3])<<16 | uint32(key[(pos+3)&3])<<24
+		n := bytealg.Mask(b, k)
+		b = b[n:]
+		// A whole vector spans four complete keys, preserving pos modulo 4.
+	}
 	// Mask one byte at a time for small buffers.
 	if len(b) < 2*wordSize {
 		for i := range b {

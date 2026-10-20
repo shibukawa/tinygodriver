@@ -130,18 +130,26 @@ last symbol does, and a block may not exceed the smaller of the window and
 128 KiB. The two implementations can therefore disagree on a damaged frame that
 no encoder would write, but not on anything an encoder does write.
 
-Measured on an Apple M-series machine, over the reference CLI's frames of this
-package's own sources:
+Measured after the decoder optimizations on 2026-10-20, Apple M3, over three
+reference CLI frames of the same 57,705-byte source document. These are warmed
+`DecodeAll` throughput ranges across the three fixtures, using the median of
+five 300 ms samples per fixture:
 
 | decoder | throughput |
 |---|---|
-| TinyGo decoder, host Go | 270–450 MB/s |
-| TinyGo decoder, TinyGo 0.42 | ~250 MB/s |
-| klauspost through this API, host Go | 510–960 MB/s |
+| TinyGo decoder, Go 1.27 (`force_tinygo_logic`) | 454–665 MB/s |
+| TinyGo decoder, TinyGo 0.42, default `-opt=z` | 268–403 MB/s |
+| TinyGo decoder, TinyGo 0.42, `-opt=2` | 369–602 MB/s |
 
 Neither allocates per call once its pools are warm. Under TinyGo the decoder
 adds about 92 KB to a program that uses `DecodeAll` and `Reader`, and nothing
 to one that only encodes.
+
+The decoder interleaves four independent Huffman streams. TinyGo reloads its
+bit window with a bounded overlapping 64-bit load; Go retains its smaller
+inline refill. See [before/after measurements](../../SIMD_BENCHMARKS.md) for
+per-fixture and streaming results, and the [original baseline](BENCHMARKS.md)
+for CPU profiles and the separate klauspost comparison.
 
 ## Implementation selection
 

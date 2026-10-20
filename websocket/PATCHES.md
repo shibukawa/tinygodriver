@@ -130,3 +130,10 @@ TLS, which TinyGo cannot do; the second asserts on `http.ProxyFromEnvironment`,
 which patch 1 replaces. What they covered on the plaintext path is covered by
 `integration_test.go`, which runs against real sockets through `httpserver` on
 both compilers.
+
+## SIMD frame masking
+
+`mask.go` dispatches buffers of at least 64 bytes to the shared
+`internal/bytealg` XOR kernel, retaining the scalar tail and key phase.
+`vendor.py` reapplies both anchored edits and preserves `mask_vector_test.go`
+as a local boundary/phase regression test.

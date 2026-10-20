@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/bytealg"
 )
 
 const (
@@ -2715,10 +2717,20 @@ func parseTrailer(src []byte, dest []argsKV, disableNormalizing bool) ([]argsKV,
 		if isBadTrailer(s.key) {
 			return dest, 0, fmt.Errorf("forbidden trailer key %q", s.key)
 		}
-		for _, ch := range s.value {
-			if !validHeaderValueByte(ch) {
-				return dest, 0, fmt.Errorf("invalid trailer value %q", s.value)
+		// Keep short values in the parser's inline table loop.
+		validValue := true
+		if bytealg.Available && len(s.value) >= 64 {
+			validValue = bytealg.ValidHeaderValue(s.value)
+		} else {
+			for _, ch := range s.value {
+				if !validHeaderValueByte(ch) {
+					validValue = false
+					break
+				}
 			}
+		}
+		if !validValue {
+			return dest, 0, fmt.Errorf("invalid trailer value %q", s.value)
 		}
 		normalizeHeaderKeyValidated(s.key, disable)
 		dest = appendArgBytes(dest, s.key, s.value, argsHasValue)
@@ -3006,11 +3018,21 @@ func (h *ResponseHeader) parseHeaders(buf []byte) (int, error) {
 		}
 		normalizeHeaderKeyValidated(s.key, disableNormalizing)
 
-		for _, ch := range s.value {
-			if !validHeaderValueByte(ch) {
-				h.connectionClose = true
-				return 0, fmt.Errorf("invalid header value %q", s.value)
+		// Keep short values in the parser's inline table loop.
+		validValue := true
+		if bytealg.Available && len(s.value) >= 64 {
+			validValue = bytealg.ValidHeaderValue(s.value)
+		} else {
+			for _, ch := range s.value {
+				if !validHeaderValueByte(ch) {
+					validValue = false
+					break
+				}
 			}
+		}
+		if !validValue {
+			h.connectionClose = true
+			return 0, fmt.Errorf("invalid header value %q", s.value)
 		}
 
 		switch s.key[0] | 0x20 {
@@ -3150,11 +3172,21 @@ func (h *RequestHeader) parseHeaders(buf []byte, blockEnd int) (int, error) {
 		// Key bytes were already validated by the scanner.
 		normalizeHeaderKeyValidated(s.key, h.disableNormalizing || s.keyHasSpace)
 
-		for _, ch := range s.value {
-			if !validHeaderValueByte(ch) {
-				h.connectionClose = true
-				return 0, fmt.Errorf("invalid header value %q", s.value)
+		// Keep short values in the parser's inline table loop.
+		validValue := true
+		if bytealg.Available && len(s.value) >= 64 {
+			validValue = bytealg.ValidHeaderValue(s.value)
+		} else {
+			for _, ch := range s.value {
+				if !validHeaderValueByte(ch) {
+					validValue = false
+					break
+				}
 			}
+		}
+		if !validValue {
+			h.connectionClose = true
+			return 0, fmt.Errorf("invalid header value %q", s.value)
 		}
 
 		isContentLength := false

@@ -618,6 +618,91 @@ def patch_derived_types():
     write(path, body)
 
 
+BYTEA_HEX_TEST = r'''package pgtype
+
+import (
+	"bytes"
+	std "encoding/hex"
+	"errors"
+	"testing"
+)
+
+type hexTestBytesValuer struct {
+	value []byte
+	err   error
+}
+
+func (v hexTestBytesValuer) BytesValue() ([]byte, error) { return v.value, v.err }
+
+func TestByteaTextHexBuffers(t *testing.T) {
+	for _, data := range [][]byte{nil, {}, {0, 0xff, 0x10, 0x7f}, bytes.Repeat([]byte{0, 0x9a, 0xbc, 0xff}, 1024)} {
+		want := append([]byte("prefix:\\x"), std.EncodeToString(data)...)
+		if data == nil {
+			want = nil
+		}
+		for _, valuer := range []bool{false, true} {
+			buf := make([]byte, len("prefix:"), len(want)+16)
+			copy(buf, "prefix:")
+			var got []byte
+			var err error
+			if valuer {
+				got, err = (encodePlanBytesCodecTextBytesValuer{}).Encode(hexTestBytesValuer{value: data}, buf)
+			} else {
+				got, err = (encodePlanBytesCodecTextBytes{}).Encode(data, buf)
+			}
+			if err != nil || !bytes.Equal(got, want) || (got == nil) != (want == nil) {
+				t.Fatalf("valuer=%v size=%d: incorrect prefix, nil state or bytea encoding: %v", valuer, len(data), err)
+				return
+			}
+		}
+	}
+	wantErr := errors.New("valuer failure")
+	got, err := (encodePlanBytesCodecTextBytesValuer{}).Encode(hexTestBytesValuer{err: wantErr}, []byte("prefix:"))
+	if err != wantErr || got != nil {
+		t.Fatal("valuer error was not preserved")
+	}
+}
+'''
+
+
+def patch_hex():
+    """Use the shared hex backend and append bytea directly into its buffer."""
+    pgx_root = os.path.join(HERE, "pgx")
+    old_import = '\t"encoding/hex"\n'
+    local_import = '\n\t"github.com/shibukawa/tinygodriver/encoding/hex"'
+    patched = 0
+    for root, dirs, files in os.walk(pgx_root):
+        dirs.sort()
+        for name in sorted(files):
+            if not name.endswith(".go") or name.endswith("_test.go"):
+                continue
+            path = os.path.join(root, name)
+            body = read(path)
+            if old_import not in body:
+                continue
+            body = body.replace(old_import, "", 1)
+            begin = body.index("import (")
+            end = body.index("\n)", begin)
+            local = body.find('\n\t"github.com/shibukawa/tinygodriver/', begin, end)
+            if local < 0:
+                body = body[:end] + "\n" + local_import + body[end:]
+            else:
+                body = body[:local] + local_import + body[local:]
+            write(path, body)
+            patched += 1
+    if not patched:
+        sys.exit("patch.py: no upstream hex imports found")
+
+    path = os.path.join(pgx_root, "pgtype", "bytea.go")
+    body = read(path)
+    old = "\tbuf = append(buf, hex.EncodeToString(b)...)\n"
+    require(body, old, "pgtype/bytea.go")
+    if body.count(old) != 2:
+        sys.exit("patch.py: expected two bytea text encoders")
+    write(path, body.replace(old, "\tbuf = hex.AppendEncode(buf, b)\n"))
+    write(os.path.join(pgx_root, "pgtype", "bytea_hex_test.go"), BYTEA_HEX_TEST)
+
+
 def main():
     if not os.path.isdir(PGCONN):
         sys.exit("patch.py: run vendor.py first")
@@ -630,10 +715,11 @@ def main():
     patch_errors()
     patch_derived_types()
     patch_pgpass()
+    patch_hex()
 
     # Removing imports and swapping types leaves the files unformatted, and a
     # vendored tree that fails gofmt -l is noise in every future diff.
-    subprocess.run(["gofmt", "-w", PGCONN], check=True)
+    subprocess.run(["gofmt", "-w", os.path.join(HERE, "pgx")], check=True)
     print("applied the patches in PATCHES.md")
 
 

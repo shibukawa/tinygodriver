@@ -1,11 +1,11 @@
 package pgproto3
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/internal/pgio"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 // maxMessageBodyLen is the maximum length of a message body in bytes. See PG_LARGE_MESSAGE_LIMIT in the PostgreSQL

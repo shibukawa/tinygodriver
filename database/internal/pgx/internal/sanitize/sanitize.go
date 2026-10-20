@@ -2,7 +2,6 @@ package sanitize
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"slices"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 // Part is either a string or an int. A string is raw SQL. An int is a
