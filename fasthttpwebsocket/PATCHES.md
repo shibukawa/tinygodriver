@@ -158,3 +158,10 @@ text, so an upstream change to either test fails the vendor run.
   pins it so a version that fixes it says so.
 - Mask keys come from `math/rand`, not `crypto/rand`, on both compilers.
 - Payload UTF-8 is not validated; `doc.go` says the application must.
+
+## SIMD frame masking
+
+`mask.go` dispatches buffers of at least 64 bytes to the shared
+`internal/bytealg` XOR kernel, retaining the scalar tail and key phase.
+`vendor.py` reapplies both anchored edits and preserves `mask_vector_test.go`
+as a local boundary/phase regression test.

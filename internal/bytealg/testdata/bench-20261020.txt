@@ -1,0 +1,791 @@
+SIMD and decoder paired measurements, 2026-10-20 Asia/Tokyo
+Apple M3; Go 1.27.0; TinyGo 0.42.0 / LLVM 22.1.4; darwin/arm64.
+Five 300 ms samples per condition, GOMAXPROCS=1, sequential rotating order.
+Zstd Go = force_tinygo_logic; byte-kernel Go = GOEXPERIMENT=simd.
+TinyGo uses -opt=z except zstd *-2, which uses -opt=2.
+
+=== header-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/fasthttp
+cpu: Apple M3
+BenchmarkHeaderValueValidation/16/selected=false         	62478750	         5.844 ns/op	2738.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true          	64251763	         5.670 ns/op	2821.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false         	18789225	        18.75 ns/op	3414.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true          	57721603	         6.215 ns/op	10297.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false       	 1269135	       283.9 ns/op	3606.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true        	 7719048	        44.85 ns/op	22829.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false       	  324159	      1108 ns/op	3696.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true        	 2005323	       183.2 ns/op	22353.76 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/fasthttp
+cpu: Apple M3
+BenchmarkHeaderValueValidation/16/selected=false         	58757120	         8.926 ns/op	1792.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true          	64326399	         6.076 ns/op	2633.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false         	18633740	        19.88 ns/op	3219.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true          	57808879	         6.176 ns/op	10362.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false       	 1259274	       284.2 ns/op	3603.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true        	 8003564	        45.22 ns/op	22643.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false       	  325657	      1136 ns/op	3605.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true        	 2003812	       179.6 ns/op	22805.38 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/fasthttp
+cpu: Apple M3
+BenchmarkHeaderValueValidation/16/selected=false         	61269211	         5.782 ns/op	2767.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true          	61191968	         5.884 ns/op	2719.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false         	19075585	        18.77 ns/op	3410.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true          	58531826	         6.186 ns/op	10346.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false       	 1266738	       284.5 ns/op	3599.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true        	 8037979	        45.03 ns/op	22738.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false       	  324186	      1117 ns/op	3665.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true        	 1879885	       180.1 ns/op	22738.78 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/fasthttp
+cpu: Apple M3
+BenchmarkHeaderValueValidation/16/selected=false         	60199822	         5.799 ns/op	2759.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true          	54099070	         5.767 ns/op	2774.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false         	18375901	        18.87 ns/op	3391.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true          	58582231	         6.222 ns/op	10286.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false       	 1268104	       284.2 ns/op	3602.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true        	 8058385	        44.66 ns/op	22930.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false       	  324961	      1116 ns/op	3671.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true        	 2003890	       179.1 ns/op	22865.68 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/fasthttp
+cpu: Apple M3
+BenchmarkHeaderValueValidation/16/selected=false         	63338932	         5.722 ns/op	2796.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true          	61263998	         5.676 ns/op	2818.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false         	19090884	        18.86 ns/op	3393.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true          	58146962	         6.212 ns/op	10302.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false       	 1271163	       284.7 ns/op	3597.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true        	 8040402	        44.87 ns/op	22819.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false       	  325486	      1110 ns/op	3691.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true        	 2002033	       179.6 ns/op	22807.28 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== header-z ===
+BenchmarkHeaderValueValidation/16/selected=false        	48410416	         6.831 ns/op	2342.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true         	52689675	         6.830 ns/op	2342.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false        	13735280	        26.19 ns/op	2443.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true         	81446433	         4.371 ns/op	14642.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false      	  868462	       417.4 ns/op	2453.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true       	11303943	        31.44 ns/op	32568.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false      	  218670	      1658 ns/op	2470.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true       	 2810632	       128.9 ns/op	31772.09 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHeaderValueValidation/16/selected=false        	51890649	         6.870 ns/op	2329.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true         	53039001	         6.850 ns/op	2335.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false        	13780629	        26.10 ns/op	2452.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true         	73701276	         4.400 ns/op	14545.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false      	  862326	       417.8 ns/op	2450.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true       	11498841	        39.83 ns/op	25707.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false      	  218288	      1660 ns/op	2467.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true       	 2815674	       127.6 ns/op	32100.06 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHeaderValueValidation/16/selected=false        	52731151	         6.857 ns/op	2333.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true         	52403019	         6.836 ns/op	2340.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false        	13735411	        26.13 ns/op	2449.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true         	82216032	         4.642 ns/op	13787.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false      	  862154	       416.8 ns/op	2457.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true       	11500846	        31.50 ns/op	32507.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false      	  217082	      1653 ns/op	2478.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true       	 2821370	       127.7 ns/op	32085.18 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHeaderValueValidation/16/selected=false        	51781484	         6.826 ns/op	2344.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true         	52347135	         6.839 ns/op	2339.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false        	13710585	        26.12 ns/op	2449.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true         	69472922	         4.709 ns/op	13589.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false      	  858453	       417.0 ns/op	2455.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true       	11473189	        31.36 ns/op	32648.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false      	  215574	      1653 ns/op	2478.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true       	 2806927	       127.7 ns/op	32073.88 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHeaderValueValidation/16/selected=false        	51866965	         6.902 ns/op	2318.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/16/selected=true         	50040831	         6.893 ns/op	2321.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=false        	13781684	        26.30 ns/op	2433.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/64/selected=true         	82482087	         4.498 ns/op	14229.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=false      	  868489	       416.7 ns/op	2457.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/1024/selected=true       	11494786	        31.33 ns/op	32686.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=false      	  208904	      1664 ns/op	2462.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHeaderValueValidation/4096/selected=true       	 2663059	       130.8 ns/op	31323.28 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== kernels-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/internal/bytealg
+cpu: Apple M3
+BenchmarkByteKernels/index/32/selected=false         	121657671	         2.825 ns/op	11325.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true          	126775089	         2.725 ns/op	11741.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false        	31423551	        10.91 ns/op	2932.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true         	31155680	        11.90 ns/op	2690.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false        	68602462	         5.585 ns/op	45838.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true         	70790083	         5.146 ns/op	49744.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false       	 4182939	        81.81 ns/op	3129.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true        	26489335	        13.28 ns/op	19279.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false       	 6876270	        53.27 ns/op	76884.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true        	 6799256	        52.49 ns/op	78035.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false      	  320544	      1231 ns/op	3328.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true       	 1885912	       181.2 ns/op	22603.92 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/internal/bytealg
+cpu: Apple M3
+BenchmarkByteKernels/index/32/selected=false         	132544590	         2.690 ns/op	11895.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true          	131956807	         2.776 ns/op	11528.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false        	29332580	        10.79 ns/op	2966.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true         	31856292	        11.28 ns/op	2838.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false        	71112866	         5.126 ns/op	49945.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true         	68836389	         5.165 ns/op	49567.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false       	 4500222	        80.19 ns/op	3192.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true        	27319378	        13.24 ns/op	19331.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false       	 6866586	        52.56 ns/op	77931.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true        	 6840156	        52.15 ns/op	78550.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false      	  326022	      1120 ns/op	3656.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true       	 1987444	       179.9 ns/op	22767.17 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/internal/bytealg
+cpu: Apple M3
+BenchmarkByteKernels/index/32/selected=false         	134415084	         2.676 ns/op	11960.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true          	133912088	         2.682 ns/op	11930.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false        	33355854	        10.73 ns/op	2981.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true         	32045695	        11.25 ns/op	2843.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false        	70832439	         5.150 ns/op	49708.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true         	71152684	         5.138 ns/op	49828.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false       	 4555743	        80.43 ns/op	3182.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true        	27158536	        13.25 ns/op	19323.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false       	 6834993	        52.35 ns/op	78250.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true        	 6943590	        51.59 ns/op	79398.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false      	  326253	      1108 ns/op	3695.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true       	 2004133	       180.2 ns/op	22724.77 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/internal/bytealg
+cpu: Apple M3
+BenchmarkByteKernels/index/32/selected=false         	132298424	         2.730 ns/op	11721.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true          	131242884	         2.681 ns/op	11934.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false        	32515304	        10.72 ns/op	2984.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true         	31427092	        12.00 ns/op	2666.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false        	65203605	         5.188 ns/op	49342.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true         	71290657	         5.129 ns/op	49912.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false       	 4514113	        81.48 ns/op	3141.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true        	26646024	        13.41 ns/op	19097.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false       	 6881473	        52.38 ns/op	78196.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true        	 6999141	        52.27 ns/op	78354.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false      	  325916	      1113 ns/op	3680.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true       	 1990395	       180.0 ns/op	22761.74 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/internal/bytealg
+cpu: Apple M3
+BenchmarkByteKernels/index/32/selected=false         	134041747	         2.685 ns/op	11919.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true          	134040790	         2.688 ns/op	11906.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false        	33670161	        10.88 ns/op	2940.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true         	31600545	        11.25 ns/op	2845.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false        	70198824	         5.099 ns/op	50204.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true         	66885493	         5.090 ns/op	50290.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false       	 4463332	        80.01 ns/op	3199.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true        	25626804	        13.88 ns/op	18443.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false       	 6814750	        52.66 ns/op	77777.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true        	 6983070	        52.09 ns/op	78634.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false      	  323811	      1114 ns/op	3677.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true       	 2001692	       180.4 ns/op	22699.50 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== kernels-z ===
+BenchmarkByteKernels/index/32/selected=false        	22210167	        15.91 ns/op	2010.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true         	22415998	        16.36 ns/op	1955.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false       	24264073	        15.44 ns/op	2073.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true        	24161479	        14.85 ns/op	2155.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false       	 3125119	       115.4 ns/op	2219.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true        	23110501	        15.84 ns/op	16157.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false      	 3204153	       113.0 ns/op	2265.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true       	32745877	        11.05 ns/op	23177.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false      	  214003	      1693 ns/op	2418.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true       	 2307326	       156.7 ns/op	26146.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false     	  213831	      1704 ns/op	2403.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true      	 2708278	       134.4 ns/op	30474.73 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkByteKernels/index/32/selected=false        	22451120	        15.88 ns/op	2014.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true         	22270393	        16.34 ns/op	1958.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false       	25521432	        14.11 ns/op	2267.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true        	24977739	        14.50 ns/op	2206.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false       	 3185715	       113.2 ns/op	2262.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true        	23592826	        15.49 ns/op	16532.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false      	 3278982	       110.7 ns/op	2312.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true       	33600372	        10.81 ns/op	23672.28 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false      	  210790	      1739 ns/op	2356.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true       	 2356278	       151.8 ns/op	26983.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false     	  217719	      1654 ns/op	2476.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true      	 2714402	       130.8 ns/op	31322.23 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkByteKernels/index/32/selected=false        	22508322	        15.82 ns/op	2022.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true         	22460809	        16.12 ns/op	1985.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false       	25489809	        14.20 ns/op	2253.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true        	23350405	        14.48 ns/op	2210.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false       	 3189181	       114.1 ns/op	2244.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true        	23382253	        15.68 ns/op	16328.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false      	 3272307	       110.0 ns/op	2327.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true       	33456082	        10.73 ns/op	23848.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false      	  205790	      1663 ns/op	2462.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true       	 2367688	       152.1 ns/op	26932.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false     	  217892	      1654 ns/op	2475.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true      	 2754036	       130.4 ns/op	31400.00 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkByteKernels/index/32/selected=false        	22547619	        16.13 ns/op	1983.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true         	22115228	        16.20 ns/op	1974.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false       	25495524	        14.07 ns/op	2273.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true        	24893683	        14.47 ns/op	2210.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false       	 3184802	       113.9 ns/op	2248.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true        	23057400	        15.60 ns/op	16413.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false      	 3263863	       110.1 ns/op	2325.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true       	33316492	        10.72 ns/op	23874.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false      	  216963	      1661 ns/op	2466.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true       	 2371788	       151.6 ns/op	27017.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false     	  216944	      1665 ns/op	2460.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true      	 2757979	       130.5 ns/op	31384.84 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkByteKernels/index/32/selected=false        	22710843	        15.88 ns/op	2014.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/32/selected=true         	22350530	        16.21 ns/op	1973.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=false       	25482666	        14.16 ns/op	2260.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/32/selected=true        	24931610	        14.54 ns/op	2201.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=false       	 3193840	       112.9 ns/op	2266.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/256/selected=true        	22985997	        15.66 ns/op	16352.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=false      	 3276590	       109.8 ns/op	2332.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/256/selected=true       	33734055	        10.90 ns/op	23482.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=false      	  217594	      1664 ns/op	2461.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/index/4096/selected=true       	 2362996	       151.6 ns/op	27015.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=false     	  217834	      1654 ns/op	2476.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkByteKernels/header/4096/selected=true      	 2748037	       130.7 ns/op	31329.38 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== ws-after-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	35179868	        10.05 ns/op	1592.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	32477296	        11.12 ns/op	2877.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	31333522	        11.82 ns/op	43322.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	16677186	        21.10 ns/op	48530.97 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	34074639	        10.00 ns/op	1599.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	30697950	        11.23 ns/op	2848.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	31365484	        11.58 ns/op	44220.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	17555052	        20.52 ns/op	49892.69 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	35546630	        10.55 ns/op	1516.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	28367676	        11.34 ns/op	2823.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	31267641	        11.62 ns/op	44068.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	17543644	        20.43 ns/op	50112.79 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	35271784	        10.22 ns/op	1565.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	31179067	        11.38 ns/op	2811.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	30987178	        17.91 ns/op	28579.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	17146983	        20.48 ns/op	49990.24 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	35684046	        10.14 ns/op	1578.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	31140520	        11.47 ns/op	2789.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	31242880	        11.55 ns/op	44314.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	17569153	        20.46 ns/op	50045.68 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== ws-after-z ===
+BenchmarkMaskBytes/size-16/align-4/word        	34950464	        10.30 ns/op	1553.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	29091691	        11.85 ns/op	2700.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	32230027	        11.11 ns/op	46092.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	17579233	        19.88 ns/op	51498.81 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	30796431	        10.92 ns/op	1465.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	32769598	        11.52 ns/op	2777.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	32795845	        11.01 ns/op	46506.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	18170804	        19.84 ns/op	51620.52 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	31151186	        10.46 ns/op	1529.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	31673062	        11.20 ns/op	2855.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	32744016	        11.16 ns/op	45868.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	18213514	        19.84 ns/op	51609.46 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	34841380	        10.37 ns/op	1542.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	31376307	        11.69 ns/op	2736.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	32756800	        11.05 ns/op	46353.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	18160912	        20.07 ns/op	51022.66 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	33448569	        10.44 ns/op	1531.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	29485738	        11.89 ns/op	2690.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	32956719	        11.10 ns/op	46119.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	18035356	        19.88 ns/op	51500.89 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== ws-before-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	35735556	        10.55 ns/op	1516.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	32609310	        11.07 ns/op	2890.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	12956319	        27.38 ns/op	18698.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	 7249939	        49.98 ns/op	20488.39 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	35791069	         9.708 ns/op	1648.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	32560400	        10.79 ns/op	2966.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	12946360	        27.33 ns/op	18735.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	 7268847	        49.18 ns/op	20822.43 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	36025970	         9.763 ns/op	1638.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	32116572	        11.18 ns/op	2863.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	12879624	        27.24 ns/op	18796.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	 7237586	        49.82 ns/op	20554.93 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	36673881	         9.695 ns/op	1650.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	31336705	        10.94 ns/op	2923.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	13166416	        29.24 ns/op	17508.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	 7031792	        50.82 ns/op	20150.91 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/websocket
+cpu: Apple M3
+BenchmarkMaskBytes/size-16/align-4/word         	37258244	         9.628 ns/op	1661.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word         	32861832	        11.00 ns/op	2907.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word        	12708628	        27.12 ns/op	18881.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word       	 6780394	        50.92 ns/op	20109.01 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== ws-before-z ===
+BenchmarkMaskBytes/size-16/align-4/word        	36287121	         9.381 ns/op	1705.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	29970964	        10.87 ns/op	2942.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	13159477	        27.49 ns/op	18626.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	 7272463	        49.39 ns/op	20731.63 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	38185816	         9.941 ns/op	1609.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	31442307	        11.37 ns/op	2815.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	13063138	        27.59 ns/op	18556.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	 7167216	        49.48 ns/op	20696.31 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	34649394	         9.702 ns/op	1649.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	31978563	        11.19 ns/op	2858.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	13181440	        27.35 ns/op	18723.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	 7291599	        49.55 ns/op	20667.02 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	35637974	         9.675 ns/op	1653.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	33836971	        11.31 ns/op	2829.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	13414773	        27.64 ns/op	18521.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	 7247725	        49.45 ns/op	20705.70 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkMaskBytes/size-16/align-4/word        	34823686	         9.829 ns/op	1627.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-32/align-4/word        	30702861	        11.18 ns/op	2861.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-512/align-4/word       	13405345	        27.13 ns/op	18869.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskBytes/size-1024/align-4/word      	 7185849	        49.40 ns/op	20729.25 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== xml-after-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      84	   3777490 ns/op	 401.56 MB/s	    1074 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      94	   3632423 ns/op	 417.59 MB/s	     292 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      97	   3647161 ns/op	 415.91 MB/s	     968 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      81	   4212132 ns/op	 360.12 MB/s	     294 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      94	   3618646 ns/op	 419.18 MB/s	     989 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      97	   3625935 ns/op	 418.34 MB/s	     291 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      93	   3617440 ns/op	 419.32 MB/s	     997 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      99	   3580657 ns/op	 423.63 MB/s	     291 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      97	   3621269 ns/op	 418.88 MB/s	     968 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      99	   3611767 ns/op	 419.98 MB/s	     291 B/op	       6 allocs/op
+PASS
+
+=== xml-after-z ===
+BenchmarkSheetScan_Reader     	     100	   6382944 ns/op	 237.65 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6289376 ns/op	 241.18 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   6361541 ns/op	 238.45 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6393945 ns/op	 237.24 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   6498759 ns/op	 233.41 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6309929 ns/op	 240.40 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   7612726 ns/op	 199.26 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6448515 ns/op	 235.23 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   6355735 ns/op	 238.66 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6290338 ns/op	 241.14 MB/s	     364 B/op	       0 allocs/op
+PASS
+
+=== xml-before-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      96	   3608420 ns/op	 420.37 MB/s	     975 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      98	   3575184 ns/op	 424.28 MB/s	     291 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      93	   3620443 ns/op	 418.98 MB/s	     997 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      96	   3598230 ns/op	 421.56 MB/s	     292 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      98	   3670108 ns/op	 413.31 MB/s	     960 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      96	   3734798 ns/op	 406.15 MB/s	     292 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      87	   3676535 ns/op	 412.58 MB/s	    1047 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      99	   3728641 ns/op	 406.82 MB/s	     291 B/op	       6 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/xmlro
+cpu: Apple M3
+BenchmarkSheetScan_Reader      	      94	   3629175 ns/op	 417.97 MB/s	     989 B/op	       6 allocs/op
+BenchmarkSheetScan_BytesReader 	      99	   3604283 ns/op	 420.86 MB/s	     291 B/op	       6 allocs/op
+PASS
+
+=== xml-before-z ===
+BenchmarkSheetScan_Reader     	     100	   6337515 ns/op	 239.35 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6354549 ns/op	 238.71 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   6486941 ns/op	 233.84 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6285715 ns/op	 241.32 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   6349288 ns/op	 238.91 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6322604 ns/op	 239.91 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   6370910 ns/op	 238.09 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6307972 ns/op	 240.47 MB/s	     364 B/op	       0 allocs/op
+PASS
+BenchmarkSheetScan_Reader     	     100	   6472178 ns/op	 234.37 MB/s	    1020 B/op	       0 allocs/op
+BenchmarkSheetScan_BytesReader	     100	   6311306 ns/op	 240.34 MB/s	     364 B/op	       0 allocs/op
+PASS
+
+=== zstd-after-2 ===
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2109	    159090 ns/op	 362.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2355	    155169 ns/op	 371.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2412	    142900 ns/op	 403.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2598	    143067 ns/op	 403.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3525	     95800 ns/op	 602.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3913	     94950 ns/op	 607.74 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2242	    155069 ns/op	 372.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2121	    155979 ns/op	 369.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2463	    144311 ns/op	 399.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2487	    143712 ns/op	 401.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3552	     94966 ns/op	 607.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    4034	     94223 ns/op	 612.43 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2269	    156547 ns/op	 368.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2371	    168719 ns/op	 342.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2551	    147292 ns/op	 391.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2680	    143681 ns/op	 401.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3555	     97155 ns/op	 593.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3781	     94008 ns/op	 613.83 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2397	    155055 ns/op	 372.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2482	    152892 ns/op	 377.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2419	    143605 ns/op	 401.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2743	    143703 ns/op	 401.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3686	     91844 ns/op	 628.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3942	     94441 ns/op	 611.02 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2238	    157857 ns/op	 365.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2396	    154004 ns/op	 374.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2402	    144785 ns/op	 398.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2536	    141119 ns/op	 408.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    3100	     97279 ns/op	 593.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    3703	     96464 ns/op	 598.20 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== zstd-after-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2800	    126129 ns/op	 457.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2888	    124249 ns/op	 464.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2923	    104785 ns/op	 550.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    3532	    101746 ns/op	 567.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3726	     86701 ns/op	 665.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    4174	     87156 ns/op	 662.09 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2560	    134984 ns/op	 427.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2734	    134649 ns/op	 428.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2875	    112391 ns/op	 513.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    3129	    116314 ns/op	 496.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3692	     88318 ns/op	 653.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    3956	     86913 ns/op	 663.94 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2558	    126295 ns/op	 456.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2874	    124196 ns/op	 464.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    3546	    138818 ns/op	 415.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    3487	    101644 ns/op	 567.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3786	     86754 ns/op	 665.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    4201	     86372 ns/op	 668.10 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2445	    127225 ns/op	 453.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2828	    124674 ns/op	 462.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2876	    105900 ns/op	 544.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    3330	    106059 ns/op	 544.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3650	     86154 ns/op	 669.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    4026	     86934 ns/op	 663.78 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2544	    128807 ns/op	 447.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2872	    124432 ns/op	 463.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    3310	    104304 ns/op	 553.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    3528	    102267 ns/op	 564.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    3667	     87462 ns/op	 659.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    4176	     86466 ns/op	 667.37 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== zstd-after-z ===
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1626	    216600 ns/op	 266.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1657	    228195 ns/op	 252.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1836	    197077 ns/op	 292.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1834	    198590 ns/op	 290.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2420	    145661 ns/op	 396.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2473	    145837 ns/op	 395.68 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1654	    214136 ns/op	 269.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1666	    217586 ns/op	 265.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1820	    197015 ns/op	 292.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1815	    197229 ns/op	 292.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2431	    150484 ns/op	 383.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2438	    142835 ns/op	 404.00 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1662	    215313 ns/op	 268.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1657	    214570 ns/op	 268.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1856	    195976 ns/op	 294.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1840	    198244 ns/op	 291.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2565	    140782 ns/op	 409.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2522	    141380 ns/op	 408.16 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1630	    215223 ns/op	 268.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1668	    214672 ns/op	 268.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1838	    196005 ns/op	 294.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1813	    197621 ns/op	 292.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2485	    142053 ns/op	 406.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2540	    142177 ns/op	 405.87 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1654	    214731 ns/op	 268.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1718	    214935 ns/op	 268.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1854	    197035 ns/op	 292.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1815	    199394 ns/op	 289.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2455	    143141 ns/op	 403.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2491	    141694 ns/op	 407.25 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== zstd-before-2 ===
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2022	    162983 ns/op	 354.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2304	    155602 ns/op	 370.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2253	    153275 ns/op	 376.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2337	    153749 ns/op	 375.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2068	    166879 ns/op	 345.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2190	    163786 ns/op	 352.32 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1930	    160137 ns/op	 360.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2294	    159605 ns/op	 361.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2295	    153487 ns/op	 375.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2403	    149391 ns/op	 386.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2052	    167772 ns/op	 343.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2178	    193186 ns/op	 298.70 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    2066	    157950 ns/op	 365.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2349	    154401 ns/op	 373.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2276	    155796 ns/op	 370.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2343	    148951 ns/op	 387.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2077	    171270 ns/op	 336.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    1963	    167127 ns/op	 345.28 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1953	    161145 ns/op	 358.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2347	    154041 ns/op	 374.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2232	    151930 ns/op	 379.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2450	    150905 ns/op	 382.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2071	    166585 ns/op	 346.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2193	    164504 ns/op	 350.78 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1953	    159997 ns/op	 360.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    2360	    153768 ns/op	 375.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    2264	    154787 ns/op	 372.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    2414	    147776 ns/op	 390.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    2059	    166998 ns/op	 345.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    2176	    164122 ns/op	 351.60 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== zstd-before-go ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2547	    139527 ns/op	 413.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2702	    131529 ns/op	 438.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2572	    126016 ns/op	 457.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    2715	    125402 ns/op	 460.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    1922	    179269 ns/op	 321.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    2012	    180727 ns/op	 319.29 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2517	    136760 ns/op	 421.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2719	    134220 ns/op	 429.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2378	    128900 ns/op	 447.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    2866	    123514 ns/op	 467.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    1983	    181285 ns/op	 318.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    2007	    179062 ns/op	 322.26 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2326	    141103 ns/op	 408.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2665	    134122 ns/op	 430.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2727	    124012 ns/op	 465.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    2934	    122428 ns/op	 471.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    1870	    178834 ns/op	 322.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    1993	    180786 ns/op	 319.19 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2434	    138324 ns/op	 417.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2702	    132414 ns/op	 435.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2430	    125655 ns/op	 459.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    2814	    129776 ns/op	 444.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    1815	    181940 ns/op	 317.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    1674	    188954 ns/op	 305.39 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/compress/zstd
+cpu: Apple M3
+BenchmarkDecode/DecodeAll/level6-1k-blocks         	    2502	    134370 ns/op	 429.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks            	    2664	    133354 ns/op	 432.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                  	    2418	    130676 ns/op	 441.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                     	    2893	    124217 ns/op	 464.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin             	    1905	    178568 ns/op	 323.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin                	    2018	    179026 ns/op	 322.33 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== zstd-before-z ===
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1640	    214929 ns/op	 268.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1665	    216017 ns/op	 267.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1696	    209313 ns/op	 275.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1701	    209575 ns/op	 275.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    1653	    207473 ns/op	 278.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    1712	    207175 ns/op	 278.53 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1563	    216883 ns/op	 266.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1606	    216413 ns/op	 266.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1670	    210215 ns/op	 274.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1702	    212300 ns/op	 271.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    1669	    200627 ns/op	 287.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    1789	    198264 ns/op	 291.05 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1596	    219149 ns/op	 263.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1656	    215768 ns/op	 267.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1671	    208873 ns/op	 276.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1713	    209343 ns/op	 275.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    1704	    200538 ns/op	 287.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    1806	    198954 ns/op	 290.04 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1622	    217978 ns/op	 264.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1674	    218603 ns/op	 263.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1688	    210549 ns/op	 274.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1706	    212059 ns/op	 272.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    1684	    200123 ns/op	 288.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    1790	    199254 ns/op	 289.61 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkDecode/DecodeAll/level6-1k-blocks        	    1597	    216410 ns/op	 266.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level6-1k-blocks           	    1693	    230027 ns/op	 250.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level19                 	    1639	    211257 ns/op	 273.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level19                    	    1687	    211854 ns/op	 272.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/DecodeAll/level1-stdin            	    1658	    199149 ns/op	 289.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/Reader/level1-stdin               	    1798	    201030 ns/op	 287.05 MB/s	       0 B/op	       0 allocs/op
+PASS

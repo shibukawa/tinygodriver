@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/internal/stmtcache"
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgconn"
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgtype"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 // ConnConfig contains all the options used to establish a connection. It must be created by [ParseConfig] and

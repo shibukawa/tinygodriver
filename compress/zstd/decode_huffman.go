@@ -312,7 +312,7 @@ func (t *huffDecTable) decodeStream(dst, src []byte) error {
 // first three streams, then the streams, the first three a quarter of the
 // literals each, rounded up, and the fourth the remainder.
 func (t *huffDecTable) decode4(dst, src []byte) error {
-	if len(src) < 6 {
+	if len(src) < 6 || len(dst) < 6 {
 		return errCorruptLiterals
 	}
 	var sizes [4]int
@@ -327,18 +327,51 @@ func (t *huffDecTable) decode4(dst, src []byte) error {
 	sizes[3] = rest
 
 	segment := (len(dst) + 3) / 4
+	var readers [4]backReader
 	in := src[6:]
-	out := dst
 	for i, size := range sizes {
-		part := out
-		if i < 3 {
-			part = out[:segment]
-		}
-		if err := t.decodeStream(part, in[:size]); err != nil {
+		if err := readers[i].init(in[:size]); err != nil {
 			return err
 		}
-		out = out[len(part):]
 		in = in[size:]
+	}
+	// Keep the four dependency chains independent: each table lookup can run
+	// while another stream waits for its previous entry's bit count. This
+	// works on every target without a gather instruction or assembly backend.
+	r0, r1, r2, r3 := &readers[0], &readers[1], &readers[2], &readers[3]
+	d0, d1 := dst[:segment], dst[segment:2*segment]
+	d2, d3 := dst[2*segment:3*segment], dst[3*segment:]
+	shift := 64 - uint(t.maxBits)
+	i := 0
+	for ; i+4 <= len(d3); i += 4 {
+		r0.fill()
+		r1.fill()
+		r2.fill()
+		r3.fill()
+		for k := range 4 {
+			e0 := t.entries[r0.value<<r0.consumed>>shift]
+			e1 := t.entries[r1.value<<r1.consumed>>shift]
+			e2 := t.entries[r2.value<<r2.consumed>>shift]
+			e3 := t.entries[r3.value<<r3.consumed>>shift]
+			d0[i+k], d1[i+k], d2[i+k], d3[i+k] = e0.symbol, e1.symbol, e2.symbol, e3.symbol
+			r0.consumed += uint(e0.nbBits)
+			r1.consumed += uint(e1.nbBits)
+			r2.consumed += uint(e2.nbBits)
+			r3.consumed += uint(e3.nbBits)
+		}
+	}
+	for stream, out := range [4][]byte{d0, d1, d2, d3} {
+		r := &readers[stream]
+		for pos := range len(out) - i {
+			r.fill()
+			e := t.entries[r.value<<r.consumed>>shift]
+			out[i+pos] = e.symbol
+			r.consumed += uint(e.nbBits)
+		}
+		r.fill()
+		if !r.finished() {
+			return errCorruptLiterals
+		}
 	}
 	return nil
 }

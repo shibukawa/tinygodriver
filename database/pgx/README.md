@@ -13,8 +13,8 @@ application code is shared between compilers. The layout mirrors upstream
 On standard Go every exported name is an alias for the upstream pgx type, so
 values interoperate with third-party code that names pgx types. On TinyGo the
 same names bind to a vendored copy of pgx v5.10.0 with TLS rerouted, because
-TinyGo ships `crypto/tls` as a stub that cannot be linked. That is three
-patched files out of 145; see
+TinyGo ships `crypto/tls` as a stub that cannot be linked. The compatibility
+and shared-codec patches are recorded in
 [../internal/PATCHES.md](../internal/PATCHES.md).
 
 ```go
@@ -68,6 +68,9 @@ path can stall, because the native TLS sessions serialize reads against
 writes; plaintext `CopyFrom` is full duplex and verified.
 
 ## TinyGo notes
+
+The vendored backend uses the shared [hex package](../../encoding/hex) for
+hexadecimal protocol values, including direct-buffer bytea text encoding.
 
 Build with `-scheduler=threads`. Under the cooperative scheduler a blocking
 socket call holds the whole runtime, so background goroutines never run and

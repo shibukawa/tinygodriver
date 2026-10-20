@@ -5,6 +5,11 @@ bodies, styles. It reads one token at a time from an `io.Reader` or a byte
 slice, hands back names, attributes and text as slices into its own buffer,
 and allocates nothing in steady state. A caller copies only what it keeps.
 
+On supported TinyGo desktop targets, long delimiter searches use the bounded
+SIMD [byte kernels](../../internal/bytealg). Standard Go retains its optimized
+`bytes.IndexByte`. See [measurements](../../SIMD_BENCHMARKS.md) for both the
+search kernel and complete worksheet scans.
+
 The name says what it is: XML, read only. It never writes, and it does not
 share a name with the standard library package it stands beside.
 

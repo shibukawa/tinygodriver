@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +22,7 @@ import (
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgconn/internal/bgreader"
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgproto3"
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgtype"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 const (

@@ -3,13 +3,13 @@ package pgproto3
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/internal/pgio"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 type Bind struct {

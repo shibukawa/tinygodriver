@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"strconv"
+
+	"github.com/shibukawa/tinygodriver/internal/bytealg"
 )
 
 // Kind is the kind of token the reader is positioned on.
@@ -460,7 +462,7 @@ func (r *Reader) avail(rel int) (bool, error) {
 // at the end of input.
 func (r *Reader) indexByte(rel int, c byte) (int, error) {
 	for {
-		if i := bytes.IndexByte(r.buf[r.r+rel:r.w], c); i >= 0 {
+		if i := bytealg.IndexByte(r.buf[r.r+rel:r.w], c); i >= 0 {
 			return rel + i, nil
 		}
 		rel = r.w - r.r

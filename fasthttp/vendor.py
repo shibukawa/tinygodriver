@@ -42,6 +42,7 @@ KEEP_DIRS = {"", "fasthttputil", "stackless"}
 
 # Written by hand, not by this script: clean() must leave them alone.
 LOCAL_FILES = {
+    "header_vector_test.go",
     "vendor.py",
     "PATCHES.md",
     "README.md",
@@ -126,6 +127,53 @@ def rewrite(text):
 # version bump that moves the anchor fails loudly instead of dropping a patch.
 
 PATCHES = {
+    "header.go": [
+        ('\t"time"\n)', '\t"time"\n\n\t"github.com/shibukawa/tinygodriver/internal/bytealg"\n)', 1),
+        ("""		for _, ch := range s.value {
+			if !validHeaderValueByte(ch) {
+				return dest, 0, fmt.Errorf("invalid trailer value %q", s.value)
+			}
+		}
+""", """		// Keep short values in the parser's inline table loop.
+		validValue := true
+		if bytealg.Available && len(s.value) >= 64 {
+			validValue = bytealg.ValidHeaderValue(s.value)
+		} else {
+			for _, ch := range s.value {
+				if !validHeaderValueByte(ch) {
+					validValue = false
+					break
+				}
+			}
+		}
+		if !validValue {
+			return dest, 0, fmt.Errorf("invalid trailer value %q", s.value)
+		}
+""", 1),
+        ("""		for _, ch := range s.value {
+			if !validHeaderValueByte(ch) {
+				h.connectionClose = true
+				return 0, fmt.Errorf("invalid header value %q", s.value)
+			}
+		}
+""", """		// Keep short values in the parser's inline table loop.
+		validValue := true
+		if bytealg.Available && len(s.value) >= 64 {
+			validValue = bytealg.ValidHeaderValue(s.value)
+		} else {
+			for _, ch := range s.value {
+				if !validHeaderValueByte(ch) {
+					validValue = false
+					break
+				}
+			}
+		}
+		if !validValue {
+			h.connectionClose = true
+			return 0, fmt.Errorf("invalid header value %q", s.value)
+		}
+""", 2),
+    ],
     "http.go": [
         ('\t"encoding/base64"\n', '', 1),
         (

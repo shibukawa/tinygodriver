@@ -1,8 +1,9 @@
 package pgproto3
 
 import (
-	"encoding/hex"
 	"encoding/json"
+
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 type CopyData struct {

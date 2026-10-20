@@ -2,8 +2,9 @@ package pgtype
 
 import (
 	"database/sql/driver"
-	"encoding/hex"
 	"fmt"
+
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 type BytesScanner interface {
@@ -127,7 +128,7 @@ func (encodePlanBytesCodecTextBytes) Encode(value any, buf []byte) (newBuf []byt
 	}
 
 	buf = append(buf, `\x`...)
-	buf = append(buf, hex.EncodeToString(b)...)
+	buf = hex.AppendEncode(buf, b)
 	return buf, nil
 }
 
@@ -143,7 +144,7 @@ func (encodePlanBytesCodecTextBytesValuer) Encode(value any, buf []byte) (newBuf
 	}
 
 	buf = append(buf, `\x`...)
-	buf = append(buf, hex.EncodeToString(b)...)
+	buf = hex.AppendEncode(buf, b)
 	return buf, nil
 }
 

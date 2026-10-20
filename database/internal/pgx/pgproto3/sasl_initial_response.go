@@ -2,11 +2,11 @@ package pgproto3
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/internal/pgio"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 type SASLInitialResponse struct {

@@ -247,3 +247,10 @@ in `internal/syncx` (`TestNoStdRWMutexOnTinyGoPath`) stays green; their
 writers are rare, but a plain mutex costs nothing around a field read. Each
 site is a one-line type change plus the import, appended as its own group at
 the end of the block so gofmt leaves it in place.
+
+## SIMD header-value validation
+
+`header.go` uses the shared `internal/bytealg` validator on values of at least
+64 bytes in the request, response and trailer parsers. Short values retain the
+inline table scan. `vendor.py` anchors the three loop replacements and keeps
+`header_vector_test.go` in `LOCAL_FILES`.

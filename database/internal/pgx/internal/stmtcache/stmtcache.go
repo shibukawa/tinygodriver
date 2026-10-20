@@ -3,9 +3,9 @@ package stmtcache
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgconn"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 // StatementName returns a statement name that will be stable for sql across multiple connections and program

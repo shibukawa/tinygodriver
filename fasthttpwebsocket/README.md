@@ -18,6 +18,8 @@ the import rewrite, five compile errors and one panicking stub needed patching;
 `FastHTTPUpgrader` and the framing code under it — needed **no compatibility patches**.
 The shared key and proxy helpers use the repository's optimized
 [`encoding/simdbase64`](../encoding/simdbase64) on both compilers.
+Frame masking uses the shared [byte kernels](../internal/bytealg) on buffers
+of at least 64 bytes, with Go SIMD and TinyGo vector backends.
 
 If an application targets standard Go only, use upstream `fasthttp/websocket`
 with upstream fasthttp; this fork is for TinyGo builds and for code shared

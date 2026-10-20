@@ -2,11 +2,11 @@ package pgproto3
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/internal/pgio"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 const cancelRequestCode = 80877102

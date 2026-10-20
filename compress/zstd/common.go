@@ -3,9 +3,10 @@ package zstd
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io"
+
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 )
 
 // ContentEncoding is the HTTP content-coding token for Zstandard.

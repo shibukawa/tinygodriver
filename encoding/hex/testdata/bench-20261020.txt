@@ -1,0 +1,346 @@
+Hex measurements, 2026-10-20 Asia/Tokyo
+Apple M3; darwin/arm64; Go 1.27.0; TinyGo 0.42.0 / LLVM 22.1.4.
+Five 300 ms samples per condition, GOMAXPROCS=1, sequential rotated compiler order.
+Each binary compares its own standard library with the selected backend.
+Throughput counts raw bytes for both operations; destination buffers reused.
+
+=== go-simd ===
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/hex
+cpu: Apple M3
+BenchmarkHex/16/Encode/selected=false         	33227444	        10.95 ns/op	1461.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false         	32095810	        11.75 ns/op	1361.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true          	31198094	        11.62 ns/op	1376.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true          	28837102	        12.55 ns/op	1274.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false         	18056124	        20.02 ns/op	1598.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false         	16975659	        20.84 ns/op	1535.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true          	79492132	         4.553 ns/op	7028.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true          	49873010	         7.208 ns/op	4439.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false         	 9718128	        36.99 ns/op	1730.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false         	 9063091	        39.70 ns/op	1611.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true          	61513056	         5.868 ns/op	10905.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true          	32978989	        10.97 ns/op	5836.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false       	  649300	       556.3 ns/op	1840.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false       	  584107	       615.1 ns/op	1664.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true        	 6683907	        53.92 ns/op	18991.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true        	 2925313	       123.1 ns/op	8321.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false      	   10000	     34981 ns/op	1873.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false      	    9156	     39072 ns/op	1677.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true       	  109621	      3285 ns/op	19951.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true       	   46800	      7707 ns/op	8503.21 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/hex
+cpu: Apple M3
+BenchmarkHex/16/Encode/selected=false         	31397858	        11.55 ns/op	1385.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false         	29956936	        12.09 ns/op	1323.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true          	29151172	        11.81 ns/op	1354.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true          	28685448	        12.55 ns/op	1274.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false         	17999137	        20.03 ns/op	1597.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false         	17297469	        20.84 ns/op	1535.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true          	79481901	         4.562 ns/op	7013.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true          	49821244	         7.211 ns/op	4437.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false         	 9654148	        37.08 ns/op	1726.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false         	 9055758	        39.76 ns/op	1609.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true          	61320087	         5.875 ns/op	10892.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true          	32825374	        10.98 ns/op	5831.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false       	  648399	       554.9 ns/op	1845.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false       	  586497	       616.9 ns/op	1659.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true        	 6674288	        53.92 ns/op	18991.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true        	 2924984	       123.1 ns/op	8320.28 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false      	   10000	     35164 ns/op	1863.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false      	    9301	     38884 ns/op	1685.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true       	  109605	      3287 ns/op	19939.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true       	   46840	      7686 ns/op	8527.12 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/hex
+cpu: Apple M3
+BenchmarkHex/16/Encode/selected=false         	31353536	        11.24 ns/op	1423.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false         	29937734	        11.78 ns/op	1357.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true          	30609858	        11.68 ns/op	1369.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true          	28652724	        12.55 ns/op	1275.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false         	17996737	        20.02 ns/op	1598.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false         	17258496	        20.82 ns/op	1537.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true          	79484077	         4.532 ns/op	7061.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true          	50132872	         7.201 ns/op	4443.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false         	 9716434	        37.15 ns/op	1722.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false         	 8935052	        40.02 ns/op	1599.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true          	59410440	         5.945 ns/op	10765.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true          	32906138	        10.95 ns/op	5845.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false       	  642430	       554.5 ns/op	1846.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false       	  587131	       617.7 ns/op	1657.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true        	 6678776	        58.50 ns/op	17504.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true        	 2766050	       123.6 ns/op	8285.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false      	   10000	     37802 ns/op	1733.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false      	    8110	     46066 ns/op	1422.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true       	   75770	      7745 ns/op	8461.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true       	    8481	     72512 ns/op	 903.80 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/hex
+cpu: Apple M3
+BenchmarkHex/16/Encode/selected=false         	30745908	        11.31 ns/op	1414.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false         	27615392	        11.82 ns/op	1354.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true          	31272055	        11.60 ns/op	1378.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true          	28737446	        12.55 ns/op	1274.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false         	18001461	        19.99 ns/op	1600.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false         	16891197	        20.81 ns/op	1537.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true          	79473865	         4.533 ns/op	7058.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true          	48124320	         7.229 ns/op	4426.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false         	 9664234	        37.31 ns/op	1715.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false         	 9067400	        39.72 ns/op	1611.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true          	61369741	         5.861 ns/op	10919.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true          	32947044	        10.92 ns/op	5860.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false       	  644876	       557.3 ns/op	1837.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false       	  584660	       614.3 ns/op	1667.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true        	 6691470	        54.75 ns/op	18702.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true        	 2862402	       130.2 ns/op	7863.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false      	    9409	     38873 ns/op	1685.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false      	    8079	     44294 ns/op	1479.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true       	   95588	      3915 ns/op	16740.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true       	   38920	      9349 ns/op	7010.17 MB/s	       0 B/op	       0 allocs/op
+PASS
+goos: darwin
+goarch: arm64
+pkg: github.com/shibukawa/tinygodriver/encoding/hex
+cpu: Apple M3
+BenchmarkHex/16/Encode/selected=false         	29466129	        12.44 ns/op	1285.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false         	25077424	        14.31 ns/op	1118.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true          	20206555	        17.61 ns/op	 908.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true          	20947078	        17.21 ns/op	 929.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false         	13419544	        23.92 ns/op	1337.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false         	15120570	        23.80 ns/op	1344.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true          	69441657	         5.186 ns/op	6169.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true          	43697937	         8.209 ns/op	3898.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false         	 8820970	        40.06 ns/op	1597.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false         	 8513934	        42.52 ns/op	1505.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true          	57500335	         6.411 ns/op	9982.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true          	30096559	        11.64 ns/op	5500.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false       	  610087	       598.9 ns/op	1709.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false       	  549859	       648.1 ns/op	1579.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true        	 6324058	        58.67 ns/op	17452.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true        	 2747827	       130.0 ns/op	7874.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false      	    9888	     37920 ns/op	1728.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false      	    8389	     42679 ns/op	1535.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true       	   99474	      3714 ns/op	17643.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true       	   42300	      8465 ns/op	7741.71 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== tinygo-z ===
+BenchmarkHex/16/Encode/selected=false        	33065442	        10.88 ns/op	1470.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	28560567	        12.75 ns/op	1254.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	29802969	        12.46 ns/op	1284.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	25309335	        14.74 ns/op	1085.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	17566402	        19.97 ns/op	1602.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	15497618	        23.18 ns/op	1380.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	51297885	         7.199 ns/op	4445.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	47968551	         7.999 ns/op	4000.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	 9927884	        36.51 ns/op	1753.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 8190597	        44.30 ns/op	1444.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	35777136	         9.299 ns/op	6882.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	33838033	        10.91 ns/op	5864.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  662342	       563.6 ns/op	1816.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  505478	       716.0 ns/op	1430.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 7497103	        47.25 ns/op	21671.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3205490	       112.0 ns/op	9141.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     35162 ns/op	1863.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    8206	     44298 ns/op	1479.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  124579	      2726 ns/op	24041.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52692	      6841 ns/op	9579.34 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	33146756	        10.86 ns/op	1472.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	28074918	        12.81 ns/op	1249.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	27997861	        12.90 ns/op	1239.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	24422923	        14.71 ns/op	1087.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	18537747	        19.53 ns/op	1638.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	15325288	        23.17 ns/op	1380.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	50046049	         7.209 ns/op	4438.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	45849405	         8.008 ns/op	3996.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	 9854632	        36.56 ns/op	1750.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 8115532	        44.38 ns/op	1442.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	39110594	         9.451 ns/op	6771.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	32384656	        10.95 ns/op	5846.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  641035	       562.8 ns/op	1819.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  521590	       689.7 ns/op	1484.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 7536273	        47.31 ns/op	21645.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3223658	       111.1 ns/op	9217.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     36754 ns/op	1783.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    8142	     43815 ns/op	1495.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  134184	      2688 ns/op	24382.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52524	      6855 ns/op	9560.79 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	 3834106	       103.3 ns/op	 154.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	 2816642	       127.7 ns/op	 125.28 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	 3278288	       127.1 ns/op	 125.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	 6081434	        51.38 ns/op	 311.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	 6513798	        55.32 ns/op	 578.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	 5582437	        56.47 ns/op	 566.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	24872971	        12.74 ns/op	2511.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	28652439	        10.98 ns/op	2913.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	 8244518	        42.35 ns/op	1511.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 7108910	        48.61 ns/op	1316.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	35361285	         9.515 ns/op	6725.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	32804064	        10.94 ns/op	5850.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  652104	       562.3 ns/op	1820.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  522675	       689.6 ns/op	1484.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 7553853	        47.24 ns/op	21677.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3245824	       110.9 ns/op	9231.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     39699 ns/op	1650.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    7736	     44116 ns/op	1485.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  134559	      2691 ns/op	24350.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52498	      6859 ns/op	9554.87 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	27471740	        13.72 ns/op	1166.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	21048220	        17.84 ns/op	 896.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	19536681	        21.22 ns/op	 753.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	10331751	        31.41 ns/op	 509.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	10679428	        33.45 ns/op	 956.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	10002187	        32.63 ns/op	 980.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	37339878	         8.522 ns/op	3755.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	39322237	         8.927 ns/op	3584.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	 9008961	        41.28 ns/op	1550.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 7396467	        47.38 ns/op	1350.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	35445716	         9.472 ns/op	6756.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	32861331	        10.93 ns/op	5855.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  639478	       564.3 ns/op	1814.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  521298	       695.1 ns/op	1473.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 7627549	        47.19 ns/op	21700.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3244144	       111.0 ns/op	9222.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     35390 ns/op	1851.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    8210	     43790 ns/op	1496.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  133742	      2697 ns/op	24297.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52424	      6887 ns/op	9515.61 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	29646914	        11.96 ns/op	1337.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	26048104	        13.50 ns/op	1185.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	27019251	        13.64 ns/op	1173.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	22827733	        15.13 ns/op	1057.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	18227232	        19.96 ns/op	1603.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	15120490	        23.23 ns/op	1377.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	49976572	         7.199 ns/op	4445.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	45075122	         8.000 ns/op	4000.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	 9859624	        36.54 ns/op	1751.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 8105445	        44.35 ns/op	1443.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	36637491	         9.353 ns/op	6842.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	32893233	        10.93 ns/op	5856.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  638618	       562.7 ns/op	1819.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  521166	       689.7 ns/op	1484.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 7627340	        47.20 ns/op	21695.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3218521	       118.6 ns/op	8635.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     35515 ns/op	1845.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    8217	     43721 ns/op	1498.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  134119	      2683 ns/op	24428.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52628	      6888 ns/op	9514.66 MB/s	       0 B/op	       0 allocs/op
+PASS
+
+=== tinygo-2 ===
+BenchmarkHex/16/Encode/selected=false        	42592208	         8.247 ns/op	1940.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	26207548	        13.73 ns/op	1165.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	43531712	         8.263 ns/op	1936.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	25966063	        13.90 ns/op	1151.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	22801164	        15.80 ns/op	2025.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	13564600	        26.54 ns/op	1205.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	122780692	         2.934 ns/op	10907.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	84205602	         4.275 ns/op	7486.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	10976251	        32.94 ns/op	1943.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 6900357	        52.90 ns/op	1209.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	87045879	         4.064 ns/op	15746.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	46432888	         7.732 ns/op	8277.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  651082	       551.2 ns/op	1857.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  431581	       827.9 ns/op	1236.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 8387803	        42.93 ns/op	23851.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3338108	       108.1 ns/op	9474.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     35069 ns/op	1868.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    6885	     52464 ns/op	1249.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  134520	      2696 ns/op	24306.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52471	      6857 ns/op	9557.78 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	44103004	         8.204 ns/op	1950.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	26238906	        13.75 ns/op	1163.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	43639886	         8.273 ns/op	1934.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	25992544	        13.89 ns/op	1151.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	22779463	        15.79 ns/op	2026.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	13567689	        26.64 ns/op	1201.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	122748474	         2.934 ns/op	10906.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	84352750	         4.280 ns/op	7476.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	10966887	        32.84 ns/op	1948.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 6907136	        52.14 ns/op	1227.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	89910088	         4.016 ns/op	15934.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	46598671	         7.726 ns/op	8283.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  652158	       550.8 ns/op	1859.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  436702	       826.9 ns/op	1238.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 8383717	        42.94 ns/op	23846.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3340824	       108.1 ns/op	9473.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     35108 ns/op	1866.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    6873	     52472 ns/op	1248.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  134434	      2681 ns/op	24441.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52454	      6852 ns/op	9564.56 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	43252984	         8.178 ns/op	1956.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	26232774	        13.78 ns/op	1161.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	43799174	         8.272 ns/op	1934.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	26004357	        13.87 ns/op	1153.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	22772797	        15.84 ns/op	2020.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	13044718	        26.95 ns/op	1187.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	122332298	         2.954 ns/op	10834.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	83647981	         4.314 ns/op	7417.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	10372048	        33.37 ns/op	1917.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 6901497	        52.14 ns/op	1227.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	89758772	         4.000 ns/op	16001.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	46441622	         7.734 ns/op	8275.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  653025	       552.0 ns/op	1854.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  435502	       826.0 ns/op	1239.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 8386183	        42.95 ns/op	23844.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3335865	       107.8 ns/op	9500.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     35213 ns/op	1861.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    6865	     53040 ns/op	1235.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  134610	      2679 ns/op	24466.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   52419	      6857 ns/op	9557.61 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	44082758	         8.178 ns/op	1956.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	26223378	        13.73 ns/op	1165.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	43460980	         8.265 ns/op	1935.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	26010228	        13.86 ns/op	1154.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	22081260	        15.80 ns/op	2025.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	13589563	        26.50 ns/op	1207.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	122751648	         2.934 ns/op	10906.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	83831391	         4.277 ns/op	7482.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	10968085	        33.10 ns/op	1933.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 6858513	        61.81 ns/op	1035.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	81554833	         4.826 ns/op	13260.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	40712085	         8.362 ns/op	7653.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  612404	       604.8 ns/op	1693.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  396181	       878.7 ns/op	1165.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 7583696	        47.56 ns/op	21528.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3097532	       115.5 ns/op	8866.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	    8684	     41949 ns/op	1562.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    5722	     65445 ns/op	1001.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  102314	      3522 ns/op	18608.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   42960	      7940 ns/op	8254.22 MB/s	       0 B/op	       0 allocs/op
+PASS
+BenchmarkHex/16/Encode/selected=false        	43858312	         8.262 ns/op	1936.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=false        	26204210	        13.79 ns/op	1160.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Encode/selected=true         	43566176	         8.286 ns/op	1931.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/16/Decode/selected=true         	25972540	        13.93 ns/op	1148.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=false        	22340474	        16.90 ns/op	1893.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=false        	12324914	        29.43 ns/op	1087.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Encode/selected=true         	100000000	         3.234 ns/op	9896.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/32/Decode/selected=true         	76428381	         4.702 ns/op	6806.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=false        	 9962168	        37.25 ns/op	1718.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=false        	 6199627	        57.33 ns/op	1116.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Encode/selected=true         	81655038	         4.398 ns/op	14552.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/64/Decode/selected=true         	42342772	         8.334 ns/op	7679.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=false      	  614595	       599.6 ns/op	1707.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=false      	  397434	       865.3 ns/op	1183.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Encode/selected=true       	 7918585	        48.06 ns/op	21308.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/1024/Decode/selected=true       	 3184135	       109.1 ns/op	9385.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=false     	   10000	     37308 ns/op	1756.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=false     	    6442	     54812 ns/op	1195.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Encode/selected=true      	  128077	      2945 ns/op	22255.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkHex/65536/Decode/selected=true      	   48285	      7337 ns/op	8932.14 MB/s	       0 B/op	       0 allocs/op
+PASS

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shibukawa/tinygodriver/cloud/aws"
+	"github.com/shibukawa/tinygodriver/encoding/hex"
 	"github.com/shibukawa/tinygodriver/internal/cloudhttp"
 
 	"github.com/shibukawa/tinygodriver/internal/syncx"
