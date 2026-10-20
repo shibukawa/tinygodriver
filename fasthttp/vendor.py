@@ -130,7 +130,7 @@ PATCHES = {
         ('\t"encoding/base64"\n', '', 1),
         (
             '\t"github.com/valyala/bytebufferpool"\n',
-            '\t"github.com/shibukawa/tinygodriver/encoding/base64" // PETITWEB: shared SIMD Base64 backend.\n\t"github.com/valyala/bytebufferpool"\n',
+            '\tbase64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // PETITWEB: shared SIMD Base64 backend.\n\t"github.com/valyala/bytebufferpool"\n',
             1,
         ),
     ],

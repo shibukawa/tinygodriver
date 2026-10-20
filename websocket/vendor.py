@@ -159,7 +159,7 @@ PATCHES = {
         ('\t"encoding/base64"\n', '', 1),
         (
             '\t"unicode/utf8"\n)',
-            '\t"unicode/utf8"\n\n\t"github.com/shibukawa/tinygodriver/encoding/base64" // TINYGODRIVER: shared SIMD Base64 backend.\n)',
+            '\t"unicode/utf8"\n\n\tbase64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // TINYGODRIVER: shared SIMD Base64 backend.\n)',
             1,
         ),
     ],
@@ -167,7 +167,7 @@ PATCHES = {
         ('\t"encoding/base64"\n', '', 1),
         (
             '\t"strings"\n)',
-            '\t"strings"\n\n\t"github.com/shibukawa/tinygodriver/encoding/base64" // TINYGODRIVER: shared SIMD Base64 backend.\n)',
+            '\t"strings"\n\n\tbase64 "github.com/shibukawa/tinygodriver/encoding/simdbase64" // TINYGODRIVER: shared SIMD Base64 backend.\n)',
             1,
         ),
     ],

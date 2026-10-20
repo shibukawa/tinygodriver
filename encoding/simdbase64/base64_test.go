@@ -1,4 +1,4 @@
-package base64
+package simdbase64
 
 import (
 	"bytes"
@@ -431,17 +431,25 @@ func BenchmarkBase64LineBreaks(b *testing.B) {
 			src = append(src, plain[start:min(start+layout.width, len(plain))]...)
 			src = append(src, layout.separator...)
 		}
-		b.Run(layout.name, func(b *testing.B) {
-			dst := make([]byte, StdEncoding.DecodedLen(len(src)))
-			b.SetBytes(int64(len(raw)))
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				n, err := StdEncoding.Decode(dst, src)
-				if err != nil || n != len(raw) {
-					b.Fatal(n, err)
+		for _, backend := range []struct {
+			name   string
+			decode func([]byte, []byte) (int, error)
+		}{
+			{"std", std.StdEncoding.Decode},
+			{"optimized", StdEncoding.Decode},
+		} {
+			b.Run(layout.name+"/"+backend.name, func(b *testing.B) {
+				dst := make([]byte, StdEncoding.DecodedLen(len(src)))
+				b.SetBytes(int64(len(raw)))
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					n, err := backend.decode(dst, src)
+					if err != nil || n != len(raw) {
+						b.Fatal(n, err)
+					}
 				}
-			}
-		})
+			})
+		}
 	}
 }

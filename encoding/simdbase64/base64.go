@@ -1,7 +1,7 @@
 // Package base64 implements RFC 4648 Base64 with the encoding/base64 API.
 // Standard and URL alphabets use SIMD on supported builds; custom alphabets,
 // final quanta and malformed input retain the standard library's semantics.
-package base64
+package simdbase64
 
 import (
 	std "encoding/base64"

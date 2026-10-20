@@ -1,6 +1,6 @@
 //go:build !tinygo
 
-package base64
+package simdbase64
 
 import (
 	"bytes"

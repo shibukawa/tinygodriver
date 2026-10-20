@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/shibukawa/tinygodriver/encoding/base64"
+	"github.com/shibukawa/tinygodriver/encoding/simdbase64"
 )
 
 // Codec failures. A Value carries exactly one member on the wire, because it is
@@ -291,7 +291,7 @@ func (v Value) appendMember(dst []byte, kind Kind) ([]byte, error) {
 	case KindString:
 		return encode("stringValue", *v.String)
 	case KindBlob:
-		return encode("blobValue", base64.StdEncoding.EncodeToString(v.Blob))
+		return encode("blobValue", simdbase64.StdEncoding.EncodeToString(v.Blob))
 	case KindGeoPoint:
 		return encode("geoPointValue", v.GeoPoint)
 	case KindEntity:
@@ -503,7 +503,7 @@ func (v *Value) UnmarshalJSON(b []byte) error {
 		if err := json.Unmarshal(raw, &text); err != nil {
 			return fmt.Errorf("%w: blobValue", ErrBadValue)
 		}
-		decoded, err := base64.StdEncoding.DecodeString(text)
+		decoded, err := simdbase64.StdEncoding.DecodeString(text)
 		if err != nil {
 			return fmt.Errorf("%w: blobValue is not base64", ErrBadValue)
 		}
