@@ -37,7 +37,7 @@ facts:
     its routes on both compilers.
   risk:
     fasthttp_version_skew: >
-      upstream declares fasthttp v1.58.0, the fork tracks v1.73.0; no friction found, unlike the router,
+      upstream declares fasthttp v1.58.0, the fork tracks v1.76.0; no friction found, unlike the router,
       whose tests needed Host headers
     upgrader_confusion: >
       the net/http Upgrader compiles on TinyGo and then deadlocks (rule:nethttp-hijack-deadlock). Nothing

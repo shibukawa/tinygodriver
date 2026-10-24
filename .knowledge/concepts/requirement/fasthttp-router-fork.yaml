@@ -35,7 +35,7 @@ facts:
     static, 405 with Allow, OPTIONS, 404, chunked stream) byte-identical on both compilers.
   risk:
     fasthttp_version_skew: >
-      upstream router declares fasthttp v1.58.0, the fork tracks v1.73.0; the only friction was in tests
+      upstream router declares fasthttp v1.58.0, the fork tracks v1.76.0; the only friction was in tests
       (missing Host headers), fixed by patch. See decision:fasthttp-router-vendoring
     regexp_size: >
       measured: the router adds 0.26 MB to the example's TinyGo binary (3.07 -> 3.33 MB with fasthttp_nozstd),

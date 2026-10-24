@@ -7,7 +7,8 @@ exceeded Go 1.27's inline budget and regressed sequence-heavy inputs. Zstd's
 improvement comes from instruction-level parallelism and fewer refill operations.
 
 The two WebSocket forks share a SIMD XOR kernel. XML delimiter search and
-fasthttp header/trailer value validation use the new bounded byte kernels.
+fasthttp header/trailer value validation use the new bounded byte kernels
+(the latter retired with fasthttp v1.76.0; see below).
 Go SIMD uses `simd/archsimd`; TinyGo uses Clang vectors. The public APIs and
 accepted protocol bytes are preserved.
 
@@ -90,6 +91,11 @@ original inline loop in the request, response and trailer parsers.
 This measures validation only, not full HTTP parsing or request throughput.
 Every possible byte is compared with fasthttp's original validation table in
 every vector/tail position; HTAB and obs-text remain accepted and DEL rejected.
+
+Retired on 2026-10-24 with the move to fasthttp v1.76.0, whose scanner
+validates each value in the same pass that finds the end of its line, so the
+loops this replaced are gone; see [fasthttp/PATCHES.md](fasthttp/PATCHES.md).
+The kernel itself remains in `internal/bytealg`.
 
 ## XML delimiter search
 
@@ -196,8 +202,6 @@ GOEXPERIMENT=simd go test ./internal/bytealg -run '^$' \
 GOEXPERIMENT=simd go test ./websocket -run '^$' \
   -bench '^BenchmarkMaskBytes$/^size-(16|32|512|1024)$/^align-4$/^word$' \
   -benchmem -benchtime=300ms -count=5
-GOEXPERIMENT=simd go test ./fasthttp -run '^$' \
-  -bench '^BenchmarkHeaderValueValidation$' -benchmem -benchtime=300ms -count=5
 go test -tags force_tinygo_logic ./compress/zstd -run '^$' \
   -bench '^BenchmarkDecode$' -benchmem -benchtime=300ms -count=5
 tinygo test -run '^$' -bench '^BenchmarkDecode$' \

@@ -30,7 +30,7 @@ import sys
 import tempfile
 import zipfile
 
-FASTHTTP_VERSION = "v1.73.0"
+FASTHTTP_VERSION = "v1.76.0"
 FASTHTTP_MODULE = "github.com/valyala/fasthttp"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -42,7 +42,6 @@ KEEP_DIRS = {"", "fasthttputil", "stackless"}
 
 # Written by hand, not by this script: clean() must leave them alone.
 LOCAL_FILES = {
-    "header_vector_test.go",
     "vendor.py",
     "PATCHES.md",
     "README.md",
@@ -127,53 +126,6 @@ def rewrite(text):
 # version bump that moves the anchor fails loudly instead of dropping a patch.
 
 PATCHES = {
-    "header.go": [
-        ('\t"time"\n)', '\t"time"\n\n\t"github.com/shibukawa/tinygodriver/internal/bytealg"\n)', 1),
-        ("""		for _, ch := range s.value {
-			if !validHeaderValueByte(ch) {
-				return dest, 0, fmt.Errorf("invalid trailer value %q", s.value)
-			}
-		}
-""", """		// Keep short values in the parser's inline table loop.
-		validValue := true
-		if bytealg.Available && len(s.value) >= 64 {
-			validValue = bytealg.ValidHeaderValue(s.value)
-		} else {
-			for _, ch := range s.value {
-				if !validHeaderValueByte(ch) {
-					validValue = false
-					break
-				}
-			}
-		}
-		if !validValue {
-			return dest, 0, fmt.Errorf("invalid trailer value %q", s.value)
-		}
-""", 1),
-        ("""		for _, ch := range s.value {
-			if !validHeaderValueByte(ch) {
-				h.connectionClose = true
-				return 0, fmt.Errorf("invalid header value %q", s.value)
-			}
-		}
-""", """		// Keep short values in the parser's inline table loop.
-		validValue := true
-		if bytealg.Available && len(s.value) >= 64 {
-			validValue = bytealg.ValidHeaderValue(s.value)
-		} else {
-			for _, ch := range s.value {
-				if !validHeaderValueByte(ch) {
-					validValue = false
-					break
-				}
-			}
-		}
-		if !validValue {
-			h.connectionClose = true
-			return 0, fmt.Errorf("invalid header value %q", s.value)
-		}
-""", 2),
-    ],
     "http.go": [
         ('\t"encoding/base64"\n', '', 1),
         (
@@ -298,8 +250,8 @@ PATCHES = {
         # keeps *perIPTLSConn satisfying the tlsConn interface. An alias
         # preserves it; falling back to net.Conn would not.
         (
-            'import (\n\t"crypto/tls"\n\t"net"\n\t"sync"\n)',
-            '// PETITWEB: crypto/tls dropped; the TLS type comes from compat_*.go.\nimport (\n\t"net"\n\t"sync"\n)',
+            'import (\n\t"crypto/tls"\n\t"net"\n\t"sync"\n\t"sync/atomic"\n)',
+            '// PETITWEB: crypto/tls dropped; the TLS type comes from compat_*.go.\nimport (\n\t"net"\n\t"sync"\n\t"sync/atomic"\n)',
             1,
         ),
         (
@@ -313,20 +265,21 @@ PATCHES = {
             1,
         ),
         (
-            "\t\t\t\tConn:             tlsConn,",
-            "\t\t\t\ttlsConnImpl:      tlsConn,",
+            "\t\t\tConn:             tlsConn,",
+            "\t\t\ttlsConnImpl:      tlsConn,",
             1,
         ),
-        ("\t\tc.Conn = tlsConn\n", "\t\tc.tlsConnImpl = tlsConn\n", 1),
         (
             "func (c *perIPTLSConn) Close() error {\n"
-            "\tc.lock.Lock()\n"
-            "\tcc := c.Conn\n"
-            "\tc.Conn = nil\n",
+            "\tif c.closed.Swap(true) {\n"
+            "\t\treturn nil\n"
+            "\t}\n"
+            "\terr := c.Conn.Close()\n",
             "func (c *perIPTLSConn) Close() error {\n"
-            "\tc.lock.Lock()\n"
-            "\tcc := c.tlsConnImpl\n"
-            "\tc.tlsConnImpl = nil\n",
+            "\tif c.closed.Swap(true) {\n"
+            "\t\treturn nil\n"
+            "\t}\n"
+            "\terr := c.tlsConnImpl.Close()\n",
             1,
         ),
     ],
@@ -347,11 +300,6 @@ PATCHES = {
             "// PATCHES.md.\n"
             "\n"
             "package fasthttp\n",
-            1,
-        ),
-        (
-            '\t"bytes"\n\t"fmt"\n',
-            '\t"bytes"\n\t"errors"\n\t"fmt"\n',
             1,
         ),
         (

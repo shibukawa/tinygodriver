@@ -212,7 +212,7 @@ func (UUIDCodec) PlanScan(m *Map, oid uint32, format int16, target any) ScanPlan
 type scanPlanBinaryUUIDToUUIDScanner struct{}
 
 func (scanPlanBinaryUUIDToUUIDScanner) Scan(src []byte, dst any) error {
-	scanner := (dst).(UUIDScanner)
+	scanner := dst.(UUIDScanner)
 
 	if src == nil {
 		return scanner.ScanUUID(UUID{})
@@ -231,7 +231,7 @@ func (scanPlanBinaryUUIDToUUIDScanner) Scan(src []byte, dst any) error {
 type scanPlanBinaryUUIDToTextScanner struct{}
 
 func (scanPlanBinaryUUIDToTextScanner) Scan(src []byte, dst any) error {
-	scanner := (dst).(TextScanner)
+	scanner := dst.(TextScanner)
 
 	if src == nil {
 		return scanner.ScanText(Text{})
@@ -250,7 +250,7 @@ func (scanPlanBinaryUUIDToTextScanner) Scan(src []byte, dst any) error {
 type scanPlanTextAnyToUUIDScanner struct{}
 
 func (scanPlanTextAnyToUUIDScanner) Scan(src []byte, dst any) error {
-	scanner := (dst).(UUIDScanner)
+	scanner := dst.(UUIDScanner)
 
 	if src == nil {
 		return scanner.ScanUUID(UUID{})

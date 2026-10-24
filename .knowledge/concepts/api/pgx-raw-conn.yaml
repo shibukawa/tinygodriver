@@ -33,7 +33,7 @@ facts:
       the aliases are the upstream pgx types themselves, asserted at compile time in database/pgx/compat_std_test.go.
       A database/pgx Conn is a *pgx.Conn, so code passes either way with no conversion and no method loss
     tinygo: >
-      same api, different identity. The vendored copy is v5.10.0 under a different import path, so its
+      same api, different identity. The vendored copy is v5.11.0 under a different import path, so its
       types are not upstream's
     what_that_costs: >
       own code written against the database/pgx names is portable across both compilers. A third-party

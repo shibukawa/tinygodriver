@@ -1,12 +1,12 @@
 # Local patches to the vendored pgx
 
-Vendored by `vendor.py` from `github.com/jackc/pgx/v5 v5.10.0`.
+Vendored by `vendor.py` from `github.com/jackc/pgx/v5 v5.11.0`.
 
 Every change below is applied by `patch.py` after `vendor.py` runs. Keep this
 file and that script in sync: on a version bump, re-run both and reconcile any
 hunk that no longer applies. See `rule:pgx-vendoring`.
 
-Upstream is otherwise untouched — 145 sources, import paths rewritten only.
+Upstream is otherwise untouched — 150 sources, import paths rewritten only.
 
 `pgconn/auth_scram.go` uses
 `github.com/shibukawa/tinygodriver/encoding/simdbase64` for its nonce, salt and
@@ -86,6 +86,9 @@ regexp engine, and neither needs one:
   `:[^:@]+?@`), compiled on every failed connect. They are replaced by three
   string-scanning helpers, checked equivalent against the originals over fixed
   cases and 200k random inputs.
+- v5.11.0's `redactURLPassword` added a fourth, `:[^@]+@`, for URIs too
+  malformed to delimit. `redactBrokenUserinfo` replaces it, checked the same
+  way.
 - `serverVersion` compiled `^[0-9]+` per call just to take a digit prefix; a
   four-line scan does the same.
 

@@ -1,6 +1,6 @@
 # fasthttp
 
-A fork of [valyala/fasthttp](https://github.com/valyala/fasthttp) v1.73.0 that
+A fork of [valyala/fasthttp](https://github.com/valyala/fasthttp) v1.76.0 that
 builds under TinyGo. It is a drop-in replacement: change the import path and
 nothing else.
 
@@ -13,11 +13,6 @@ shared. On standard Go this is upstream fasthttp, behaviour for behaviour — th
 divergences are all on the TinyGo side, and [PATCHES.md](./PATCHES.md) lists
 every one.
 
-Long header and trailer values use the shared [byte kernels](../internal/bytealg)
-for SIMD validation. Short values retain the inline scalar table scan.
-See [measurements](../SIMD_BENCHMARKS.md) for the validation kernel's results;
-these are separate from complete HTTP request throughput.
-
 There is no wrapper package selecting between this fork and upstream, unlike
 `database/sql/mysql` and `database/pgx`. Those wrap a `database/sql` driver,
 whose whole surface is nine interfaces; an application using fasthttp names
@@ -29,7 +24,7 @@ every upstream release.
 
 **This directory is MIT**, not the Apache 2.0 of the rest of the repository.
 `LICENSE` is upstream's own. Every change to upstream source carries a
-`PETITWEB:` comment so a diff against v1.73.0 stays readable.
+`PETITWEB:` comment so a diff against v1.76.0 stays readable.
 
 ## Quick start
 
@@ -83,8 +78,15 @@ makes a plain `tinygo build` work, and it takes 2.49 MB out of the binary:
 | this fork, `-tags fasthttp_nozstd` | 2.78 MB |
 | this fork before, `-tags noasm` | 5.32 MB |
 
-zstd costs 0.05 MB now, against 2.53 MB through klauspost. brotli is 0.24 MB and
-gzip, deflate and zlib together 0.07 MB; neither is worth a seam.
+zstd costs 0.05 MB now, against 2.53 MB through klauspost. When this table was
+measured, at v1.73.0, brotli was 0.24 MB and gzip, deflate and zlib together
+0.07 MB; neither was worth a seam.
+
+v1.74.0 replaced `andybalholm/brotli` with `molecule-man/go-brrr`. TinyGo
+builds it without assembly, because TinyGo sets the `purego` tag, but it is
+larger: in a stripped linux/arm64 build of `examples/fasthttpserver`, brotli's
+symbols went from 0.55 MB to 0.75 MB, and the whole binary from 3.79 MB to
+4.31 MB between v1.73.0 and v1.76.0.
 
 Standard Go is unchanged — klauspost, upstream's own code, encoding and decoding
 and all seven compression levels.

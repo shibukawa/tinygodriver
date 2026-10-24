@@ -12,7 +12,7 @@ application code is shared between compilers. The layout mirrors upstream
 
 On standard Go every exported name is an alias for the upstream pgx type, so
 values interoperate with third-party code that names pgx types. On TinyGo the
-same names bind to a vendored copy of pgx v5.10.0 with TLS rerouted, because
+same names bind to a vendored copy of pgx v5.11.0 with TLS rerouted, because
 TinyGo ships `crypto/tls` as a stub that cannot be linked. The compatibility
 and shared-codec patches are recorded in
 [../internal/PATCHES.md](../internal/PATCHES.md).
