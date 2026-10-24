@@ -57,8 +57,12 @@ var xmlCommentOpen = []byte("!--")
 func (s *xmlScan) next() (int, []byte, error) {
 	textStart := s.i
 	for {
-		for s.i < len(s.b) && s.b[s.i] != '<' {
-			s.i++
+		// IndexByte rather than a byte loop: the runs between tags are short,
+		// but there are two of them per element of a listing.
+		if at := bytes.IndexByte(s.b[s.i:], '<'); at < 0 {
+			s.i = len(s.b)
+		} else {
+			s.i += at
 		}
 		s.text0, s.text1 = textStart, s.i
 		if s.i == len(s.b) {
@@ -135,20 +139,26 @@ func (s *xmlScan) next() (int, []byte, error) {
 // <s3:Contents> and <Contents> read the same, as they do under encoding/xml.
 func (s *xmlScan) readName() []byte {
 	start := s.i
+	colon := -1
 	for s.i < len(s.b) {
-		switch s.b[s.i] {
-		case ' ', '\t', '\r', '\n', '>', '/':
-			goto done
+		c := s.b[s.i]
+		if nameEnd[c] {
+			break
+		}
+		if c == ':' {
+			colon = s.i
 		}
 		s.i++
 	}
-done:
-	name := s.b[start:s.i]
-	if colon := bytes.IndexByte(name, ':'); colon >= 0 {
-		name = name[colon+1:]
+	if colon >= 0 {
+		start = colon + 1
 	}
-	return name
+	return s.b[start:s.i]
 }
+
+// nameEnd marks the bytes that end an element name: a table, because readName
+// runs on every tag and a per-byte switch was a quarter of a listing's parse.
+var nameEnd = [256]bool{' ': true, '\t': true, '\r': true, '\n': true, '>': true, '/': true}
 
 func (s *xmlScan) skipSpace() {
 	for s.i < len(s.b) {
@@ -208,6 +218,26 @@ func (s *xmlScan) textElement(name []byte) (string, error) {
 			return "", errMalformedXML
 		}
 	}
+}
+
+// textBytes consumes the rest of an element just opened and returns its
+// character data as a slice of the document, for the fields that are parsed
+// rather than kept: a size, a date. It reports false when the text needs
+// unescaping or spans nested markup, and textElement is the general path.
+// The slice is valid as long as the document is.
+func (s *xmlScan) textBytes(name []byte) ([]byte, bool, error) {
+	ev, got, err := s.next()
+	if err != nil {
+		return nil, false, err
+	}
+	if ev != xmlClose || !bytes.Equal(got, name) {
+		return nil, false, nil
+	}
+	text := s.b[s.text0:s.text1]
+	if bytes.IndexByte(text, '&') >= 0 {
+		return nil, false, nil
+	}
+	return text, true, nil
 }
 
 // skipElement consumes the rest of an element just opened, contents included.
@@ -408,32 +438,134 @@ func parseContents(s *xmlScan) (ObjectInfo, error) {
 			}
 			return info, nil
 		case xmlOpen:
-			text, err := s.textElement(name)
-			if err != nil {
-				return info, err
-			}
 			switch string(name) {
 			case "Key":
-				info.Key = text
+				if info.Key, err = s.textElement(name); err != nil {
+					return info, err
+				}
 			case "ETag":
-				info.ETag = text
+				if info.ETag, err = s.textElement(name); err != nil {
+					return info, err
+				}
 			case "Size":
-				size, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+				text, err := s.textValue(name)
 				if err != nil {
+					return info, err
+				}
+				size, ok := parseDecimal(text)
+				if !ok {
 					return info, errMalformedXML
 				}
 				info.Size = size
 			case "LastModified":
-				// RFC 3339 with the fractional seconds S3 includes; Parse
-				// accepts the fraction whether or not the layout names it.
-				when, err := time.Parse(time.RFC3339, strings.TrimSpace(text))
+				text, err := s.textValue(name)
 				if err != nil {
-					return info, errMalformedXML
+					return info, err
+				}
+				// RFC 3339 with the fractional seconds S3 includes. The form S3
+				// and the compatible servers send is parsed directly; anything
+				// else goes to time.Parse, which accepts the fraction whether or
+				// not the layout names it.
+				when, ok := parseRFC3339UTC(text)
+				if !ok {
+					if when, err = time.Parse(time.RFC3339, string(text)); err != nil {
+						return info, errMalformedXML
+					}
 				}
 				info.LastModified = when
+			default:
+				// StorageClass, Owner and whatever else: consumed, not kept, so
+				// there is no string to build.
+				if err := s.skipElement(name); err != nil {
+					return info, err
+				}
 			}
 		}
 	}
+}
+
+// textValue is textElement for a field that is parsed, not kept: the bytes
+// come straight from the document when they can, and the unescaped string is
+// built only when they cannot. The surrounding space is dropped either way.
+func (s *xmlScan) textValue(name []byte) ([]byte, error) {
+	if text, ok, err := s.textBytes(name); err != nil || ok {
+		return bytes.TrimSpace(text), err
+	}
+	// textBytes consumed one event; the element is still open after a tag
+	// or an entity, so textElement cannot resume. Rewind to the element's
+	// content and take the general path.
+	s.i = s.text0
+	text, err := s.textElement(name)
+	return []byte(strings.TrimSpace(text)), err
+}
+
+// parseDecimal reads a non-negative decimal integer, which is what every
+// numeric field in these documents is.
+func parseDecimal(b []byte) (int64, bool) {
+	if len(b) == 0 || len(b) > 18 {
+		return 0, false
+	}
+	var n int64
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n, true
+}
+
+// parseRFC3339UTC reads "2026-08-01T12:30:05Z" and the same with a fraction
+// of a second, "2026-08-01T12:30:05.000Z", which is the form S3 sends. It
+// reports false for any other spelling, including offsets, leaving those to
+// time.Parse.
+func parseRFC3339UTC(b []byte) (time.Time, bool) {
+	if len(b) < 20 || b[4] != '-' || b[7] != '-' || b[10] != 'T' || b[13] != ':' || b[16] != ':' || b[len(b)-1] != 'Z' {
+		return time.Time{}, false
+	}
+	field := func(at, width int) (int, bool) {
+		n := 0
+		for _, c := range b[at : at+width] {
+			if c < '0' || c > '9' {
+				return 0, false
+			}
+			n = n*10 + int(c-'0')
+		}
+		return n, true
+	}
+	year, ok1 := field(0, 4)
+	month, ok2 := field(5, 2)
+	day, ok3 := field(8, 2)
+	hour, ok4 := field(11, 2)
+	minute, ok5 := field(14, 2)
+	second, ok6 := field(17, 2)
+	if !(ok1 && ok2 && ok3 && ok4 && ok5 && ok6) {
+		return time.Time{}, false
+	}
+	nanos := 0
+	if frac := b[19 : len(b)-1]; len(frac) != 0 {
+		if frac[0] != '.' || len(frac) == 1 || len(frac) > 10 {
+			return time.Time{}, false
+		}
+		scale := 1000000000
+		for _, c := range frac[1:] {
+			if c < '0' || c > '9' {
+				return time.Time{}, false
+			}
+			scale /= 10
+			nanos += int(c-'0') * scale
+		}
+	}
+	if month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59 {
+		return time.Time{}, false
+	}
+	t := time.Date(year, time.Month(month), day, hour, minute, second, nanos, time.UTC)
+	// time.Date normalizes an impossible day such as February 30 into March;
+	// time.Parse rejects it, so this does too.
+	if t.Day() != day {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 func parseCommonPrefixes(s *xmlScan) (string, error) {
