@@ -1,6 +1,6 @@
-// Package hex implements hexadecimal encoding and decoding with the standard
+// Package simdhex implements hexadecimal encoding and decoding with the standard
 // encoding/hex API and optional bounded SIMD kernels for Go and TinyGo.
-package hex
+package simdhex
 
 import (
 	std "encoding/hex"

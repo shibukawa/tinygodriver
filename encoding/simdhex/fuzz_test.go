@@ -1,6 +1,6 @@
 //go:build !tinygo
 
-package hex
+package simdhex
 
 import (
 	"bytes"

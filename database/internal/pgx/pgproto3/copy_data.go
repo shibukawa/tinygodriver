@@ -3,7 +3,7 @@ package pgproto3
 import (
 	"encoding/json"
 
-	"github.com/shibukawa/tinygodriver/encoding/hex"
+	hex "github.com/shibukawa/tinygodriver/encoding/simdhex" // Local patch: shared SIMD hex backend.
 )
 
 type CopyData struct {

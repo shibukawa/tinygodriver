@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/shibukawa/tinygodriver/encoding/hex"
+	"github.com/shibukawa/tinygodriver/encoding/simdhex"
 )
 
 // ContentEncoding is the HTTP content-coding token for Zstandard.
@@ -36,7 +36,7 @@ func (r Result) ETag() string {
 	if !r.ETagEnabled {
 		return ""
 	}
-	return `"sha256-` + hex.EncodeToString(r.SHA256[:]) + `"`
+	return `"sha256-` + simdhex.EncodeToString(r.SHA256[:]) + `"`
 }
 
 // Option configures both the host-Go and TinyGo encoders.

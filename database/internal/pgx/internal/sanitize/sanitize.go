@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/internal/pgdatetime"
-	"github.com/shibukawa/tinygodriver/encoding/hex"
+	hex "github.com/shibukawa/tinygodriver/encoding/simdhex" // Local patch: shared SIMD hex backend.
 )
 
 // Part is either a string or an int. A string is raw SQL. An int is a
