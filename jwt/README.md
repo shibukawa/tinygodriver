@@ -28,20 +28,31 @@ offset from JWS in both directions, doing more than JWS (it validates `iss`,
 ## Provenance and divergence
 
 This package came from `github.com/shibukawa/popcornwave/contrib/jwt`, which
-implements the verifier half for resource servers. One change was made here:
+implements the verifier half for resource servers. Two changes were made here:
 
 - **RS256 signing.** Upstream `Sign` accepted `HS256` only and rejected every
   other algorithm outright, while RS256 verification already existed. This copy
   widens the guard to the same set `verifySignature` accepts.
+- **An allocation-light parse path.** Upstream validated each segment over
+  `encoding/json`'s token stream and then unmarshalled it a second time, which
+  came to sixty-odd allocations per token. `internal/authn` now validates with
+  a hand-written scanner that hands the top-level members to the parser as it
+  goes, `Claims.Raw` views the decoded segment instead of copying each value,
+  and HS256 runs through `internal/hmacsha256` rather than `crypto/hmac`'s
+  hash objects. What is accepted and rejected is unchanged, with one
+  exception: header and claim names now match exactly, where `json.Unmarshal`
+  also matched them ignoring case, so `{"ALG":"HS256"}` no longer parses.
 
 Nothing else was altered. `jwks.go` and `verify.go` are carried unchanged even
 though a client that only mints tokens never calls them; the linker drops what
 is unused, so keeping the package whole costs maintenance clarity rather than
 binary size.
 
-`internal/authn` carries the upstream bounded Base64url and JSON validation
-helpers. `http.go` was not copied: this package never referenced it, and it
-would pull `net`, `net/http`, and `net/url` into a TinyGo build for nothing.
+`internal/authn` carries the upstream bounded Base64url helper and the JSON
+validation described above, whose scanner is checked against the upstream
+token-stream validator in its tests. `http.go` was not copied: this package
+never referenced it, and it would pull `net`, `net/http`, and `net/url` into a
+TinyGo build for nothing.
 
 ## Signing with RS256
 
