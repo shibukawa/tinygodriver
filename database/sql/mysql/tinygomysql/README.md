@@ -1,7 +1,7 @@
 # tinygomysql
 
 `tinygomysql` is a fork of [go-sql-driver/mysql](https://github.com/go-sql-driver/mysql)
-v1.10.0, carried here because two things it relies on do not exist under TinyGo.
+v1.10.1, carried here because two things it relies on do not exist under TinyGo.
 It speaks MySQL and MariaDB over `database/sql` and registers the driver name
 `mysql`, exactly as upstream does.
 
@@ -17,7 +17,7 @@ combining them with Apache-2.0 code is fine, and modifications to them must be
 published under MPL-2.0. `LICENSE` and `AUTHORS` are upstream's own.
 
 Every change to upstream source is marked with a `PETITWEB:` comment so a diff
-against v1.10.0 stays readable.
+against v1.10.1 stays readable.
 
 ## Divergences from upstream
 

@@ -453,6 +453,35 @@ func redactColonPassword(s string) string {
 	}
 	return b.String()
 }
+
+// redactBrokenUserinfo replaces every `:[^@]+@`, the stranded password of a
+// URI whose userinfo the parser could not delimit.
+func redactBrokenUserinfo(s string) string {
+	var b strings.Builder
+	for {
+		i := strings.IndexByte(s, ':')
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		j := strings.IndexByte(s[i+1:], '@')
+		if j < 0 {
+			// No '@' after this ':', so none after any later ':' either.
+			b.WriteString(s)
+			break
+		}
+		if j == 0 {
+			// ":@" has nothing to mask, and the '@' cannot start a match.
+			b.WriteString(s[:i+2])
+			s = s[i+2:]
+			continue
+		}
+		b.WriteString(s[:i])
+		b.WriteString(":xxxxxx@")
+		s = s[i+1+j+1:]
+	}
+	return b.String()
+}
 '''
 
 
@@ -564,9 +593,9 @@ def patch_pgpass():
 
 
 def patch_errors():
-    """Drop regexp from pgconn/errors.go: redactPW's three patterns become
-    string scans, verified equivalent against the originals over fixed cases
-    and 200k random inputs."""
+    """Drop regexp from pgconn/errors.go: redactPW's three patterns and
+    redactURLPassword's one become string scans, verified equivalent against
+    the originals over fixed cases and 200k random inputs."""
     path = os.path.join(PGCONN, "errors.go")
     body = read(path)
 
@@ -590,6 +619,18 @@ def patch_errors():
         "\tconnString = redactColonPassword(connString)\n"
         "\treturn connString\n"
         "}\n" + REDACT_HELPERS,
+    )
+
+    # v5.11.0 added a fourth pattern, for URIs too malformed to delimit.
+    old = (
+        "\t\tbrokenUserinfo := regexp.MustCompile(`:[^@]+@`)\n"
+        '\t\tp = brokenUserinfo.ReplaceAllLiteralString(p, ":xxxxxx@")\n'
+    )
+    require(body, old, "errors.go")
+    body = body.replace(
+        old,
+        "\t\t// Local patch: a string scan instead of a regexp; see PATCHES.md.\n"
+        "\t\tp = redactBrokenUserinfo(p)\n",
     )
     require(body, '\t"regexp"\n', "errors.go")
     body = body.replace('\t"regexp"\n', "")

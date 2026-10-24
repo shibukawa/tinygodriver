@@ -6,7 +6,7 @@ summary: >-
   unmodified on host go, three-file patch on tinygo.
 facts:
   import: github.com/jackc/pgx/v5
-  version_validated: v5.10.0
+  version_validated: v5.11.0
   used_as: >
     database/sql driver through pgx/stdlib on both paths; stdlib pulls in the whole module, so it costs
     no extra vendoring over calling pgx directly

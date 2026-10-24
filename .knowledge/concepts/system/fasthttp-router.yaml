@@ -14,7 +14,7 @@ facts:
     root: router.go, group.go, path.go, types.go, utils.go
     radix: tree matching, the only subpackage
   deps:
-    valyala/fasthttp: declared v1.58.0; fork tracks v1.73.0, compile surface is small (RequestCtx, RequestHandler)
+    valyala/fasthttp: declared v1.58.0; fork tracks v1.76.0, compile surface is small (RequestCtx, RequestHandler)
     savsgio/gotils: bytes.Rand, strconv B2S/S2B, strings helpers; pure Go
     valyala/bytebufferpool: already a repo dependency
   stdlib_nontest: errors, fmt, io/fs, regexp, sort, strings, unicode/utf8

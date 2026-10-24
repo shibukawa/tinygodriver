@@ -25,7 +25,7 @@ facts:
       a replace directive only applies to the main module, so consumers of this library would silently
       get upstream pgx and fail to build under tinygo
   version_pinning:
-    current: v5.10.0
+    current: v5.11.0
     recorded_in: vendor.py, alongside the expected checksum
     track: the v5 line
   local_patches:

@@ -18,7 +18,7 @@
 // On standard Go every name here is an alias for the upstream
 // github.com/jackc/pgx/v5 type, so a *pgx.Conn from this package is upstream's
 // *pgx.Conn and passes to third-party code unchanged. On TinyGo the same names
-// bind to a vendored copy of pgx v5.10.0 with its TLS use rerouted onto the
+// bind to a vendored copy of pgx v5.11.0 with its TLS use rerouted onto the
 // platform's native stack, because TinyGo ships crypto/tls as a stub that
 // cannot be linked. See database/internal/PATCHES.md. Code written against
 // this package compiles identically on both.

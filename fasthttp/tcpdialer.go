@@ -160,6 +160,11 @@ type TCPDialer struct {
 	// DNSCacheDuration may be used to override the default DNS cache duration (DefaultDNSCacheDuration)
 	DNSCacheDuration time.Duration
 
+	// KeepAlive specifies the keep-alive period for an active network connection.
+	// If zero, keep-alives are enabled if supported by the protocol and operating system.
+	// If negative, keep-alives are disabled.
+	KeepAlive time.Duration
+
 	once sync.Once
 
 	// DisableDNSResolution may be used to disable DNS resolution
@@ -359,6 +364,9 @@ func (d *TCPDialer) tryDial(
 	if d.LocalAddr != nil {
 		dialer.LocalAddr = d.LocalAddr
 	}
+	if d.KeepAlive != 0 {
+		dialer.KeepAlive = d.KeepAlive
+	}
 
 	ctx, cancelCtx := context.WithDeadline(context.Background(), deadline)
 	defer cancelCtx()
@@ -377,13 +385,12 @@ var ErrDialTimeout = errors.New("fasthttp: dialing to the given tcp address time
 
 // ErrDialWithUpstream wraps dial error with upstream info.
 //
-// Should use errors.As to get upstream information from error:
+// Use errors.AsType to get upstream information from the error:
 //
 //	hc := fasthttp.HostClient{Addr: "foo.com,bar.com"}
 //	err := hc.Do(req, res)
 //
-//	var dialErr *fasthttp.ErrDialWithUpstream
-//	if errors.As(err, &dialErr) {
+//	if dialErr, ok := errors.AsType[*fasthttp.ErrDialWithUpstream](err); ok {
 //		upstream = dialErr.Upstream // 34.206.39.153:80
 //	}
 type ErrDialWithUpstream struct {

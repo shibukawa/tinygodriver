@@ -25,7 +25,7 @@ import subprocess
 import sys
 import zipfile
 
-PGX_VERSION = "v5.10.0"
+PGX_VERSION = "v5.11.0"
 PGX_MODULE = "github.com/jackc/pgx/v5"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +44,7 @@ KEEP_DIRS = {
     "pgxpool",
     "stdlib",
     "internal/iobufpool",
+    "internal/pgdatetime",
     "internal/pgio",
     "internal/sanitize",
     "internal/stmtcache",

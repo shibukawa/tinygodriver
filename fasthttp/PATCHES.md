@@ -1,14 +1,14 @@
 # Local patches to the vendored fasthttp
 
-Vendored by `vendor.py` from `github.com/valyala/fasthttp v1.73.0`.
+Vendored by `vendor.py` from `github.com/valyala/fasthttp v1.76.0`.
 
 Every change below is applied by `vendor.py` itself, as an exact-text
 replacement with an expected occurrence count. A count that no longer matches
 aborts the run, so a version bump fails loudly instead of silently dropping a
 patch. Keep this file and that script in sync.
 
-Upstream is otherwise untouched — 50 sources, import paths rewritten only, and
-every edit marked with a `PETITWEB:` comment so a diff against v1.73.0 stays
+Upstream is otherwise untouched — 51 sources, import paths rewritten only, and
+every edit marked with a `PETITWEB:` comment so a diff against v1.76.0 stays
 readable.
 
 ## Why any patch is needed
@@ -248,9 +248,15 @@ writers are rare, but a plain mutex costs nothing around a field read. Each
 site is a one-line type change plus the import, appended as its own group at
 the end of the block so gofmt leaves it in place.
 
-## SIMD header-value validation
+## Retired at v1.76.0: SIMD header-value validation
 
-`header.go` uses the shared `internal/bytealg` validator on values of at least
-64 bytes in the request, response and trailer parsers. Short values retain the
-inline table scan. `vendor.py` anchors the three loop replacements and keeps
-`header_vector_test.go` in `LOCAL_FILES`.
+Through v1.73.0, `header.go` validated each header and trailer value in its own
+byte loop after the line had been found, and the fork swapped those three loops
+for `internal/bytealg.ValidHeaderValue` on values of at least 64 bytes.
+
+v1.75.0 moved validation into the scanner: `scanValueLine` in
+`headerscanner.go` finds the end of the line and validates it in the same pass,
+eight bytes at a time, and the parsers only read the resulting `valueValid`
+flag. The loops the patch replaced no longer exist, so the patch and
+`header_vector_test.go`, which guarded it, were dropped. A vector path now would
+have to replace `scanValueLine` itself; that has not been measured.
