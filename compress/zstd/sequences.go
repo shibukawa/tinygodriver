@@ -28,6 +28,28 @@ const (
 	// block early and the remainder becomes the next one, so nothing is lost but
 	// the matches that would have crossed the boundary.
 	maxSequences = 4096
+
+	// interiorStride is how sparsely the inside of a long match is indexed. A
+	// short match is indexed at every position, because a later occurrence of
+	// part of it can only be found through those entries; a long one is
+	// indexed at every fourth, because the next occurrence is almost always
+	// the whole match again, found from its start, and hashing every byte of
+	// a 60-byte line that will never be matched into was a third of the
+	// finder's time on markup. The cost is a match that starts a byte or two
+	// late now and then, which was under one percent of the output on the
+	// ratio corpus.
+	interiorStride = 4
+
+	// interiorStrideFrom is the match length at which the stride applies.
+	interiorStrideFrom = 16
+
+	// skipStrength paces the finder through input that is not matching: after
+	// a miss it advances by one plus the current literal run divided by
+	// 2^skipStrength, so a run of a few hundred unmatched bytes is sampled
+	// ever more coarsely. Compressible content resets the run at every match
+	// and never notices; incompressible content, which the stored fallback
+	// will carry anyway, stops costing a hash per byte.
+	skipStrength = 7
 )
 
 // sequence is a run of literals followed by a match, in the format's own terms.
@@ -179,7 +201,8 @@ func (z *Writer) findSequences(p []byte) int {
 			z.recordTouch(h)
 		}
 		if cand < 0 || binary.LittleEndian.Uint32(p[cand:]) != binary.LittleEndian.Uint32(p[pos:]) {
-			pos++
+			// Positions passed over here are not indexed either; see skipStrength.
+			pos += 1 + (pos-lit)>>skipStrength
 			continue
 		}
 
@@ -215,8 +238,13 @@ func (z *Writer) findSequences(p []byte) int {
 		})
 
 		// Index the interior of the match so a later position can match into it.
-		// Without this, long matches leave holes the finder cannot see back into.
-		for k := 1; k < length && pos+k+minMatch <= len(p); k++ {
+		// Without this, long matches leave holes the finder cannot see back into;
+		// see interiorStride for why a long match is indexed sparsely.
+		step := 1
+		if length >= interiorStrideFrom {
+			step = interiorStride
+		}
+		for k := 1; k < length && pos+k+minMatch <= len(p); k += step {
 			ih := hash4(p, pos+k)
 			z.match[ih] = int32(pos + k + 1)
 			if track {

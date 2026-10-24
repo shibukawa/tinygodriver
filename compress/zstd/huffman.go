@@ -50,12 +50,15 @@ type huffTable struct {
 	maxBit uint8       // longest code length
 }
 
-// huffNode is one tree node: leaves first, then internal nodes appended as they
-// are created. Indices and symbols both fit comfortably in 16 bits.
+// huffNode is one tree node: leaves first, in symbol order, then internal
+// nodes in the order the merge created them, so every node's children sit at
+// lower indices than it does. Indices and symbols both fit comfortably in 16
+// bits, and a weight is a literal count, which a block bounds well below 2^32.
 type huffNode struct {
-	weight      uint64
+	weight      uint32
 	left, right int16 // -1 for a leaf
 	symbol      int16
+	depth       uint8
 }
 
 // huffScratch is the tree builder's working set, sized for the largest tree the
@@ -64,13 +67,7 @@ type huffNode struct {
 // block, allocates nothing.
 type huffScratch struct {
 	nodes [2 * (maxHuffSymbol + 1)]huffNode
-	live  [maxHuffSymbol + 1]int16
-	stack [2 * (maxHuffSymbol + 1)]huffFrame
-}
-
-type huffFrame struct {
-	n     int16
-	depth uint8
+	order [maxHuffSymbol + 1]int16
 }
 
 // buildHuffTable fits a code to counts, writing it into t. It reports false
@@ -149,11 +146,13 @@ func buildHuffTable(t *huffTable, sc *huffScratch, counts *[256]uint32, total in
 // weights, and returns the longest length produced. counts below floor are
 // treated as floor.
 //
-// The alphabet is at most 129 symbols, so merging in place over a slice costs
-// little and is far harder to get wrong than a heap.
+// The leaves are sorted once and the merge then runs over two queues -- the
+// sorted leaves and the internal nodes, which are created in non-decreasing
+// weight order -- so the two smallest are always at the heads. That is linear
+// after the sort, where picking the pair by scanning every live node was
+// quadratic and the largest single cost of a small block.
 func huffLengths(sc *huffScratch, counts *[256]uint32, maxSymbol int, floor uint32, out *[maxHuffSymbol + 1]uint8) uint8 {
 	nodes := sc.nodes[:0]
-	live := sc.live[:0]
 	for s := 0; s <= maxSymbol; s++ {
 		c := counts[s]
 		if c == 0 {
@@ -162,63 +161,75 @@ func huffLengths(sc *huffScratch, counts *[256]uint32, maxSymbol int, floor uint
 		if c < floor {
 			c = floor
 		}
-		nodes = append(nodes, huffNode{weight: uint64(c), left: -1, right: -1, symbol: int16(s)})
-		live = append(live, int16(len(nodes)-1))
+		nodes = append(nodes, huffNode{weight: c, left: -1, right: -1, symbol: int16(s)})
 	}
+	n := len(nodes)
 
-	for len(live) > 1 {
-		// Two smallest, by weight and then by index so the result is stable.
-		a, b := 0, 1
-		if nodes[live[b]].weight < nodes[live[a]].weight {
-			a, b = b, a
-		}
-		for i := 2; i < len(live); i++ {
-			switch w := nodes[live[i]].weight; {
-			case w < nodes[live[a]].weight:
-				b, a = a, i
-			case w < nodes[live[b]].weight:
-				b = i
+	// Leaves by weight, ties by symbol. A binary insertion sort: the alphabet
+	// is at most 129 symbols, so the moves are a few hundred bytes of copy and
+	// there is no comparison callback to pay for.
+	order := sc.order[:n]
+	for i := 0; i < n; i++ {
+		w := nodes[i].weight
+		lo, hi := 0, i
+		for lo < hi {
+			mid := int(uint(lo+hi) >> 1)
+			if nodes[order[mid]].weight <= w {
+				lo = mid + 1
+			} else {
+				hi = mid
 			}
 		}
-		nodes = append(nodes, huffNode{
-			weight: nodes[live[a]].weight + nodes[live[b]].weight,
-			left:   live[a],
-			right:  live[b],
-			symbol: -1,
-		})
-		// Replace one slot with the parent and remove the other.
-		lo, hi := a, b
-		if lo > hi {
-			lo, hi = hi, lo
-		}
-		live[lo] = int16(len(nodes) - 1)
-		live[hi] = live[len(live)-1]
-		live = live[:len(live)-1]
+		copy(order[lo+1:i+1], order[lo:i])
+		order[lo] = int16(i)
 	}
 
+	// The merge. A leaf is taken before an internal node of equal weight,
+	// which is one fixed rule among the equally good ones; it only has to be
+	// deterministic, so that one input always encodes to the same bytes.
+	nodes = sc.nodes[:2*n-1]
+	leaf, internal, created := 0, n, n
+	for created < len(nodes) {
+		var pair [2]int16
+		for k := range pair {
+			if leaf < n && (internal >= created || nodes[order[leaf]].weight <= nodes[internal].weight) {
+				pair[k] = order[leaf]
+				leaf++
+			} else {
+				pair[k] = int16(internal)
+				internal++
+			}
+		}
+		nodes[created] = huffNode{
+			weight: nodes[pair[0]].weight + nodes[pair[1]].weight,
+			left:   pair[0],
+			right:  pair[1],
+			symbol: -1,
+		}
+		created++
+	}
+
+	// Depths, top down. The root is the last node created and every node's
+	// children precede it, so one pass from the end assigns each child its
+	// depth before the child itself is visited; no stack is needed.
+	root := created - 1
+	nodes[root].depth = 0
+	for k := root; k >= n; k-- {
+		d := nodes[k].depth + 1
+		nodes[nodes[k].left].depth = d
+		nodes[nodes[k].right].depth = d
+	}
 	*out = [maxHuffSymbol + 1]uint8{}
 	var deepest uint8
-	// Depth-first walk, carrying the depth. The tree has at most 257 nodes, so an
-	// explicit stack is bounded and cheap.
-	stack := sc.stack[:0]
-	stack = append(stack, huffFrame{n: live[0], depth: 0})
-	for len(stack) > 0 {
-		f := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		n := nodes[f.n]
-		if n.left < 0 {
-			d := f.depth
-			if d == 0 {
-				d = 1 // a single-leaf tree still needs a bit
-			}
-			out[n.symbol] = d
-			if d > deepest {
-				deepest = d
-			}
-			continue
+	for k := 0; k < n; k++ {
+		d := nodes[k].depth
+		if d == 0 {
+			d = 1 // a single-leaf tree still needs a bit
 		}
-		stack = append(stack, huffFrame{n: n.left, depth: f.depth + 1})
-		stack = append(stack, huffFrame{n: n.right, depth: f.depth + 1})
+		out[nodes[k].symbol] = d
+		if d > deepest {
+			deepest = d
+		}
 	}
 	return deepest
 }

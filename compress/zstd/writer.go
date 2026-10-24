@@ -322,9 +322,40 @@ func splitRuns(p []byte, spans []span) (out []span, size int, allSame bool) {
 		// what lets content with no runs -- most content -- move at eight bytes a
 		// step instead of one. The skipped positions are all runs of length one,
 		// which the per-run loop below would have stepped over singly.
+		//
+		// Two words go at a time, with the shifted operand assembled from the
+		// words themselves rather than loaded again: three loads for sixteen
+		// positions instead of four for eight. When a pair is found, the lowest
+		// flag of the zero-byte test says where, so the scan resumes at the
+		// pair itself. Markup has a pair every line or two -- indentation,
+		// doubled letters -- and stepping up to it a byte at a time, which
+		// is what breaking out of the loop early amounted to, cost more than
+		// the pairs' runs ever saved.
+		const (
+			ones = 0x0101010101010101
+			high = 0x8080808080808080
+		)
+		for start+17 <= len(p) {
+			w0 := binary.LittleEndian.Uint64(p[start:])
+			w1 := binary.LittleEndian.Uint64(p[start+8:])
+			x0 := w0 ^ (w0>>8 | w1<<56)
+			x1 := w1 ^ (w1>>8 | uint64(p[start+16])<<56)
+			m0 := (x0 - ones) &^ x0 & high
+			m1 := (x1 - ones) &^ x1 & high
+			if m0|m1 != 0 {
+				if m0 != 0 {
+					start += bits.TrailingZeros64(m0) >> 3
+				} else {
+					start += 8 + bits.TrailingZeros64(m1)>>3
+				}
+				break
+			}
+			start += 16
+		}
 		for start+9 <= len(p) {
 			x := binary.LittleEndian.Uint64(p[start:]) ^ binary.LittleEndian.Uint64(p[start+1:])
-			if (x-0x0101010101010101)&^x&0x8080808080808080 != 0 {
+			if m := (x - ones) &^ x & high; m != 0 {
+				start += bits.TrailingZeros64(m) >> 3
 				break
 			}
 			start += 8

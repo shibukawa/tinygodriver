@@ -1,12 +1,12 @@
 package jwt
 
 import (
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 
 	"github.com/shibukawa/tinygodriver/encoding/simdbase64"
+	"github.com/shibukawa/tinygodriver/internal/hmacsha256"
 )
 
 type Signer interface {
@@ -31,9 +31,8 @@ func (s *HMACSigner) Sign(signingInput []byte) ([]byte, error) {
 	if s == nil || len(s.key) < sha256.Size {
 		return nil, ErrInvalidOptions
 	}
-	mac := hmac.New(sha256.New, s.key)
-	_, _ = mac.Write(signingInput)
-	return mac.Sum(nil), nil
+	sum := hmacsha256.Sum(s.key, signingInput)
+	return sum[:], nil
 }
 
 // signingAlgorithms is what Sign will emit. It is deliberately the same set

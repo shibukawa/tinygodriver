@@ -41,10 +41,51 @@ type Decoder struct {
 	// runs once per head. It is separate from scratch so neither read can
 	// clobber the other's bytes.
 	one [1]byte
-	// keyBuf backs duplicate map key detection. One buffer serves every depth,
-	// because a key is canonicalized and recorded before the scan descends into
-	// its value.
-	keyBuf []byte
+	// keyBuf and keyRefs back duplicate map key detection. keyBuf holds the
+	// canonical form of every key of every map the scan is inside, innermost
+	// map last, and keyRefs locates each one; a map's keys are released
+	// together when it closes. One arena serves every depth because a key is
+	// canonicalized and recorded before the scan descends into its value.
+	keyBuf  []byte
+	keyRefs []keyRef
+}
+
+// keyRef locates one recorded map key in Decoder.keyBuf, with a tag so a scan
+// over the recorded keys compares bytes only on a tag match.
+type keyRef struct {
+	off, end int
+	tag      uint64
+}
+
+// keySet is the duplicate detector for one map: its keys live in the
+// Decoder's arena above refBase and bufBase until they grow past
+// maxScannedKeys, when they move into large. It is a local of scanContainer,
+// and escape analysis keeps it on that frame.
+type keySet struct {
+	refBase, bufBase int
+	large            map[string]struct{}
+}
+
+// maxScannedKeys is the most keys a map records in the arena, where each new
+// key is checked by a scan. The scan is a tag compare per recorded key, so at
+// this size it is still a few dozen word compares; beyond it the keys move to a
+// set, which allocates per key but stays linear in the map's size.
+const maxScannedKeys = 64
+
+// keyTag summarizes a canonical key in constant time: its length and its last
+// eight bytes, which for the integer and short text keys that make up most
+// maps is where two keys differ. Hashing the whole key cost more than the
+// allocations the scan saves when keys are long, and a tag only has to keep
+// the byte comparison off keys that plainly differ.
+func keyTag(b []byte) uint64 {
+	tag := uint64(len(b)) << 56
+	if len(b) >= 8 {
+		return tag ^ binary.LittleEndian.Uint64(b[len(b)-8:])
+	}
+	for i, c := range b {
+		tag |= uint64(c) << (8 * i)
+	}
+	return tag
 }
 
 func NewDecoder(r io.Reader, opts DecoderOptions) (*Decoder, error) {
@@ -609,6 +650,8 @@ func (d *Decoder) ReadRaw() (RawMessage, error) {
 	}
 	raw := make([]byte, 0, 128)
 	d.capture = &raw
+	// Whatever a failed scan left recorded belongs to no open map now.
+	d.keyRefs, d.keyBuf = d.keyRefs[:0], d.keyBuf[:0]
 	b, err := d.readByte()
 	if err == nil {
 		err = d.scanItemHead(0, b)
@@ -716,7 +759,20 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 			return fmt.Errorf("%w: container items", ErrLimitExceeded)
 		}
 	}
-	var seen map[string]struct{}
+	// A map whose keys are checked records them above whatever the enclosing
+	// maps hold and releases them when it closes. A scan that fails leaves
+	// them; ReadRaw clears the arena before the next item, so nothing is
+	// owed on the error paths below.
+	var set *keySet
+	if isMap && d.opts.RejectDuplicateMapKeys {
+		if d.keyRefs == nil {
+			// Sized on first use for a message of ordinary shape, so recording
+			// a key is not a growth step.
+			d.keyRefs = make([]keyRef, 0, 16)
+			d.keyBuf = make([]byte, 0, 512)
+		}
+		set = &keySet{refBase: len(d.keyRefs), bufBase: len(d.keyBuf)}
+	}
 	items := 0
 	for {
 		if !indef && uint64(items) >= count {
@@ -739,8 +795,8 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 					return err
 				}
 				key := (*d.capture)[start:]
-				if d.opts.RejectDuplicateMapKeys {
-					if err := d.noteMapKey(&seen, key); err != nil {
+				if set != nil {
+					if err := d.noteMapKey(set, key); err != nil {
 						return err
 					}
 				}
@@ -762,13 +818,10 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 				return err
 			}
 			key := (*d.capture)[start:]
-			if d.opts.RejectDuplicateMapKeys {
-				if err := d.noteMapKey(&seen, key); err != nil {
+			if set != nil {
+				if err := d.noteMapKey(set, key); err != nil {
 					return err
 				}
-			}
-			if indef {
-				// A break is legal only where the next key would begin, never as a value.
 			}
 			if err := d.scanItem(depth); err != nil {
 				return err
@@ -780,26 +833,56 @@ func (d *Decoder) scanContainer(depth int, ai byte, isMap bool) error {
 		}
 		items++
 	}
+	if set != nil {
+		d.keyRefs = d.keyRefs[:set.refBase]
+		d.keyBuf = d.keyBuf[:set.bufBase]
+	}
 	return nil
 }
 
-// noteMapKey canonicalizes one encoded map key and records it, reporting a
-// duplicate against every key already recorded for the same map. The set is
-// created on first use, so a map without detection enabled, and every array,
-// costs nothing.
-func (d *Decoder) noteMapKey(seen *map[string]struct{}, key []byte) error {
-	buf, err := canonicalizeKey(d.keyBuf[:0], key, d.opts.MaxNestedLevels)
+// noteMapKey canonicalizes one encoded map key and records it in set,
+// reporting a duplicate against every key already recorded for the same map.
+//
+// The canonical form goes into the Decoder's arena and is found again by a
+// hash-filtered scan, so a map of ordinary size records its keys without
+// allocating; the map and the per-key string this replaces were most of what
+// decoding an untrusted map allocated.
+func (d *Decoder) noteMapKey(set *keySet, key []byte) error {
+	start := len(d.keyBuf)
+	buf, err := canonicalizeKey(d.keyBuf, key, d.opts.MaxNestedLevels)
 	if err != nil {
 		return err
 	}
-	d.keyBuf = buf
-	if *seen == nil {
-		*seen = make(map[string]struct{})
+	canon := buf[start:]
+	if set.large != nil {
+		d.keyBuf = buf[:start]
+		if _, ok := set.large[string(canon)]; ok {
+			return ErrDuplicateMapKey
+		}
+		set.large[string(canon)] = struct{}{}
+		return nil
 	}
-	if _, ok := (*seen)[string(buf)]; ok {
-		return ErrDuplicateMapKey
+	tag := keyTag(canon)
+	refs := d.keyRefs[set.refBase:]
+	for _, r := range refs {
+		if r.tag == tag && bytes.Equal(buf[r.off:r.end], canon) {
+			return ErrDuplicateMapKey
+		}
 	}
-	(*seen)[string(buf)] = struct{}{}
+	if len(refs) < maxScannedKeys {
+		d.keyBuf = buf
+		d.keyRefs = append(d.keyRefs, keyRef{off: start, end: len(buf), tag: tag})
+		return nil
+	}
+	// Too many keys for a scan to stay cheap: move them into a set and record
+	// the rest of the map there, giving the arena back to the enclosing maps.
+	set.large = make(map[string]struct{}, 2*len(refs))
+	for _, r := range refs {
+		set.large[string(buf[r.off:r.end])] = struct{}{}
+	}
+	set.large[string(canon)] = struct{}{}
+	d.keyRefs = d.keyRefs[:set.refBase]
+	d.keyBuf = buf[:set.bufBase]
 	return nil
 }
 

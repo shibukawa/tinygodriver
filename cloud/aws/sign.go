@@ -1,9 +1,9 @@
 package aws
 
 import (
-	"crypto/hmac"
 	"crypto/sha256"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shibukawa/tinygodriver/encoding/hex"
+	"github.com/shibukawa/tinygodriver/internal/hmacsha256"
 )
 
 const algorithm = "AWS4-HMAC-SHA256"
@@ -27,16 +28,18 @@ const (
 
 // signedHeaderNames lists the headers included in the signature besides host
 // and everything x-amz-*. A header here is signed only when the request
-// carries it, so one list serves every service.
+// carries it, so one list serves every service. Each name is spelled both as
+// the header map stores it and as the canonical request wants it, so the
+// lookup is a map index and neither spelling is derived per request.
 //
 // Content-Length is absent on purpose: net/http writes it from
 // Request.ContentLength rather than from the header map, so signing it would
 // cover a header the server never receives.
-var signedHeaderNames = []string{
-	"content-encoding",
-	"content-md5",
-	"content-type",
-	"range",
+var signedHeaderNames = [...]struct{ canonical, lower string }{
+	{"Content-Encoding", "content-encoding"},
+	{"Content-Md5", "content-md5"},
+	{"Content-Type", "content-type"},
+	{"Range", "range"},
 }
 
 // SignRequest is everything about a signature that is not the request or the
@@ -63,12 +66,6 @@ type SignRequest struct {
 
 	// Time is the signing time. The zero value means now.
 	Time time.Time
-}
-
-func hmacSHA256(key []byte, data string) []byte {
-	m := hmac.New(sha256.New, key)
-	m.Write([]byte(data))
-	return m.Sum(nil)
 }
 
 // SHA256Hex returns the hex SHA-256 of b, which is the form a payload hash
@@ -152,10 +149,18 @@ func CanonicalQuery(params [][2]string) string {
 func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 	amzDate, dateStamp := signingTime(sr.Time)
 
-	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("X-Amz-Content-Sha256", sr.PayloadHash)
+	// The headers Sign sets are single-valued, so one allocation holds all
+	// their values and each header gets a full one-element slice of it: an
+	// Add to any of them reallocates rather than reaching the next. The names
+	// are already in canonical form, which is what Header.Set would have
+	// produced, and the map is indexed directly to save the canonicalization.
+	values := make([]string, 4)
+	values[0], values[1] = amzDate, sr.PayloadHash
+	req.Header["X-Amz-Date"] = values[0:1:1]
+	req.Header["X-Amz-Content-Sha256"] = values[1:2:2]
 	if creds.SessionToken != "" {
-		req.Header.Set("X-Amz-Security-Token", creds.SessionToken)
+		values[2] = creds.SessionToken
+		req.Header["X-Amz-Security-Token"] = values[2:3:3]
 	}
 
 	// The buffers are made here rather than in the helpers so escape analysis
@@ -166,11 +171,32 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 	canonicalHex := canonicalRequestHash(make([]byte, 0, 512), req.Method,
 		canonicalURI(req, sr.DoubleEncodePath), req.URL.RawQuery, headers, signedHeaders, sr.PayloadHash)
 
-	scope := dateStamp + "/" + sr.Region + "/" + sr.Service + "/aws4_request"
+	scope := appendScope(make([]byte, 0, 64), dateStamp, sr.Region, sr.Service)
 	signature := signStringToSign(creds.SecretAccessKey, sr, amzDate, dateStamp, scope, canonicalHex)
 
-	req.Header.Set("Authorization", algorithm+" Credential="+creds.AccessKeyID+"/"+scope+
-		", SignedHeaders="+string(signedHeaders)+", Signature="+string(signature[:]))
+	// Assembled in one buffer and converted once; the string is the only
+	// allocation the Authorization header costs.
+	auth := make([]byte, 0, 256)
+	auth = append(auth, algorithm+" Credential="...)
+	auth = append(auth, creds.AccessKeyID...)
+	auth = append(auth, '/')
+	auth = append(auth, scope...)
+	auth = append(auth, ", SignedHeaders="...)
+	auth = append(auth, signedHeaders...)
+	auth = append(auth, ", Signature="...)
+	auth = append(auth, signature[:]...)
+	values[3] = string(auth)
+	req.Header["Authorization"] = values[3:4:4]
+}
+
+// appendScope appends the credential scope, "20260801/ap-northeast-1/s3/aws4_request".
+func appendScope(dst []byte, dateStamp, region, service string) []byte {
+	dst = append(dst, dateStamp...)
+	dst = append(dst, '/')
+	dst = append(dst, region...)
+	dst = append(dst, '/')
+	dst = append(dst, service...)
+	return append(dst, "/aws4_request"...)
 }
 
 // Presign signs req through its query string instead of its headers, so the
@@ -191,7 +217,7 @@ func Sign(req *http.Request, creds Credentials, sr SignRequest) {
 // URIEncode and CanonicalQuery, as for Sign.
 func Presign(req *http.Request, creds Credentials, sr SignRequest, expires time.Duration) {
 	amzDate, dateStamp := signingTime(sr.Time)
-	scope := dateStamp + "/" + sr.Region + "/" + sr.Service + "/aws4_request"
+	scope := appendScope(make([]byte, 0, 64), dateStamp, sr.Region, sr.Service)
 
 	headers := collectHeaders(make([]signedHeader, 0, 8), req, true)
 	signedHeaders := joinHeaderNames(make([]byte, 0, 96), headers)
@@ -206,7 +232,7 @@ func Presign(req *http.Request, creds Credentials, sr SignRequest, expires time.
 	}
 	pairs = append(pairs,
 		"X-Amz-Algorithm="+algorithm,
-		"X-Amz-Credential="+URIEncode(creds.AccessKeyID+"/"+scope, true),
+		"X-Amz-Credential="+URIEncode(creds.AccessKeyID+"/"+string(scope), true),
 		"X-Amz-Date="+amzDate,
 		"X-Amz-Expires="+strconv.FormatInt(int64(seconds), 10),
 		"X-Amz-SignedHeaders="+URIEncode(string(signedHeaders), true),
@@ -252,8 +278,10 @@ func collectHeaders(headers []signedHeader, req *http.Request, all bool) []signe
 		return headers
 	}
 	for _, name := range signedHeaderNames {
-		if v := req.Header.Get(name); v != "" {
-			headers = insertHeader(headers, name, v)
+		// The same lookup Header.Get performs, since Get canonicalizes the
+		// name before indexing and these are stored canonical already.
+		if vs := req.Header[name.canonical]; len(vs) > 0 && vs[0] != "" {
+			headers = insertHeader(headers, name.lower, vs[0])
 		}
 	}
 	for name, vs := range req.Header {
@@ -278,7 +306,7 @@ func joinHeaderNames(signedHeaders []byte, headers []signedHeader) []byte {
 // canonicalURI is the path the canonical request names: the escaped path as
 // sent, or its double-encoded form for the services that normalize it.
 func canonicalURI(req *http.Request, doubleEncode bool) string {
-	uri := req.URL.EscapedPath()
+	uri := escapedPath(req.URL)
 	if uri == "" {
 		uri = "/"
 	}
@@ -286,6 +314,40 @@ func canonicalURI(req *http.Request, doubleEncode bool) string {
 		uri = URIEncode(uri, false)
 	}
 	return uri
+}
+
+// escapedPath is url.URL.EscapedPath without its allocation for the request
+// this package builds. EscapedPath returns RawPath when it is a valid encoding
+// of Path, which it establishes by unescaping RawPath into a new string; the
+// RawPath here was produced by URIEncode, so that same fact is checked by
+// re-encoding Path on the fly and comparing. Any other RawPath, including one
+// a caller wrote by hand, takes EscapedPath and gets exactly its answer.
+func escapedPath(u *url.URL) string {
+	if u.RawPath != "" && uriEncodesTo(u.Path, u.RawPath) {
+		return u.RawPath
+	}
+	return u.EscapedPath()
+}
+
+// uriEncodesTo reports whether URIEncode(path, false) == raw, without
+// building the encoded form.
+func uriEncodesTo(path, raw string) bool {
+	j := 0
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		if unreservedByte[c] || c == '/' {
+			if j >= len(raw) || raw[j] != c {
+				return false
+			}
+			j++
+			continue
+		}
+		if j+3 > len(raw) || raw[j] != '%' || raw[j+1] != upperhex[c>>4] || raw[j+2] != upperhex[c&0xF] {
+			return false
+		}
+		j += 3
+	}
+	return j == len(raw)
 }
 
 // canonicalRequestHash assembles the canonical request into canonical and
@@ -316,9 +378,9 @@ func canonicalRequestHash(canonical []byte, method, uri, query string, headers [
 
 // signStringToSign builds the string to sign over the canonical request hash
 // and returns its hex signature under the derived key.
-func signStringToSign(secret string, sr SignRequest, amzDate, dateStamp, scope string, canonicalHex [sha256.Size * 2]byte) [sha256.Size * 2]byte {
-	stringToSign := make([]byte, 0, len(algorithm)+len(amzDate)+len(scope)+len(canonicalHex)+3)
-	stringToSign = append(stringToSign, algorithm...)
+func signStringToSign(secret string, sr SignRequest, amzDate, dateStamp string, scope []byte, canonicalHex [sha256.Size * 2]byte) [sha256.Size * 2]byte {
+	var buf [256]byte
+	stringToSign := append(buf[:0], algorithm...)
 	stringToSign = append(stringToSign, '\n')
 	stringToSign = append(stringToSign, amzDate...)
 	stringToSign = append(stringToSign, '\n')
@@ -327,10 +389,9 @@ func signStringToSign(secret string, sr SignRequest, amzDate, dateStamp, scope s
 	stringToSign = append(stringToSign, canonicalHex[:]...)
 
 	key := signingKey(secret, dateStamp, sr.Region, sr.Service)
-	mac := hmac.New(sha256.New, key)
-	mac.Write(stringToSign)
+	mac := hmacsha256.Sum(key, stringToSign)
 	var signature [sha256.Size * 2]byte
-	hex.Encode(signature[:], mac.Sum(nil))
+	hex.Encode(signature[:], mac[:])
 	return signature
 }
 
@@ -422,8 +483,11 @@ func signingKey(secret, dateStamp, region, service string) []byte {
 		return key
 	}
 
-	key = hmacSHA256(hmacSHA256(hmacSHA256(hmacSHA256(
-		[]byte("AWS4"+secret), dateStamp), region), service), "aws4_request")
+	kDate := hmacsha256.Sum([]byte("AWS4"+secret), []byte(dateStamp))
+	kRegion := hmacsha256.Sum(kDate[:], []byte(region))
+	kService := hmacsha256.Sum(kRegion[:], []byte(service))
+	kSigning := hmacsha256.Sum(kService[:], []byte("aws4_request"))
+	key = kSigning[:]
 
 	c.Lock()
 	// A stale-day entry is useless from midnight on; starting over also bounds

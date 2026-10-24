@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/shibukawa/tinygodriver/internal/hmacsha256"
 )
 
 const maxLeeway = 10 * time.Minute
@@ -83,9 +85,8 @@ func verifySignature(token *Token, key VerificationKey) error {
 		if len(key.HMAC) < sha256.Size {
 			return ErrKeyNotFound
 		}
-		mac := hmac.New(sha256.New, key.HMAC)
-		_, _ = mac.Write(token.signingInput)
-		if !hmac.Equal(mac.Sum(nil), token.Signature) {
+		sum := hmacsha256.Sum(key.HMAC, token.signingInput)
+		if !hmac.Equal(sum[:], token.Signature) {
 			return ErrInvalidSignature
 		}
 		return nil

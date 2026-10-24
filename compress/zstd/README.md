@@ -193,8 +193,8 @@ server would otherwise negotiate:
 
 | payload | this encoder | deflate |
 |---|---|---|
-| 14 KiB HTML listing | 8.2% | 11.6% |
-| 11 KiB JSON array | 11.0% | 13.3% |
+| 14 KiB HTML listing | 8.3% | 11.6% |
+| 11 KiB JSON array | 11.1% | 13.3% |
 | 5 KiB varied text | 29.6% | 26.6% |
 | one repeated string | 1.4% | 1.6% |
 | incompressible | 100.1% | 100.1% |
@@ -202,6 +202,12 @@ server would otherwise negotiate:
 Varied prose is the one case that loses, and the breakdown says why: its cost is
 1247 bytes of sequences against 233 of literals, where deflate is finding
 word-level repeats this matcher does not.
+
+The matcher trades a little of the structured ratio for speed: the inside of a
+match of sixteen bytes or more is indexed at every fourth position rather than
+every one, and a long run of unmatched input is sampled ever more sparsely, so
+incompressible data costs a tenth of what hashing every byte did. Both are
+constants in `sequences.go`, with the measurements that chose them.
 
 `TestRatioAgainstDeflate` holds these within a stated multiple of deflate, and
 every case in the suite decodes through the reference implementation, so no ratio
