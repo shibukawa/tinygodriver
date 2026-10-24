@@ -1,6 +1,6 @@
-//go:build goexperiment.simd && (arm64 || amd64) && !tinygo && !hex_c
+//go:build goexperiment.simd && amd64 && !tinygo && !hex_c
 
-package hex
+package simdhex
 
 import "simd/archsimd"
 

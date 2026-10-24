@@ -710,7 +710,7 @@ def patch_hex():
     """Use the shared hex backend and append bytea directly into its buffer."""
     pgx_root = os.path.join(HERE, "pgx")
     old_import = '\t"encoding/hex"\n'
-    local_import = '\n\t"github.com/shibukawa/tinygodriver/encoding/hex"'
+    local_import = '\n\thex "github.com/shibukawa/tinygodriver/encoding/simdhex" // Local patch: shared SIMD hex backend.'
     patched = 0
     for root, dirs, files in os.walk(pgx_root):
         dirs.sort()

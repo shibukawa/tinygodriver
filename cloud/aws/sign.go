@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shibukawa/tinygodriver/encoding/hex"
+	"github.com/shibukawa/tinygodriver/encoding/simdhex"
 	"github.com/shibukawa/tinygodriver/internal/hmacsha256"
 )
 
@@ -72,7 +72,7 @@ type SignRequest struct {
 // takes on the wire.
 func SHA256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+	return simdhex.EncodeToString(sum[:])
 }
 
 // unreservedByte marks the bytes SigV4 leaves unescaped: ALPHA / DIGIT and
@@ -372,7 +372,7 @@ func canonicalRequestHash(canonical []byte, method, uri, query string, headers [
 	canonical = append(canonical, payloadHash...)
 	canonicalSum := sha256.Sum256(canonical)
 	var canonicalHex [sha256.Size * 2]byte
-	hex.Encode(canonicalHex[:], canonicalSum[:])
+	simdhex.Encode(canonicalHex[:], canonicalSum[:])
 	return canonicalHex
 }
 
@@ -391,7 +391,7 @@ func signStringToSign(secret string, sr SignRequest, amzDate, dateStamp string, 
 	key := signingKey(secret, dateStamp, sr.Region, sr.Service)
 	mac := hmacsha256.Sum(key, stringToSign)
 	var signature [sha256.Size * 2]byte
-	hex.Encode(signature[:], mac[:])
+	simdhex.Encode(signature[:], mac[:])
 	return signature
 }
 

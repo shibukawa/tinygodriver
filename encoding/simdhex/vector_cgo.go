@@ -1,6 +1,6 @@
 //go:build (tinygo || hex_c) && cgo && (arm64 || amd64) && (darwin || linux || windows)
 
-package hex
+package simdhex
 
 /*
 #include <stddef.h>

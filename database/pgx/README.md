@@ -69,7 +69,7 @@ writes; plaintext `CopyFrom` is full duplex and verified.
 
 ## TinyGo notes
 
-The vendored backend uses the shared [hex package](../../encoding/hex) for
+The vendored backend uses the shared [hex package](../../encoding/simdhex) for
 hexadecimal protocol values, including direct-buffer bytea text encoding.
 
 Build with `-scheduler=threads`. Under the cooperative scheduler a blocking

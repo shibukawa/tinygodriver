@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/pgconn"
-	"github.com/shibukawa/tinygodriver/encoding/hex"
+	hex "github.com/shibukawa/tinygodriver/encoding/simdhex" // Local patch: shared SIMD hex backend.
 )
 
 // StatementName returns a statement name that will be stable for sql across multiple connections and program

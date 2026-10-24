@@ -123,11 +123,22 @@ boundaries are covered by the existing reader suite on both compilers.
 
 ## Hexadecimal conversion
 
-The new `encoding/hex` package provides the standard hex API, including mixed
+The new `encoding/simdhex` package (named `encoding/hex` until 2026-10-25) provides the standard hex API, including mixed
 case decoding, error identity and partial output. AWS signing, S3 hashes,
 zstd ETags and the vendored PostgreSQL helpers now use it. PostgreSQL bytea
 also appends directly into its destination instead of making a temporary
 hex string. Its regeneration script reproduces all 15 modified vendored files.
+
+**Update 2026-10-25.** Go on arm64 now selects a Go-assembler NEON backend
+(`encoding/simdhex/vector_arm64.s`) in default builds, replacing the `archsimd`
+kernel measured below, which needed `GOEXPERIMENT=simd`; the `purego` tag
+restores the standard library and amd64 keeps `archsimd`. Under the same
+rotated five-sample protocol, 64 KiB encoding went from 19.77 to 36.12 GB/s
+and decoding from 8.44 to 16.17 GB/s, ahead of the TinyGo C kernel's 24.2 and
+9.5 GB/s; the 32-byte case went from 4.60 to 4.03 ns encoding and from 7.27 to
+5.91 ns decoding. [The hex README](encoding/simdhex/README.md) has the full tables
+and [the new samples](encoding/simdhex/testdata/bench-20261025.txt); the tables
+below remain the 2026-10-20 `archsimd` run.
 
 These are 300 additional samples from the same Apple M3 with five 300 ms runs
 per condition and rotated compiler order. Each binary compares its own
@@ -164,8 +175,8 @@ Temporary vendor fixtures reproduced all 271 Go files across the two
 WebSocket forks, fasthttp and vendored PostgreSQL, including the local SIMD
 regression tests.
 
-See [the hex package](encoding/hex/README.md) for API and build details, and
-[all 300 hex samples](encoding/hex/testdata/bench-20261020.txt) for observed
+See [the hex package](encoding/simdhex/README.md) for API and build details, and
+[all 300 hex samples](encoding/simdhex/testdata/bench-20261020.txt) for observed
 variability. Benchmarks use `BenchmarkHex` with the same flags as the other
 kernels. The streaming and dump adapters delegate to the standard library.
 

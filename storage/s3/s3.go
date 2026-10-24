@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/shibukawa/tinygodriver/cloud/aws"
-	"github.com/shibukawa/tinygodriver/encoding/hex"
+	"github.com/shibukawa/tinygodriver/encoding/simdhex"
 	"github.com/shibukawa/tinygodriver/internal/cloudhttp"
 
 	"github.com/shibukawa/tinygodriver/internal/syncx"
@@ -508,5 +508,5 @@ func hashStream(r io.Reader) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	return hex.EncodeToString(h.Sum(nil)), n, nil
+	return simdhex.EncodeToString(h.Sum(nil)), n, nil
 }

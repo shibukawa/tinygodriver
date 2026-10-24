@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/shibukawa/tinygodriver/database/internal/pgx/internal/pgio"
-	"github.com/shibukawa/tinygodriver/encoding/hex"
+	hex "github.com/shibukawa/tinygodriver/encoding/simdhex" // Local patch: shared SIMD hex backend.
 )
 
 // maxMessageBodyLen is the maximum length of a message body in bytes. See PG_LARGE_MESSAGE_LIMIT in the PostgreSQL

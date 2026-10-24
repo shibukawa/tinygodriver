@@ -131,7 +131,7 @@ See the package READMEs for detailed API behavior and limitations:
 - [`cloud/google`](./cloud/google/README.md): token sources, clock skew, and where the RSA code goes
 - [`encoding/xmlro`](./encoding/xmlro/README.md): what is borrowed, what is bounded, and the measured gap to the standard library
 - [`encoding/simdbase64`](./encoding/simdbase64/README.md): selecting the Go or TinyGo vector backend, compatibility and benchmarks
-- [`encoding/hex`](./encoding/hex/README.md): standard-compatible hex, Go/TinyGo SIMD, caller integration and benchmarks
+- [`encoding/simdhex`](./encoding/simdhex/README.md): standard-compatible hex, Go/TinyGo SIMD, caller integration and benchmarks
 - [SIMD and decoder measurements](./SIMD_BENCHMARKS.md): zstd, hex, WebSocket masking, XML searches and HTTP value validation
 
 - **IPv4 only** (matches TinyGo’s net port).
