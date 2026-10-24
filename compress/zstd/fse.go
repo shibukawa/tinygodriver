@@ -264,34 +264,41 @@ func (b *bitWriter) close() {
 	b.nBits = 0
 }
 
-// fseState is one of the three interleaved encoder states.
+// fseState is one of the three interleaved encoder states. It holds the
+// table's two slices directly rather than the table, so that encoding a symbol
+// -- which happens three times per sequence -- is two indexed loads and not a
+// pointer chase to reach them.
 type fseState struct {
-	state uint16
-	ct    *ctable
+	state      uint16
+	tableLog   uint8
+	symbolTT   []symbolTransform
+	stateTable []uint16
 }
 
 // init seats the state for the symbol that will be decoded last, which is the
 // one encoded first.
 func (s *fseState) init(ct *ctable, symbol byte) {
-	s.ct = ct
-	tt := ct.symbolTT[symbol]
+	s.tableLog = ct.tableLog
+	s.symbolTT = ct.symbolTT
+	s.stateTable = ct.stateTable
+	tt := s.symbolTT[symbol]
 	nbBitsOut := (tt.deltaNbBits + 1<<15) >> 16
 	im := int32((nbBitsOut << 16) - tt.deltaNbBits)
 	lu := (im >> nbBitsOut) + int32(tt.deltaFindState)
-	s.state = ct.stateTable[lu]
+	s.state = s.stateTable[lu]
 }
 
 // encode emits the state bits for symbol and advances to the next state.
 func (s *fseState) encode(bw *bitWriter, symbol byte) {
-	tt := s.ct.symbolTT[symbol]
+	tt := s.symbolTT[symbol]
 	nbBitsOut := (uint32(s.state) + tt.deltaNbBits) >> 16
 	dst := int32(s.state>>(nbBitsOut&15)) + int32(tt.deltaFindState)
 	bw.addBits(uint32(s.state), uint8(nbBitsOut))
-	s.state = s.ct.stateTable[dst]
+	s.state = s.stateTable[dst]
 }
 
 // flush writes the final state, which the decoder reads first to seat itself.
 func (s *fseState) flush(bw *bitWriter) {
 	bw.flush32()
-	bw.addBits(uint32(s.state), s.ct.tableLog)
+	bw.addBits(uint32(s.state), s.tableLog)
 }
