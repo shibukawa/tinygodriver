@@ -522,3 +522,43 @@ func sha256HexOf(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
+
+// An empty body must go out as Content-Length: 0, not chunked: net/http treats
+// a non-nil Body with ContentLength 0 as unknown length.
+func TestPutEmptyBodyIsNotChunked(t *testing.T) {
+	type sent struct {
+		length  int64
+		chunked bool
+		header  string
+	}
+	var reqs []sent
+	srv, seen := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		reqs = append(reqs, sent{r.ContentLength, len(r.TransferEncoding) > 0, r.Header.Get("Content-Length")})
+	})
+
+	cases := []struct {
+		name   string
+		client *s3.Client
+		body   io.Reader
+		opts   []s3.PutOption
+	}{
+		{"seekable", newClient(t, srv.URL), bytes.NewReader(nil), nil},
+		{"buffered", newClient(t, srv.URL), struct{ io.Reader }{strings.NewReader("")}, nil},
+		{"unsigned seekable", newClient(t, srv.URL, s3.WithUnsignedPayload(true)), bytes.NewReader(nil), nil},
+		{"unsigned known length", newClient(t, srv.URL, s3.WithUnsignedPayload(true)),
+			struct{ io.Reader }{strings.NewReader("")}, []s3.PutOption{s3.WithContentLength(0)}},
+	}
+	for i, tc := range cases {
+		if _, err := tc.client.Put(context.Background(), "bucket", "empty", tc.body, tc.opts...); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		got := reqs[i]
+		if got.chunked || got.length != 0 || got.header != "0" {
+			t.Errorf("%s: ContentLength=%d chunked=%v Content-Length header=%q, want 0 / false / \"0\"",
+				tc.name, got.length, got.chunked, got.header)
+		}
+		if len((*seen)[i].Body) != 0 {
+			t.Errorf("%s: body = %q, want empty", tc.name, (*seen)[i].Body)
+		}
+	}
+}
