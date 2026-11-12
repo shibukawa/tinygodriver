@@ -145,6 +145,21 @@ func TestIntegration(t *testing.T) {
 		t.Errorf("streamed object = %q", got)
 	}
 
+	// An empty object has to go up as Content-Length: 0. Sent as chunked
+	// transfer encoding instead, the endpoint refuses it.
+	const emptyKey = "empty/2019 (d)/こん.txt"
+	for _, body := range []io.Reader{nil, bytes.NewReader(nil), struct{ io.Reader }{strings.NewReader("")}} {
+		if _, err := client.Put(ctx, bucket, emptyKey, body); err != nil {
+			t.Fatalf("Put of an empty %T body: %v", body, err)
+		}
+	}
+	t.Cleanup(func() { client.Delete(context.Background(), bucket, emptyKey) })
+	if info, err := client.Head(ctx, bucket, emptyKey); err != nil {
+		t.Fatal(err)
+	} else if info.Size != 0 {
+		t.Errorf("empty object Size = %d, want 0", info.Size)
+	}
+
 	// A presigned URL is only evidence once a client that holds no credentials
 	// has used it: the PUT goes up through a plain http.Client with exactly the
 	// signed headers, and the GET comes back down the same way.

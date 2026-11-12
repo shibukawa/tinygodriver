@@ -270,6 +270,14 @@ func (c *Client) do(ctx context.Context, r *request) (*http.Response, error) {
 				cancel()
 				return nil, err
 			}
+			// net/http reads a non-nil Body with ContentLength 0 as "length
+			// unknown" and falls back to chunked transfer encoding, which S3
+			// rejects. http.NoBody is how an empty body is spelled instead, so
+			// the request goes out with Content-Length: 0.
+			if r.length == 0 {
+				body.Close()
+				body = http.NoBody
+			}
 		}
 
 		// The request is assembled directly rather than through
