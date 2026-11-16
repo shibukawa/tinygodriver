@@ -16,6 +16,7 @@ facts:
     - CreateBucket, DeleteBucket
     - presigned URLs for GetObject, PutObject, HeadObject and DeleteObject
     - CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload
+    - ListMultipartUploads, one page at a time with key and upload ID markers
     credentials:
     - static values passed to WithCredentials
     - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN
@@ -26,7 +27,7 @@ facts:
     automatic_part_splitting:
       reason: the caller knows the part boundaries and the failure policy; the four calls are the primitives
       consequence: Put sends one request, bounded by the endpoint limit, 5 GiB on AWS
-    list_parts_and_list_uploads: not asked for; an application tracks its own parts
+    list_parts: not asked for; an application tracks its own parts
     shared_credentials_file: no INI parser, so no ~/.aws/credentials or ~/.aws/config
     imds_and_sso: no metadata service, no container credentials, no SSO
     other_apis: no versioning, ACL, tagging, or lifecycle
@@ -51,6 +52,9 @@ facts:
     complete_200_error: a 200 carrying an Error document is reported as an error, as a 4xx is
     abort: NoSuchUpload is ErrNoSuchUpload; abort on every failure path, since AWS bills orphaned parts
     browser_part: Presign with uploadId and partNumber in PresignOptions.Query
+    list_uploads: >-
+      ListMultipartUploads reports uploads in progress, each embedding the MultipartUpload handle, so an
+      orphan found by listing goes straight to AbortMultipartUpload
     added_by: decision:s3-presign-in-scope
   presigning:
     form: sigv4 query-string signing, X-Amz-* parameters plus X-Amz-Signature last

@@ -153,3 +153,113 @@ func TestMultipartUploadErrors(t *testing.T) {
 		t.Errorf("saw %d requests, want only the abort", len(*seen))
 	}
 }
+
+func TestListMultipartUploads(t *testing.T) {
+	srv, seen := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?>
+<ListMultipartUploadsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Bucket>bucket</Bucket>
+  <KeyMarker>big/a</KeyMarker>
+  <UploadIdMarker/>
+  <NextKeyMarker>big/c&amp;d</NextKeyMarker>
+  <NextUploadIdMarker>id-3</NextUploadIdMarker>
+  <Delimiter>/</Delimiter>
+  <Prefix>big/</Prefix>
+  <MaxUploads>2</MaxUploads>
+  <IsTruncated>true</IsTruncated>
+  <Upload>
+    <Key>big/b.bin</Key>
+    <UploadId>id-2</UploadId>
+    <Initiator><ID>arn:aws:iam::1:user/u</ID><DisplayName>u</DisplayName></Initiator>
+    <Owner><ID>o</ID><DisplayName>o</DisplayName></Owner>
+    <StorageClass>STANDARD</StorageClass>
+    <Initiated>2026-11-01T10:20:30.000Z</Initiated>
+  </Upload>
+  <Upload>
+    <Key>big/c&amp;d</Key>
+    <UploadId>id-3</UploadId>
+    <Initiated>2026-11-02T00:00:00Z</Initiated>
+  </Upload>
+  <CommonPrefixes><Prefix>big/sub/</Prefix></CommonPrefixes>
+</ListMultipartUploadsResult>`)
+	})
+	client := newClient(t, srv.URL)
+
+	res, err := client.ListMultipartUploads(context.Background(), "bucket",
+		s3.WithPrefix("big/"), s3.WithDelimiter("/"), s3.WithMaxKeys(2),
+		s3.WithKeyMarker("big/a"), s3.WithUploadIDMarker("id 1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantURI = "/bucket?delimiter=%2F&key-marker=big%2Fa&max-uploads=2&prefix=big%2F&upload-id-marker=id%201&uploads="
+	if len(*seen) != 1 || (*seen)[0].Method != http.MethodGet || (*seen)[0].RequestURI != wantURI {
+		t.Fatalf("requests = %+v, want GET %s", *seen, wantURI)
+	}
+	if !res.IsTruncated || res.NextKeyMarker != "big/c&d" || res.NextUploadIDMarker != "id-3" {
+		t.Errorf("page = truncated %v, next %q %q", res.IsTruncated, res.NextKeyMarker, res.NextUploadIDMarker)
+	}
+	if len(res.Uploads) != 2 {
+		t.Fatalf("Uploads = %+v", res.Uploads)
+	}
+	first := res.Uploads[0]
+	want := s3.MultipartUpload{Bucket: "bucket", Key: "big/b.bin", UploadID: "id-2"}
+	if first.MultipartUpload != want || first.StorageClass != "STANDARD" {
+		t.Errorf("first upload = %+v", first)
+	}
+	if first.Initiated.Year() != 2026 || first.Initiated.Day() != 1 || first.Initiated.Second() != 30 {
+		t.Errorf("Initiated = %v", first.Initiated)
+	}
+	if res.Uploads[1].Key != "big/c&d" || res.Uploads[1].UploadID != "id-3" {
+		t.Errorf("second upload = %+v", res.Uploads[1])
+	}
+	if len(res.CommonPrefixes) != 1 || res.CommonPrefixes[0] != "big/sub/" {
+		t.Errorf("CommonPrefixes = %v", res.CommonPrefixes)
+	}
+}
+
+func TestListMultipartUploadsEmptyAndErrors(t *testing.T) {
+	status := http.StatusOK
+	body := `<ListMultipartUploadsResult><Bucket>bucket</Bucket><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>`
+	srv, seen := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		io.WriteString(w, body)
+	})
+	client := newClient(t, srv.URL)
+	ctx := context.Background()
+
+	res, err := client.ListMultipartUploads(ctx, "bucket")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsTruncated || len(res.Uploads) != 0 || (*seen)[0].RequestURI != "/bucket?uploads=" {
+		t.Errorf("empty page = %+v via %s", res, (*seen)[0].RequestURI)
+	}
+
+	status, body = http.StatusNotFound, `<Error><Code>NoSuchBucket</Code></Error>`
+	if _, err := client.ListMultipartUploads(ctx, "bucket"); !errors.Is(err, s3.ErrNoSuchBucket) {
+		t.Errorf("missing bucket err = %v, want ErrNoSuchBucket", err)
+	}
+	status, body = http.StatusOK, `<ListMultipartUploadsResult><Upload><Key>k</Key>`
+	var s3err *s3.Error
+	if _, err := client.ListMultipartUploads(ctx, "bucket"); !errors.As(err, &s3err) || s3err.Code != "MalformedXML" {
+		t.Errorf("truncated document err = %v, want MalformedXML", err)
+	}
+
+	// The options that belong to the other listing never reach the wire.
+	sent := len(*seen)
+	if _, err := client.ListMultipartUploads(ctx, "bucket", s3.WithContinuationToken("t")); err == nil {
+		t.Error("ListMultipartUploads accepted WithContinuationToken")
+	}
+	if _, err := client.ListMultipartUploads(ctx, "bucket", s3.WithStartAfter("k")); err == nil {
+		t.Error("ListMultipartUploads accepted WithStartAfter")
+	}
+	if _, err := client.List(ctx, "bucket", s3.WithKeyMarker("k")); err == nil {
+		t.Error("List accepted WithKeyMarker")
+	}
+	if _, err := client.List(ctx, "bucket", s3.WithUploadIDMarker("id")); err == nil {
+		t.Error("List accepted WithUploadIDMarker")
+	}
+	if len(*seen) != sent {
+		t.Errorf("refused options sent %d requests", len(*seen)-sent)
+	}
+}

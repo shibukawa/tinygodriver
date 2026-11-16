@@ -315,7 +315,15 @@ func TestIntegration(t *testing.T) {
 	if _, err := client.UploadPart(ctx, *orphan, 1, strings.NewReader("x")); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.AbortMultipartUpload(ctx, *orphan); err != nil {
+	// The orphan shows up in the listing, as a handle Abort takes back.
+	pending, err := client.ListMultipartUploads(ctx, bucket, s3.WithPrefix("multipart/orphan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending.Uploads) != 1 || pending.Uploads[0].MultipartUpload != *orphan || pending.Uploads[0].Initiated.IsZero() {
+		t.Errorf("pending uploads = %+v, want only %+v", pending.Uploads, *orphan)
+	}
+	if err := client.AbortMultipartUpload(ctx, pending.Uploads[0].MultipartUpload); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.AbortMultipartUpload(ctx, *orphan); !errors.Is(err, s3.ErrNoSuchUpload) {

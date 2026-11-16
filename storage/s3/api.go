@@ -195,6 +195,8 @@ type listConfig struct {
 	maxKeys           int
 	continuationToken string
 	startAfter        string
+	keyMarker         string
+	uploadIDMarker    string
 }
 
 // WithPrefix limits the listing to keys with this prefix.
@@ -209,7 +211,8 @@ func WithDelimiter(delimiter string) ListOption {
 	return func(c *listConfig) { c.delimiter = delimiter }
 }
 
-// WithMaxKeys caps how many keys one page returns.
+// WithMaxKeys caps how many keys one page returns. For ListMultipartUploads it
+// caps the uploads, sent as max-uploads.
 func WithMaxKeys(maxKeys int) ListOption {
 	return func(c *listConfig) { c.maxKeys = maxKeys }
 }
@@ -243,6 +246,9 @@ func (c *Client) List(ctx context.Context, bucket string, opts ...ListOption) (*
 	cfg := &listConfig{}
 	for _, opt := range opts {
 		opt(cfg)
+	}
+	if cfg.keyMarker != "" || cfg.uploadIDMarker != "" {
+		return nil, errUploadMarkerOnList
 	}
 
 	params := [][2]string{{"list-type", "2"}}
