@@ -32,6 +32,9 @@ facts:
     func (c *Client) CompleteMultipartUpload(ctx context.Context, upload MultipartUpload, parts []CompletedPart)
     (*PutResult, error)
   - func (c *Client) AbortMultipartUpload(ctx context.Context, upload MultipartUpload) error
+  - >-
+    func (c *Client) ListMultipartUploads(ctx context.Context, bucket string, opts ...ListOption) (*ListUploadsResult,
+    error)
   - func (c *Client) Region() string
   - func (c *Client) Endpoint() string
   options:
@@ -40,10 +43,19 @@ facts:
       WithTimeout, WithHTTPClient
     put: WithContentType, WithContentEncoding, WithContentLength, WithMetadata
     list: WithPrefix, WithDelimiter, WithMaxKeys, WithStartAfter, WithContinuationToken
+    list_uploads: >-
+      WithPrefix, WithDelimiter, WithMaxKeys (sent as max-uploads), WithKeyMarker, WithUploadIDMarker; the
+      markers are refused by List, and WithStartAfter and WithContinuationToken by ListMultipartUploads,
+      before any request
     multipart: |
       type MultipartUpload struct { Bucket, Key, UploadID string }
       type CompletedPart struct { PartNumber int; ETag string }
       const MinPartNumber, MaxPartNumber = 1, 10000
+      type MultipartUploadInfo struct { MultipartUpload; Initiated time.Time; StorageClass string }
+      type ListUploadsResult struct {
+          Uploads []MultipartUploadInfo; CommonPrefixes []string; IsTruncated bool
+          NextKeyMarker, NextUploadIDMarker string
+      }
     presign: |
       type PresignOptions struct {
           Method      string            // GET, PUT, HEAD, DELETE; empty is GET
@@ -79,7 +91,8 @@ facts:
     invalid_part: InvalidPart, InvalidPartOrder and EntityTooSmall all map to ErrInvalidPart
   listing: >
     one page per call. IsTruncated with NextToken feeds WithContinuationToken, so pagination stays explicit
-    rather than hiding a request loop inside the call.
+    rather than hiding a request loop inside the call. ListMultipartUploads is the same, with
+    NextKeyMarker and NextUploadIDMarker feeding WithKeyMarker and WithUploadIDMarker.
   presigning: >
     Presign builds the URL as Get and Put would, including the path-style decision and the region a redirect
     last taught the client, then calls the query form of api:aws-signer. Contract in requirement:s3-client-scope

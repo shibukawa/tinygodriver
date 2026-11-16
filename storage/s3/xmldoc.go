@@ -11,7 +11,8 @@ import (
 // A hand-rolled reader for the XML documents this package consumes, and a
 // renderer for the ones it produces. encoding/xml handles arbitrary documents
 // through reflection, which is a large dependency for a TinyGo binary that
-// only ever sees ListBucketResult, Error and the two flat multipart replies.
+// only ever sees ListBucketResult, ListMultipartUploadsResult, Error and the
+// two flat multipart replies.
 //
 // The subset understood here: elements with attributes, character data with
 // the five predefined entities plus numeric references, comments, and
@@ -663,6 +664,123 @@ func parseErrorDocument(body []byte) (code, message, requestID string, ok bool) 
 				message = text
 			case "RequestId":
 				requestID = text
+			}
+		}
+	}
+}
+
+// parseListMultipartUploadsResult reads the ListMultipartUploads response
+// document. Every upload is given bucket, the one the request named, so the
+// handle is complete without trusting the document's Bucket element.
+func parseListMultipartUploadsResult(body []byte, bucket string) (*ListUploadsResult, error) {
+	s := &xmlScan{b: body}
+	if err := s.root("ListMultipartUploadsResult"); err != nil {
+		return nil, err
+	}
+	result := &ListUploadsResult{}
+	for {
+		ev, name, err := s.next()
+		if err != nil {
+			return nil, err
+		}
+		switch ev {
+		case xmlEOF:
+			return nil, errMalformedXML
+		case xmlSelf:
+		case xmlClose:
+			if string(name) != "ListMultipartUploadsResult" {
+				return nil, errMalformedXML
+			}
+			return result, nil
+		case xmlOpen:
+			switch string(name) {
+			case "IsTruncated":
+				text, err := s.textElement(name)
+				if err != nil {
+					return nil, err
+				}
+				truncated, err := strconv.ParseBool(strings.TrimSpace(text))
+				if err != nil {
+					return nil, errMalformedXML
+				}
+				result.IsTruncated = truncated
+			case "NextKeyMarker":
+				if result.NextKeyMarker, err = s.textElement(name); err != nil {
+					return nil, err
+				}
+			case "NextUploadIdMarker":
+				if result.NextUploadIDMarker, err = s.textElement(name); err != nil {
+					return nil, err
+				}
+			case "Upload":
+				info, err := parseUpload(s)
+				if err != nil {
+					return nil, err
+				}
+				info.Bucket = bucket
+				result.Uploads = append(result.Uploads, info)
+			case "CommonPrefixes":
+				prefix, err := parseCommonPrefixes(s)
+				if err != nil {
+					return nil, err
+				}
+				result.CommonPrefixes = append(result.CommonPrefixes, prefix)
+			default:
+				if err := s.skipElement(name); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+}
+
+func parseUpload(s *xmlScan) (MultipartUploadInfo, error) {
+	var info MultipartUploadInfo
+	for {
+		ev, name, err := s.next()
+		if err != nil {
+			return info, err
+		}
+		switch ev {
+		case xmlEOF:
+			return info, errMalformedXML
+		case xmlSelf:
+		case xmlClose:
+			if string(name) != "Upload" {
+				return info, errMalformedXML
+			}
+			return info, nil
+		case xmlOpen:
+			switch string(name) {
+			case "Key":
+				if info.Key, err = s.textElement(name); err != nil {
+					return info, err
+				}
+			case "UploadId":
+				if info.UploadID, err = s.textElement(name); err != nil {
+					return info, err
+				}
+			case "StorageClass":
+				if info.StorageClass, err = s.textElement(name); err != nil {
+					return info, err
+				}
+			case "Initiated":
+				text, err := s.textValue(name)
+				if err != nil {
+					return info, err
+				}
+				when, ok := parseRFC3339UTC(text)
+				if !ok {
+					if when, err = time.Parse(time.RFC3339, string(text)); err != nil {
+						return info, errMalformedXML
+					}
+				}
+				info.Initiated = when
+			default:
+				// Initiator, Owner, ChecksumAlgorithm: consumed, not kept.
+				if err := s.skipElement(name); err != nil {
+					return info, err
+				}
 			}
 		}
 	}

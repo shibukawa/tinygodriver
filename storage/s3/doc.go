@@ -43,7 +43,8 @@
 //
 // Put sends one request and is bounded by what the endpoint accepts in a
 // single PUT (5 GiB on AWS). Above that, CreateMultipartUpload, UploadPart,
-// CompleteMultipartUpload and AbortMultipartUpload are the operations; nothing
+// CompleteMultipartUpload and AbortMultipartUpload are the operations, and
+// ListMultipartUploads finds the uploads left in progress; nothing
 // here splits a stream into parts, since the caller knows the part boundaries
 // and the failure policy.
 //

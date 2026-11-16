@@ -3,10 +3,12 @@ package s3
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Part number bounds, which S3 fixes. A part below the 5 MiB minimum is
@@ -193,4 +195,101 @@ func (c *Client) AbortMultipartUpload(ctx context.Context, upload MultipartUploa
 	}
 	drain(resp)
 	return nil
+}
+
+// WithKeyMarker resumes a ListMultipartUploads listing after this key, from
+// ListUploadsResult.NextKeyMarker. It applies only to ListMultipartUploads.
+func WithKeyMarker(key string) ListOption {
+	return func(c *listConfig) { c.keyMarker = key }
+}
+
+// WithUploadIDMarker resumes a ListMultipartUploads listing after this upload
+// of the WithKeyMarker key, from ListUploadsResult.NextUploadIDMarker. S3
+// ignores it without WithKeyMarker. It applies only to ListMultipartUploads.
+func WithUploadIDMarker(uploadID string) ListOption {
+	return func(c *listConfig) { c.uploadIDMarker = uploadID }
+}
+
+var (
+	errUploadMarkerOnList = errors.New("s3: WithKeyMarker and WithUploadIDMarker apply only to ListMultipartUploads")
+	errListTokenOnUploads = errors.New("s3: WithContinuationToken and WithStartAfter apply only to List")
+)
+
+// MultipartUploadInfo is one upload in progress as ListMultipartUploads
+// reports it. The embedded MultipartUpload goes straight back to
+// AbortMultipartUpload, which is what a listing of uploads is usually for.
+type MultipartUploadInfo struct {
+	MultipartUpload
+	Initiated    time.Time
+	StorageClass string
+}
+
+// ListUploadsResult is one page of a ListMultipartUploads listing, ordered by
+// key and, within a key, by initiation time.
+type ListUploadsResult struct {
+	Uploads        []MultipartUploadInfo
+	CommonPrefixes []string
+	IsTruncated    bool
+
+	// NextKeyMarker and NextUploadIDMarker continue a truncated listing
+	// through WithKeyMarker and WithUploadIDMarker.
+	NextKeyMarker      string
+	NextUploadIDMarker string
+}
+
+// ListMultipartUploads returns one page of the uploads in progress in bucket:
+// those created and neither completed nor aborted. WithPrefix, WithDelimiter
+// and WithMaxKeys narrow it as they do List; a truncated page continues
+// through WithKeyMarker and WithUploadIDMarker. WithContinuationToken and
+// WithStartAfter belong to List and are refused here.
+//
+// This is how orphaned uploads, which AWS bills until they are aborted, are
+// found and cleaned up.
+func (c *Client) ListMultipartUploads(ctx context.Context, bucket string, opts ...ListOption) (*ListUploadsResult, error) {
+	cfg := &listConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	if cfg.continuationToken != "" || cfg.startAfter != "" {
+		return nil, errListTokenOnUploads
+	}
+
+	params := [][2]string{{"uploads", ""}}
+	if cfg.prefix != "" {
+		params = append(params, [2]string{"prefix", cfg.prefix})
+	}
+	if cfg.delimiter != "" {
+		params = append(params, [2]string{"delimiter", cfg.delimiter})
+	}
+	if cfg.maxKeys > 0 {
+		params = append(params, [2]string{"max-uploads", strconv.Itoa(cfg.maxKeys)})
+	}
+	if cfg.keyMarker != "" {
+		params = append(params, [2]string{"key-marker", cfg.keyMarker})
+	}
+	if cfg.uploadIDMarker != "" {
+		params = append(params, [2]string{"upload-id-marker", cfg.uploadIDMarker})
+	}
+
+	r := &request{
+		op: "ListMultipartUploads", method: http.MethodGet, bucket: bucket,
+		params: params, payloadHash: emptyPayloadHash,
+	}
+	resp, err := c.do(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.errorFrom(r, resp)
+	}
+	body, err := readBody(resp, maxListBody)
+	if err != nil {
+		return nil, err
+	}
+	result, err := parseListMultipartUploadsResult(body, bucket)
+	if err != nil {
+		return nil, &Error{Op: r.op, Bucket: bucket, StatusCode: resp.StatusCode,
+			Code: "MalformedXML", Message: err.Error(), err: err}
+	}
+	return result, nil
 }

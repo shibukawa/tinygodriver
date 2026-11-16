@@ -48,6 +48,7 @@ what makes this the only correct design.
 | `CreateBucket`, `DeleteBucket` | CreateBucket, DeleteBucket |
 | `Presign` | none; a SigV4 query-signed URL for GetObject, PutObject, HeadObject or DeleteObject |
 | `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload` | the multipart upload operations |
+| `ListMultipartUploads` | ListMultipartUploads, one page |
 
 `Put` takes `WithContentType`, `WithContentEncoding`, `WithMetadata`, and
 `WithContentLength`. `List` takes `WithPrefix`, `WithDelimiter`, `WithMaxKeys`,
@@ -111,6 +112,31 @@ u, err := client.Presign(ctx, "bucket", "video.mp4", s3.PresignOptions{
 	Method: "PUT",
 	Query:  map[string]string{"uploadId": upload.UploadID, "partNumber": "3"},
 })
+```
+
+`ListMultipartUploads` finds the uploads in progress, which is how orphans are
+cleaned up. It takes `WithPrefix`, `WithDelimiter` and `WithMaxKeys` as `List`
+does, and pages through `WithKeyMarker` and `WithUploadIDMarker`; each upload
+embeds the `MultipartUpload` handle that `AbortMultipartUpload` takes:
+
+```go
+var key, id string
+for {
+	page, err := client.ListMultipartUploads(ctx, "bucket",
+		s3.WithKeyMarker(key), s3.WithUploadIDMarker(id))
+	if err != nil {
+		return err
+	}
+	for _, u := range page.Uploads {
+		if time.Since(u.Initiated) > 24*time.Hour {
+			client.AbortMultipartUpload(ctx, u.MultipartUpload)
+		}
+	}
+	if !page.IsTruncated {
+		break
+	}
+	key, id = page.NextKeyMarker, page.NextUploadIDMarker
+}
 ```
 
 ## Presigned URLs
